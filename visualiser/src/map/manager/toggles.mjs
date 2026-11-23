@@ -94,7 +94,6 @@ export class GSRMapToggles extends GSRMapCollective {
    * track's layerGroup, toggle it in/out of that group (the group is on the
    * map, so the layer follows). Layers without a group (legacy direct-add) are
    * toggled against the map directly.
-   * @private
    */
   _toggleLayer(m, show) {
     const group = m._gsrLayerGroup;

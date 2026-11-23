@@ -75,7 +75,9 @@ export const GSRNotices = {
         tone === 'error' ? '#b91c1c' : tone === 'info' ? '#1d4ed8' : '#b45309';
 
       // Remember what had focus so it can be restored when the dialog closes.
-      const previouslyFocused = document.activeElement;
+      const previouslyFocused = /** @type {HTMLElement} */ (
+        document.activeElement
+      );
 
       const overlay = document.createElement('div');
       Object.assign(overlay.style, {
@@ -223,7 +225,7 @@ export const GSRNotices = {
    * Append a non-blocking toast for a notice. No-op when there is no DOM.
    * @param {'error'|'warn'} level - Controls the toast styling.
    * @param {string} context - Source of the notice.
-   * @param {Error|string} err - Error, warning message, or string.
+   * @param {*} err - Error, warning message, or anything else thrown.
    * @private
    */
   _toast(level, context, err) {

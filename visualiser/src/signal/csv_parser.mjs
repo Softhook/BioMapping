@@ -80,7 +80,7 @@ export const GSRCSVParser = {
    * a second or two slightly off, which doesn't matter.
    * @param {Array<{time:number}>} rows - in file order; times corrected in place
    * @param {number[]} tickDts - each row's tick_dt_ms (NaN if blank)
-   * @returns {Array<{row:object, byS:number}>} where each lasting correction
+   * @returns {Array<{row:{time:number}, byS:number}>} where each lasting correction
    *   starts, for the notice.
    */
   _fixDeviceTimes(rows, tickDts) {
@@ -443,7 +443,7 @@ export const GSRCSVParser = {
    *    step-hold DOP, fix_type, speed and course from the prior anchor
    *    (they change too discontinuously to interpolate meaningfully).
    *
-   * @param {Array<object>} rawDataList - Mutable array of parsed row objects.
+   * @param {Array<GSRRow>} rawDataList - Mutable array of parsed row objects.
    * @private
    */
   _interpolateGPS(rawDataList) {
@@ -614,21 +614,23 @@ export const GSRCSVParser = {
    *
    * @param {string} csvText - Full CSV file contents.
    * @returns {{
-   *   raw: Array<object>,
+   *   raw: Array<GSRRow>,
    *   isResistance: boolean,
    *   recordingStartTime: number,
-   *   importedFilterParams: object|null,
-   *   importedGpsFilterParams: object|null,
-   *   bandFloors: object|null,
+   *   importedFilterParams: GSRParams|null,
+   *   importedGpsFilterParams: GSRGpsParams|null,
+   *   bandFloors: Record<string, number>|null,
    *   deviceHeaderLines: Array<string>,
    *   sampleRate: number,
    *   hasRfData: boolean,
    *   rfPeakIndices: Set<number>,
+   *   hasGpsData: boolean,
    *   isEnriched: boolean,
+   *   integrity: ReturnType<typeof GSRCSVParser._verifyIntegrity>,
    *   warnings: Array<string>|null,
    *   importedPeakLabels: Map<number,string>,
    *   importedPeakExcluded: Map<number,boolean>
-   * }}
+   * }} importedPeakLabels / importedPeakExcluded are keyed by row time.
    * @throws {Error} If the CSV is empty, has too few lines, or no valid data.
    */
   parse(csvText) {

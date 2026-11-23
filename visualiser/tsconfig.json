@@ -1,0 +1,22 @@
+{
+  // Type checking for the visualiser's plain JavaScript (`npm run typecheck`).
+  // Nothing is compiled: the browser still loads src/ as it is. The checker
+  // reads the JSDoc comments (@param, @returns, @typedef) as the types.
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "es2023",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    // Libraries loaded with plain <script> tags (Leaflet's L) are globals.
+    "allowUmdGlobalAccess": true,
+    "skipLibCheck": true,
+    // Not yet strict: "strict" would also demand a type on every parameter
+    // and a null check on every lookup (about 5,000 places today).
+    "strict": false,
+    "types": []
+  },
+  "include": ["src/**/*.mjs", "src/**/*.js", "types/**/*.d.ts"]
+}

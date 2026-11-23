@@ -157,7 +157,7 @@ export const BezierSpline = {
    *
    * @param {Array<{x:number, y:number}>} points - Screen/pixel coordinates.
    * @param {object} [options]
-   * @param {'catmull-rom'|'bspline'|'none'} [options.curveMode='catmull-rom'] - Spline interpolation mode.
+   * @param {string} [options.curveMode='catmull-rom'] - Spline interpolation mode: 'catmull-rom' | 'bspline' | 'none'.
    * @param {boolean} [options.closed=false] - Whether to close the path (with 'Z').
    * @param {number} [options.precision=3] - Floating-point coordinate decimal places.
    * @returns {string} SVG path `d` attribute string.

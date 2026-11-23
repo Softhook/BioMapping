@@ -191,8 +191,8 @@ export const GSRGlobe3DBuildings = {
   },
 
   /**
-   * @param {object} osmJson  raw Overpass response ({ elements: [...] })
-   * @param {'glass'|'dark'|'monochrome'|'realistic'} [style='glass']
+   * @param {{elements: Array<*>}} osmJson  raw Overpass response
+   * @param {string} [style='glass']  'glass' | 'dark' | 'monochrome' | 'realistic'
    * @returns {object|null} a batched Cesium.Primitive or Cesium.PrimitiveCollection, or null if no footprints
    */
   buildPrimitive(osmJson, style = 'glass') {

@@ -19,6 +19,11 @@ import { Hillshade } from '../hillshade.mjs';
 import { MapColors } from '../map_colors.mjs';
 import { GSRMapArousalPlaces } from './arousal_places.mjs';
 
+/**
+ * GSRMapManager: the whole class chain, for calls to methods that later links define.
+ * @import { GSRMapManager } from '../map.mjs'
+ */
+
 export class GSRMapCollective extends GSRMapArousalPlaces {
   /**
    * Remove all collective track paths and peak markers from the map.
@@ -192,7 +197,9 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
     this.renderContours(collectiveManager, contourParams);
 
     // Apply the active peak/label toggle styles
-    this.updateMarkerVisibility();
+    /** @type {GSRMapManager} */ (
+      /** @type {unknown} */ (this)
+    ).updateMarkerVisibility();
 
     // Update legend for collective view
     this.updateLegend();
@@ -333,6 +340,7 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
         }
       }
 
+      /** @type {L.LatLngBoundsLiteral} */
       const imageBounds = [
         [bounds.minLat, bounds.minLon],
         [bounds.maxLat, bounds.maxLon],
@@ -437,7 +445,7 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
         const smoothed = GeoUtils.chaikinSmooth(path, 3, isClosed);
 
         const poly = L.polyline(
-          smoothed.map((p) => [p.lat, p.lon]),
+          smoothed.map((p) => /** @type {L.LatLngTuple} */ ([p.lat, p.lon])),
           {
             color: color,
             weight: 0.75,

@@ -246,7 +246,9 @@ export const CorrelationTableUI = {
    * selection when still valid; no-ops when the option set is unchanged.
    */
   syncScatterEnvOptions(hasEmFog, hasSpeed = false, hasNdvi = false) {
-    const sel = document.getElementById('scatterEnvMetric');
+    const sel = /** @type {HTMLSelectElement} */ (
+      document.getElementById('scatterEnvMetric')
+    );
     if (!sel) return;
     const opts = GSR_CONST.OSM_METRICS.filter(
       (m) => m.kind === 'continuous' || m.kind === 'binary',
@@ -621,7 +623,9 @@ export const CorrelationTableUI = {
    * for the currently selected environmental factor vs arousal metric.
    */
   drawRegressionScatterPlot(allData) {
-    const canvas = document.getElementById('regressionCanvas');
+    const canvas = /** @type {HTMLCanvasElement} */ (
+      document.getElementById('regressionCanvas')
+    );
     if (!canvas) return;
 
     // Rescale drawing buffer to match CSS size pixel-for-pixel
@@ -630,8 +634,12 @@ export const CorrelationTableUI = {
       canvas.height = canvas.clientHeight;
     }
 
-    const scatterXMetric = document.getElementById('scatterEnvMetric').value;
-    const scatterYMetric = document.getElementById('scatterBioMetric').value;
+    const scatterXMetric = /** @type {HTMLSelectElement} */ (
+      document.getElementById('scatterEnvMetric')
+    ).value;
+    const scatterYMetric = /** @type {HTMLSelectElement} */ (
+      document.getElementById('scatterBioMetric')
+    ).value;
 
     const xVals = [];
     const yVals = [];

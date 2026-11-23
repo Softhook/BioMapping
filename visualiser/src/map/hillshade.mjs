@@ -133,9 +133,10 @@ export const Hillshade = {
    * null (masked/no-data — same convention the source grid uses).
    *
    * @param {Array<Array<number|null>>} grid
-   * @param {number} rows
-   * @param {number} cols
-   * @param {{minVal:number, maxVal:number, sortedVals?:number[], rankFn?: Function}} config
+   * @param {number} _rows
+   * @param {number} _cols
+   * @param {{minVal:number, maxVal:number, sortedVals?:number[],
+   *   rankFn?: (v: number, sorted: number[]) => number}} config
    * @returns {(number|null)[][]}
    */
   buildRatioGrid(grid, _rows, _cols, config) {
@@ -171,7 +172,8 @@ export const Hillshade = {
    * @param {Array<Array<number|null>>} grid
    * @param {number} rows
    * @param {number} cols
-   * @param {{minVal:number, maxVal:number, sortedVals?:number[], rankFn?: Function,
+   * @param {{minVal:number, maxVal:number, sortedVals?:number[],
+   *   rankFn?: (v: number, sorted: number[]) => number,
    *          exaggeration:number, azimuthDeg:number, altitudeDeg:number}} config
    * @returns {{ratioGrid: (number|null)[][], shade: Float32Array}}
    */

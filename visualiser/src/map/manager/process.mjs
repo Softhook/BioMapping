@@ -11,6 +11,8 @@
 import { GpsPipeline } from '../../gps/gps_pipeline.mjs';
 import { GSRMapLayers } from './layers.mjs';
 
+/** @import { GSRAnalyzer } from '../../signal/analyzer.mjs' */
+
 export class GSRMapProcess extends GSRMapLayers {
   /**
    * Hash GPS filter params for cache key comparison.
@@ -27,7 +29,7 @@ export class GSRMapProcess extends GSRMapLayers {
    *
    * @param {string} cacheKey  – unique key for this track+params combo
    * @param {GSRAnalyzer} analyzer
-   * @param {object} p         – GPS filter params
+   * @param {Partial<GSRGpsParams>} p - GPS filter params
    * @returns {{ gpsPoints: Array, drawPoints: Array }}
    */
   _getOrBuildDrawPoints(cacheKey, analyzer, p) {

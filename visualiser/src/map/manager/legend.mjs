@@ -18,6 +18,11 @@ import { MapColors } from '../map_colors.mjs';
 import { GSRMapViewport } from './viewport.mjs';
 
 /**
+ * GSRMapManager: the whole class chain, for calls to methods that later links define.
+ * @import { GSRMapManager } from '../map.mjs'
+ */
+
+/**
  * Formatter for a legend's two end values: one precision for both ends,
  * picked from the larger magnitude, so a scale never reads "0.000 … 4.8".
  */
@@ -94,7 +99,9 @@ export class GSRMapLegend extends GSRMapViewport {
     let html = '';
 
     if (isCollective) {
-      const topoSource = this._collectiveTopographySource || 'phasic';
+      const topoSource =
+        /** @type {GSRMapManager} */ (/** @type {unknown} */ (this))
+          ._collectiveTopographySource || 'phasic';
       const topoCfg = GSR_CONST.TOPOGRAPHY_SOURCES[topoSource];
       const title = topoCfg?.label || 'Topography';
       const unit = topoCfg?.unit ?? 'μS';

@@ -107,11 +107,14 @@ export const StatsPanelUI = {
     }
 
     // 2. Map metric dropdown
-    const mapSel =
+    const mapSel = /** @type {HTMLSelectElement} */ (
       typeof document !== 'undefined' &&
-      document.getElementById('mapColoringMetric');
+        document.getElementById('mapColoringMetric')
+    );
     if (mapSel && typeof mapSel.querySelector === 'function') {
-      const opt = mapSel.querySelector('option[value="responseDynamics"]');
+      const opt = /** @type {HTMLOptionElement} */ (
+        mapSel.querySelector('option[value="responseDynamics"]')
+      );
       if (opt) opt.disabled = !isSparsEDA;
       if (!isSparsEDA && mapSel.value === 'responseDynamics') {
         mapSel.value = 'gsr';

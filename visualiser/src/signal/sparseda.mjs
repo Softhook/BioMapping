@@ -19,6 +19,12 @@
 
 import { ResponseDynamics } from './response_dynamics.mjs';
 
+/**
+ * @typedef {Float64Array & {_s?: number, _e?: number}} SpanColumn
+ *   A dictionary column; _s.._e is its non-zero span, read by _dot and the
+ *   lasso's v update.
+ */
+
 export const SparsEDA = {
   /**
    * SparsEDA dictionary time-stretch factors (1.0 = the canonical kernel,
@@ -171,7 +177,7 @@ export const SparsEDA = {
 
       const base = T + band * Lreg;
       for (let c = 0; c < Lreg; c++) {
-        const col = new Float64Array(N);
+        const col = /** @type {SpanColumn} */ (new Float64Array(N));
         const limit = Math.min(rf.length, N - c);
         for (let k = 0; k < limit; k++) col[c + k] = rf[k];
         col._s = c; // non-zero span, read by _dot / the lasso's v update
@@ -180,12 +186,12 @@ export const SparsEDA = {
       }
     }
 
-    const c0 = new Float64Array(N);
-    const c1 = new Float64Array(N);
-    const c2 = new Float64Array(N);
-    const c3 = new Float64Array(N);
-    const c4 = new Float64Array(N);
-    const c5 = new Float64Array(N);
+    const c0 = /** @type {SpanColumn} */ (new Float64Array(N));
+    const c1 = /** @type {SpanColumn} */ (new Float64Array(N));
+    const c2 = /** @type {SpanColumn} */ (new Float64Array(N));
+    const c3 = /** @type {SpanColumn} */ (new Float64Array(N));
+    const c4 = /** @type {SpanColumn} */ (new Float64Array(N));
+    const c5 = /** @type {SpanColumn} */ (new Float64Array(N));
     for (let i = 0; i < Lreg; i++) {
       const frac = Lreg > 1 ? i / (Lreg - 1) : 0;
       c0[i] = frac;

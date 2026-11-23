@@ -43,6 +43,14 @@
  */
 import { StatsMath } from '../signal/stats_math.mjs';
 
+/**
+ * @typedef {{metric: string, nJunction: number, nRoad: number,
+ *   nTracks: number, meanJunction: number, meanRoad: number, diff: number,
+ *   p: number, q?: number, verdict?: string}} JunctionComparisonRow
+ *   One measure's junction-vs-road comparison (q and verdict are added
+ *   once every row's p is known).
+ */
+
 export const JunctionResponse = {
   WINDOW_S: 10,
   /** A window shorter than this (s) after clipping is dropped. */
@@ -129,7 +137,7 @@ export const JunctionResponse = {
 
   /**
    * @param {Array} passages from Junctions.classifyPassages (one track)
-   * @param {{time:number[],phasic:number[],tonic:number[],isPeak:number[]}} series
+   * @param {{time:ArrayLike<number>,phasic:ArrayLike<number>,tonic:ArrayLike<number>,isPeak:ArrayLike<number>}} series
    * @param {{windowS?:number, trackId?:*, delayS?:number}} [opts]
    *   `delayS` = the walk's Response delay (s); omitted → no shift.
    * @returns {Array<{key,trackId,decision,kind,time,before,after,delta}>} passages with a
@@ -507,7 +515,7 @@ export const JunctionResponse = {
    * the whole ±window around the point (mean of before and after), plus the
    * change across it.  Same walk-adjusted permutation test as compare(); one BH
    * q across the three measures.
-   * @returns {Array<{metric,nJunction,nRoad,nTracks,meanJunction,meanRoad,diff,p,q,verdict}>}
+   * @returns {Array<JunctionComparisonRow>}
    */
   compareJunctionVsRoad(records) {
     const isRoad = (r) => r.decision === 'control';
@@ -519,6 +527,7 @@ export const JunctionResponse = {
       { metric: 'peakRate', val: both((w) => w.peakRate) },
       { metric: 'change', val: (r) => r.delta.meanPhasic },
     ];
+    /** @type {Array<JunctionComparisonRow>} */
     const rows = measures.map(({ metric, val }) => {
       const { items, nTracks } = this._adjustForTrack(recs, val, group);
       const test = this._pooledPermutation(

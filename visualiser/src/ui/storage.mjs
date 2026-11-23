@@ -16,7 +16,7 @@ import { GPS_SLIDER_DEFS } from './events_slider_defs.mjs';
  * pattern from being copy-pasted with different hardcoded defaults that drift
  * out of sync with constants.mjs.
  *
- * @param {HTMLElement|null} el       - Slider or select element (may be null)
+ * @param {HTMLInputElement|HTMLSelectElement|null} el - Slider or select element (may be null)
  * @param {*}                fallback - Default value when el is null/absent
  * @param {Function}         [fn]     - Parser: parseFloat (default) or parseInt
  */
@@ -349,7 +349,8 @@ export const GSRStorage = {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const preset = JSON.parse(e.target.result);
+        // readAsText: the result is a string.
+        const preset = JSON.parse(/** @type {string} */ (e.target.result));
         const success = this.applyPreset(preset);
         if (callback) callback(success, preset);
       } catch (err) {

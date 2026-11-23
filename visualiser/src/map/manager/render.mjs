@@ -14,13 +14,15 @@
 import { AppState } from '../../core/app_state.mjs';
 import { GSRMapToggles } from './toggles.mjs';
 
+/** @import { GSRAnalyzer } from '../../signal/analyzer.mjs' */
+
 export class GSRMapRender extends GSRMapToggles {
   /**
    * Render color-coded path segments and add stress peak markers.
    *
    * @param {GSRAnalyzer} analyzer
-   * @param {object} [gpsParams] – GPS filter settings
-   * @param {object} [options] – { fitBounds: bool } force the auto-zoom-to-extent regardless
+   * @param {Partial<GSRGpsParams>} [gpsParams] - GPS filter settings
+   * @param {{fitBounds?: boolean}} [options] - force the auto-zoom-to-extent regardless
    *   of the new-track heuristic below. Not currently passed by any caller (the "Zoom to
    *   Extent" button calls fitToTrack() directly instead) — kept as an escape hatch for a
    *   future caller that needs to force a re-fit without faking a track-id change.
@@ -146,7 +148,6 @@ export class GSRMapRender extends GSRMapToggles {
   /**
    * Helper to strip track layers by kind set, run a render callback, and emit map:rendered.
    * Consolidates the partial-render pipeline for single-track and collective-track refreshes.
-   * @private
    */
   _refreshTrackLayers(track, kindSet, renderFn, updateVisibility = false) {
     this._stripOwnedLayersByKind(track, kindSet);
@@ -178,7 +179,7 @@ export class GSRMapRender extends GSRMapToggles {
    * case the existing cluster blobs are already correct and left untouched
    * — same reasoning as leaving path/hotspot layers alone.
    *
-   * @param {object} [options] – { skipClustering: bool, refreshHotspots: bool }.
+   * @param {{skipClustering?: boolean, refreshHotspots?: boolean}} [options].
    *   skipClustering: true only when the caller's change is provably
    *   invisible to the Arousal Places clusterer (GSRSpatialClustering
    *   .compactClusters() + GSRArousalPlaces.buildPlaces() — lat/lon/amplitude

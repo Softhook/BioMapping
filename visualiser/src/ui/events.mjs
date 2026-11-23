@@ -141,7 +141,9 @@ export const GSREvents = {
   bindTableSort(tableId, sortMethod) {
     const table = document.getElementById(tableId);
     if (!table) return;
-    table.querySelectorAll('thead th.sortable').forEach((th) => {
+    /** @type {NodeListOf<HTMLElement>} */ (
+      table.querySelectorAll('thead th.sortable')
+    ).forEach((th) => {
       th.addEventListener('click', () => {
         const col = th.dataset.sort;
         if (
@@ -189,7 +191,9 @@ export const GSREvents = {
     if (!group) return;
     let val;
     if (typeof parentId === 'string' && parentId) {
-      const parent = document.getElementById(parentId);
+      const parent = /** @type {HTMLInputElement} */ (
+        document.getElementById(parentId)
+      );
       if (!parent) return;
       val = parseFloat(parent.value);
     } else {
@@ -203,7 +207,9 @@ export const GSREvents = {
    * Called on setup, from the toggle handler, and after settings restore.
    */
   updateSnapRadiusVisibility() {
-    const toggle = document.getElementById('gpsSnapToRoads');
+    const toggle = /** @type {HTMLInputElement} */ (
+      document.getElementById('gpsSnapToRoads')
+    );
     const group = document.getElementById('snapRadiusGroup');
     if (group) group.style.display = toggle?.checked ? '' : 'none';
   },
@@ -268,7 +274,9 @@ export const GSREvents = {
    * If parentId is set, dims based on the parent slider's value instead.
    */
   bindGpsSlider(id, labelId, fmt, parentId) {
-    const slider = document.getElementById(id);
+    const slider = /** @type {HTMLInputElement} */ (
+      document.getElementById(id)
+    );
     const label = document.getElementById(labelId);
     const updateDim = () => GSREvents.updateFilterDim(slider, parentId);
 
@@ -319,7 +327,9 @@ export const GSREvents = {
    * project file). Falls back to rerenderMap() if the scoped method is unavailable.
    */
   bindArousalPlacesSlider(id, labelId, fmt) {
-    const slider = document.getElementById(id);
+    const slider = /** @type {HTMLInputElement} */ (
+      document.getElementById(id)
+    );
     const label = document.getElementById(labelId);
     if (!slider) return;
     const updateDim = () => GSREvents.updateFilterDim(slider);
@@ -354,7 +364,9 @@ export const GSREvents = {
     if (!S?.tonicMethod) return;
 
     const method = S.tonicMethod.value;
-    const slider = document.getElementById('tonicWindow');
+    const slider = /** @type {HTMLInputElement} */ (
+      document.getElementById('tonicWindow')
+    );
     const rec = document.getElementById('tonicWindowRec');
     const help = document.getElementById('tonicWindowHelp');
     const label = document.getElementById('valTonicWindow');
@@ -434,7 +446,9 @@ export const GSREvents = {
     const jointTonic = !!S.useCvxEDA?.checked;
 
     S.tonicMethod.disabled = jointTonic;
-    const win = document.getElementById('tonicWindow');
+    const win = /** @type {HTMLInputElement} */ (
+      document.getElementById('tonicWindow')
+    );
     if (win) win.disabled = jointTonic;
 
     const methodGroup = document.getElementById('tonicMethodGroup');
@@ -446,7 +460,9 @@ export const GSREvents = {
     if (note) note.hidden = !jointTonic;
 
     const noSnrGate = !!S.usePeakProminence?.checked;
-    const snr = document.getElementById('shapeMinSnr');
+    const snr = /** @type {HTMLInputElement} */ (
+      document.getElementById('shapeMinSnr')
+    );
     if (snr) {
       snr.disabled = noSnrGate;
       snr.closest('.slider-group')?.classList.toggle('ctrl-inert', noSnrGate);
@@ -505,7 +521,9 @@ export const GSREvents = {
    * leaving an inert control on screen.
    */
   updatePeakPreservationInertState() {
-    const topoSource = document.getElementById('topoSource');
+    const topoSource = /** @type {HTMLSelectElement} */ (
+      document.getElementById('topoSource')
+    );
     const group = document.getElementById('peakPreservationGroup');
     if (!topoSource || !group) return;
     group.style.display = topoSource.value === 'peaks' ? 'none' : '';
@@ -528,7 +546,9 @@ export const GSREvents = {
 
     // GPS value labels (per-slider formatter from GPS_SLIDER_DEFS).
     for (const d of GPS_SLIDER_DEFS) {
-      const slider = document.getElementById(d.id);
+      const slider = /** @type {HTMLInputElement} */ (
+        document.getElementById(d.id)
+      );
       const label = document.getElementById(d.labelId);
       if (slider && label) label.innerText = d.fmt(parseFloat(slider.value));
     }
@@ -538,7 +558,9 @@ export const GSREvents = {
 
     // Sync graph background-band overlay checkboxes (OSM context, NDVI, EM Fog)
     for (const { id, stateKey } of GRAPH_BAND_TOGGLE_DEFS) {
-      const toggle = document.getElementById(id);
+      const toggle = /** @type {HTMLInputElement} */ (
+        document.getElementById(id)
+      );
       if (toggle) toggle.checked = !!AppState[stateKey];
     }
 
@@ -546,7 +568,9 @@ export const GSREvents = {
     const C = AppState.contourControls;
     if (C?.gridResolution) {
       const updateCLabel = (d) => {
-        const input = document.getElementById(d.id);
+        const input = /** @type {HTMLInputElement} */ (
+          document.getElementById(d.id)
+        );
         const label = document.getElementById(d.labelId);
         if (input && label) label.innerText = d.fmt(parseFloat(input.value));
       };

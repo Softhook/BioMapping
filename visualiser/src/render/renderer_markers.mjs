@@ -338,7 +338,8 @@ export const RendererMarkers = {
           (AppState.viewDuration < 300 || isActive || isHovered)
         ) {
           noStroke();
-          fill(isExcluded ? color(EXCLUDED_STYLE.color) : peakColor);
+          if (isExcluded) fill(color(EXCLUDED_STYLE.color));
+          else fill(peakColor);
           textSize(10);
           textStyle(BOLD);
           textAlign(CENTER, BOTTOM);

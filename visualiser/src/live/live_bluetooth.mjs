@@ -332,48 +332,52 @@ export class GSRLiveBluetoothManager {
   async _waitBeforeRetry(delayMs) {
     if (this._abandoned || this._userDisconnected) return;
     if (!this.device || typeof this.device.watchAdvertisements !== 'function') {
-      await new Promise((resolve) => {
-        const timer = setTimeout(resolve, delayMs);
-        this._retryWaitResolve = () => {
-          clearTimeout(timer);
-          resolve();
-        };
-      });
+      await /** @type {Promise<void>} */ (
+        new Promise((resolve) => {
+          const timer = setTimeout(resolve, delayMs);
+          this._retryWaitResolve = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+        })
+      );
       this._retryWaitResolve = null;
       return;
     }
-    await new Promise((resolve) => {
-      this._retryWaitController = new AbortController();
-      let timer;
-      const cleanup = () => {
-        clearTimeout(timer);
-        if (this.device) {
-          this.device.removeEventListener(
-            'advertisementreceived',
-            onAdvertisement,
-          );
+    await /** @type {Promise<void>} */ (
+      new Promise((resolve) => {
+        this._retryWaitController = new AbortController();
+        let timer;
+        const cleanup = () => {
+          clearTimeout(timer);
+          if (this.device) {
+            this.device.removeEventListener(
+              'advertisementreceived',
+              onAdvertisement,
+            );
+          }
+          if (this._retryWaitController) {
+            this._retryWaitController.abort();
+            this._retryWaitController = null;
+          }
+          resolve();
+        };
+        const onAdvertisement = () => cleanup();
+        this._retryWaitController.signal.addEventListener('abort', cleanup);
+        timer = setTimeout(cleanup, delayMs);
+        this.device.addEventListener('advertisementreceived', onAdvertisement);
+        // Swallow failure silently — the timer above still bounds the wait
+        // even if watchAdvertisements() itself rejects (e.g. denied, or the
+        // method exists but isn't actually functional on this device/OS).
+        try {
+          this.device
+            .watchAdvertisements({ signal: this._retryWaitController.signal })
+            .catch(() => {});
+        } catch (_e) {
+          /* ignore synchronous throw if Bluetooth is unpermitted/disabled */
         }
-        if (this._retryWaitController) {
-          this._retryWaitController.abort();
-          this._retryWaitController = null;
-        }
-        resolve();
-      };
-      const onAdvertisement = () => cleanup();
-      this._retryWaitController.signal.addEventListener('abort', cleanup);
-      timer = setTimeout(cleanup, delayMs);
-      this.device.addEventListener('advertisementreceived', onAdvertisement);
-      // Swallow failure silently — the timer above still bounds the wait
-      // even if watchAdvertisements() itself rejects (e.g. denied, or the
-      // method exists but isn't actually functional on this device/OS).
-      try {
-        this.device
-          .watchAdvertisements({ signal: this._retryWaitController.signal })
-          .catch(() => {});
-      } catch (_e) {
-        /* ignore synchronous throw if Bluetooth is unpermitted/disabled */
-      }
-    });
+      })
+    );
   }
 
   // After the bounded auto-reconnect loop exhausts, most drops caused by a

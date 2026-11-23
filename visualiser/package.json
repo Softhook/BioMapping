@@ -9,18 +9,26 @@
     "zoomperf": "node tests/manual/zoom_perf/run.js",
     "zoomperf:check": "node tests/manual/zoom_perf/check.js",
     "smoke": "node tests/manual/smoke/smoke.js",
-    "lint": "biome check src tests",
-    "lint:fix": "biome check --write src tests",
+    "lint": "biome check src tests types",
+    "lint:fix": "biome check --write src tests types",
     "lint:deps": "depcruise src/app_entry.mjs src/live_entry.mjs",
     "lint:unused": "knip",
-    "check": "npm run lint && npm run lint:deps && npm test",
-    "format": "biome format --write src tests"
+    "typecheck": "tsc -p .",
+    "check": "npm run lint && npm run lint:deps && npm run typecheck && npm test",
+    "format": "biome format --write src tests types"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.13",
+    "@cesium/engine": "10.1.0",
+    "@cesium/widgets": "7.1.0",
+    "@types/leaflet": "1.9.22",
+    "@types/p5": "1.7.7",
+    "@types/web-bluetooth": "0.0.21",
     "dependency-cruiser": "^16.10.4",
     "jsdom": "^30.0.1",
+    "jszip": "3.10.1",
     "knip": "^6.35.1",
-    "puppeteer-core": "^24.43.1"
+    "puppeteer-core": "^24.43.1",
+    "typescript": "7.0.2"
   }
 }

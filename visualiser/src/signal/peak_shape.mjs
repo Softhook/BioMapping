@@ -353,14 +353,15 @@ export const PeakShape = {
    *
    * @param {number}  i                     - Sample index of the peak apex.
    * @param {number}  currVal               - Signal value at the apex.
-   * @param {Array}   vals                  - Signal values array (phasic or reconstructed).
-   * @param {Array}   times                 - Timestamps parallel to vals.
-   * @param {object}  shape                 - Pre-computed shape metrics:
-   *   { amplitude, onsetIdx, recoveryIdx, halfRecoveryTime, riseTime,
-   *     onsetSlope, decaySlope, skewnessRatio, snr }
-   * @param {Map}     oldLabels             - Index→label map from pre-analysis peaks.
-   * @param {Set}     oldExcluded           - Index set of excluded pre-analysis peaks.
-   * @returns {object} Peak object (qualityScore and salienceScore NOT yet set).
+   * @param {ArrayLike<number>} vals       - Signal values array (phasic or reconstructed).
+   * @param {ArrayLike<number>} times      - Timestamps parallel to vals.
+   * @param {{amplitude: number, onsetIdx: number, recoveryIdx: number,
+   *   halfRecoveryTime: number, riseTime: number, onsetSlope: number,
+   *   decaySlope: number, skewnessRatio: number, snr: number}} shape
+   *   - Pre-computed shape metrics.
+   * @param {Map<number, string>} oldLabels - Index→label map from pre-analysis peaks.
+   * @param {Set<number>} oldExcluded      - Index set of excluded pre-analysis peaks.
+   * @returns {GSRPeak} Peak object (qualityScore and salienceScore NOT yet set).
    */
   buildPeakObject(i, currVal, vals, times, shape, oldLabels, oldExcluded) {
     const {

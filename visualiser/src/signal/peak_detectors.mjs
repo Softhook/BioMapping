@@ -22,6 +22,12 @@
 import { GSR_CONST } from '../core/constants.mjs';
 import { PeakShape } from './peak_shape.mjs';
 
+/**
+ * @typedef {{filtered: Array<{val: number}>,
+ *   topographicProminence?: (vals: ArrayLike<number>) => Float64Array}} PeakDetectorCtx
+ *   The `ctx` described above.
+ */
+
 export const PeakDetectors = {
   /**
    * Topographic prominence of every sample in `vals`, in O(n log n).
@@ -310,11 +316,11 @@ export const PeakDetectors = {
    *
    * @param {Array<{time:number,val:number}>} phasic - phasic series.
    * @param {number} sampleRate
-   * @param {object} params - Analysis params (peakThreshold, minPeakQuality).
+   * @param {GSRParams} params - Analysis params (peakThreshold, minPeakQuality).
    * @param {Map} oldLabels - Preserved user labels, keyed by raw index.
    * @param {Set} oldExcluded - Preserved exclusion flags, keyed by raw index.
-   * @param {object} ctx - See module doc comment.
-   * @returns {Array<object>} Detected peaks.
+   * @param {PeakDetectorCtx} ctx - See module doc comment.
+   * @returns {Array<GSRPeak>} Detected peaks.
    */
   detectPeaksByProminence(
     phasic,
@@ -410,11 +416,11 @@ export const PeakDetectors = {
    *
    * @param {Array<{time:number,val:number}>} phasic - phasic series.
    * @param {number} sampleRate
-   * @param {object} params - Analysis params (peakThreshold, shapeMinSnr, minPeakQuality).
+   * @param {GSRParams} params - Analysis params (peakThreshold, shapeMinSnr, minPeakQuality).
    * @param {Map} oldLabels - Preserved user labels, keyed by raw index.
    * @param {Set} oldExcluded - Preserved exclusion flags, keyed by raw index.
-   * @param {object} ctx - See module doc comment.
-   * @returns {Array<object>} Detected peaks.
+   * @param {PeakDetectorCtx} ctx - See module doc comment.
+   * @returns {Array<GSRPeak>} Detected peaks.
    */
   detectPeaksFullScan(phasic, sampleRate, params, oldLabels, oldExcluded, ctx) {
     const n = phasic.length;
@@ -508,19 +514,20 @@ export const PeakDetectors = {
    * (shapeMinSnr) and composite quality (minPeakQuality) still apply.
    *
    * @param {Float64Array} cleanVals - Reconstructed phasic values (>= 0).
-   * @param {Array<number>} times - Timestamps parallel to cleanVals.
+   * @param {ArrayLike<number>} times - Timestamps parallel to cleanVals.
    * @param {number} sampleRate
-   * @param {object} params - Analysis parameters (peakThreshold, shapeMinSnr, minPeakQuality).
+   * @param {GSRParams} params - Analysis parameters (peakThreshold, shapeMinSnr, minPeakQuality).
    * @param {Map} oldLabels - Preserved user labels, keyed by raw index.
    * @param {Set} oldExcluded - Preserved exclusion flags, keyed by raw index.
-   * @param {Array<number>} [candidateIndices] - When supplied, only these
+   * @param {Array<number>|null} candidateIndices - When supplied, only these
    *   apex positions are evaluated (each still re-verified as a genuine local
    *   maximum) instead of scanning every sample — used by the cvxEDA branch
    *   of GSRAnalyzer._runDeconvolutionPipeline() to detect candidates in the
    *   sparse driver rather than the smoothed reconstruction; see that call
    *   site's comment for why. Matching-pursuit's call (no candidateIndices) is
    *   unaffected — it keeps the original dense scan.
-   * @param {object} ctx - See module doc comment.
+   * @param {PeakDetectorCtx} ctx - See module doc comment.
+   * @returns {Array<GSRPeak>} Detected peaks.
    */
   detectPeaksFromCurve(
     cleanVals,

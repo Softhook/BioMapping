@@ -16,6 +16,8 @@ import {
   recordedBandFloor,
 } from '../../render/rf_signal_utils.mjs';
 
+/** @import { GSRAnalyzer } from '../../signal/analyzer.mjs' */
+
 export const GSRGlobe3DRf = {
   /**
    * Target along-track spacing between slugs, in metres. The track is
@@ -31,10 +33,10 @@ export const GSRGlobe3DRf = {
   SLUG_OVERLAP: 1.9,
 
   /**
-   * @param {object} analyzer    analysed track (needs .raw with rssi_* / em_fog)
+   * @param {GSRAnalyzer} analyzer    analysed track (needs .raw with rssi_* / em_fog)
    * @param {Array}  drawPoints   display points ({lat, lon, origIdx})
    * @param {object} [opts]
-   * @param {'triband'|'815'|'868'|'915'|'fog'} [opts.mode='triband']
+   * @param {string} [opts.mode='triband']  'triband' | '815' | '868' | '915' | 'fog'
    * @param {number} [opts.height=25]    volumetric ceiling in metres
    * @param {number} [opts.opacity=0.45]
    * @returns {object|null} a Cesium.Primitive, or null if there's nothing to draw
@@ -70,11 +72,11 @@ export const GSRGlobe3DRf = {
       const pt = drawPoints[i];
       if (!pt || isNaN(pt.lat) || isNaN(pt.lon)) continue;
 
-      const rawRow = raw[pt.origIdx] || {};
-      const r815 = rawRow.rssi_815 ?? rawRow.r815 ?? rawRow.r_815;
-      const r868 = rawRow.rssi_868 ?? rawRow.r868 ?? rawRow.r_868;
-      const r915 = rawRow.rssi_915 ?? rawRow.r915 ?? rawRow.r_915;
-      const fog = rawRow.em_fog ?? rawRow.emFog ?? rawRow.fog;
+      const rawRow = raw[pt.origIdx];
+      const r815 = rawRow?.rssi_815;
+      const r868 = rawRow?.rssi_868;
+      const r915 = rawRow?.rssi_915;
+      const fog = rawRow?.em_fog;
 
       const has815 = r815 !== undefined && !isNaN(r815);
       const has868 = r868 !== undefined && !isNaN(r868);

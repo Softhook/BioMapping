@@ -105,7 +105,9 @@ export const FileExportEvents = {
       GSRNotices.warn(msg, 'export3d');
       return;
     }
-    const extEl = document.getElementById('g3dExtrusionScale');
+    const extEl = /** @type {HTMLInputElement} */ (
+      document.getElementById('g3dExtrusionScale')
+    );
     const opts = {
       metric: mm?.activeColoringMetric || 'phasic',
       extrusionScale: extEl ? parseFloat(extEl.value) : undefined,

@@ -59,96 +59,99 @@ export function latLngToTileCoords(latlng, zoom) {
 // downloads. Registered as L.tileLayer.cache(url, options).
 // ==========================================================================
 if (typeof L !== 'undefined' && L.TileLayer) {
-  const L_TileLayer_Cache = L.TileLayer.extend({
-    createTile: function (coords, done) {
-      const tile = document.createElement('img');
-      L.DomEvent.on(
-        tile,
-        'load',
-        L.Util.bind(this._tileOnLoad, this, done, tile),
-      );
-      L.DomEvent.on(
-        tile,
-        'error',
-        L.Util.bind(this._tileOnError, this, done, tile),
-      );
+  const L_TileLayer_Cache =
+    /** @type {new (url: string, options?: L.TileLayerOptions) => L.TileLayer} */ (
+      L.TileLayer.extend({
+        createTile: function (coords, done) {
+          const tile = document.createElement('img');
+          L.DomEvent.on(
+            tile,
+            'load',
+            L.Util.bind(this._tileOnLoad, this, done, tile),
+          );
+          L.DomEvent.on(
+            tile,
+            'error',
+            L.Util.bind(this._tileOnError, this, done, tile),
+          );
 
-      if (this.options.crossOrigin || this.options.crossOrigin === '') {
-        tile.crossOrigin =
-          this.options.crossOrigin === true ? '' : this.options.crossOrigin;
-      }
+          if (this.options.crossOrigin || this.options.crossOrigin === '') {
+            tile.crossOrigin =
+              this.options.crossOrigin === true ? '' : this.options.crossOrigin;
+          }
 
-      tile.alt = '';
-      tile.setAttribute('role', 'presentation');
-      // Set initial source to a transparent 1x1 GIF to prevent flashing a broken image placeholder
-      tile.src =
-        'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+          tile.alt = '';
+          tile.setAttribute('role', 'presentation');
+          // Set initial source to a transparent 1x1 GIF to prevent flashing a broken image placeholder
+          tile.src =
+            'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
-      const url = this.getTileUrl(coords);
-      const cacheUrl = normalizeTileCacheUrl(url);
+          const url = this.getTileUrl(coords);
+          const cacheUrl = normalizeTileCacheUrl(url);
 
-      if (typeof caches !== 'undefined') {
-        const cacheName = 'leaflet-map-tiles';
-        caches
-          .open(cacheName)
-          .then((cache) => {
-            cache
-              .match(cacheUrl)
-              .then((response) => {
-                if (response) {
-                  response.blob().then((blob) => {
-                    const objUrl = URL.createObjectURL(blob);
-                    tile.src = objUrl;
-                    tile._objUrl = objUrl;
-                  });
-                } else {
-                  fetch(url)
-                    .then((netResponse) => {
-                      if (netResponse.ok) {
-                        cache.put(cacheUrl, netResponse.clone());
-                        netResponse.blob().then((blob) => {
-                          const objUrl = URL.createObjectURL(blob);
-                          tile.src = objUrl;
-                          tile._objUrl = objUrl;
+          if (typeof caches !== 'undefined') {
+            const cacheName = 'leaflet-map-tiles';
+            caches
+              .open(cacheName)
+              .then((cache) => {
+                cache
+                  .match(cacheUrl)
+                  .then((response) => {
+                    if (response) {
+                      response.blob().then((blob) => {
+                        const objUrl = URL.createObjectURL(blob);
+                        tile.src = objUrl;
+                        tile._objUrl = objUrl;
+                      });
+                    } else {
+                      fetch(url)
+                        .then((netResponse) => {
+                          if (netResponse.ok) {
+                            cache.put(cacheUrl, netResponse.clone());
+                            netResponse.blob().then((blob) => {
+                              const objUrl = URL.createObjectURL(blob);
+                              tile.src = objUrl;
+                              tile._objUrl = objUrl;
+                            });
+                          } else {
+                            tile.src = url;
+                          }
+                        })
+                        .catch(() => {
+                          tile.src = url;
                         });
-                      } else {
-                        tile.src = url;
-                      }
-                    })
-                    .catch(() => {
-                      tile.src = url;
-                    });
-                }
+                    }
+                  })
+                  .catch(() => {
+                    tile.src = url;
+                  });
               })
               .catch(() => {
                 tile.src = url;
               });
-          })
-          .catch(() => {
+          } else {
             tile.src = url;
-          });
-      } else {
-        tile.src = url;
-      }
+          }
 
-      return tile;
-    },
+          return tile;
+        },
 
-    _cleanTile: (tile) => {
-      if (tile._objUrl) {
-        URL.revokeObjectURL(tile._objUrl);
-        delete tile._objUrl;
-      }
-    },
+        _cleanTile: (tile) => {
+          if (tile._objUrl) {
+            URL.revokeObjectURL(tile._objUrl);
+            delete tile._objUrl;
+          }
+        },
 
-    _removeTile: function (id) {
-      const tile = this._tiles[id];
-      if (tile) {
-        this._cleanTile(tile.el);
-      }
-      L.TileLayer.prototype._removeTile.call(this, id);
-    },
-  });
+        _removeTile: function (id) {
+          const tile = this._tiles[id];
+          if (tile) {
+            this._cleanTile(tile.el);
+          }
+          L.TileLayer.prototype._removeTile.call(this, id);
+        },
+      })
+    );
 
   L.tileLayer.cache = (url, options) => new L_TileLayer_Cache(url, options);
 }

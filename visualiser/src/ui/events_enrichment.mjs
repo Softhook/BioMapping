@@ -76,13 +76,15 @@ export const EnrichmentEvents = {
       );
     }
 
-    const copernicusInstanceInput = document.getElementById(
-      'copernicusInstanceId',
+    const copernicusInstanceInput = /** @type {HTMLInputElement} */ (
+      document.getElementById('copernicusInstanceId')
     );
-    const copernicusRawLayerInput = document.getElementById(
-      'copernicusRawLayerId',
+    const copernicusRawLayerInput = /** @type {HTMLInputElement} */ (
+      document.getElementById('copernicusRawLayerId')
     );
-    const copernicusTimeInput = document.getElementById('copernicusTimeRange');
+    const copernicusTimeInput = /** @type {HTMLInputElement} */ (
+      document.getElementById('copernicusTimeRange')
+    );
     const syncCopernicusBadge = () => {
       const defaultBadge = document.getElementById('copernicusDefaultBadge');
       const hasId = NDVISampler.hasCopernicusConfig();

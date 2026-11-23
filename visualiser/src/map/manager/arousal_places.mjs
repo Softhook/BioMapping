@@ -19,6 +19,12 @@ import { GSRUI } from '../../ui/ui.mjs';
 import { MapPopups } from '../map_popups.mjs';
 import { GSRMapPeaks } from './peaks.mjs';
 
+/**
+ * GSRMapManager: the whole class chain, for calls to methods that later links define.
+ * @import { GSRMapManager } from '../map.mjs'
+ * @import { ArousalPlace } from '../../spatial/arousal_places.mjs'
+ */
+
 export class GSRMapArousalPlaces extends GSRMapPeaks {
   /**
    * Cluster a set of active (non-excluded) peaks into Arousal Places and render
@@ -40,7 +46,6 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
    * @param {Array<{id,sampleRate,raw,filteredGps,pathKey,phasic}>} scoreTracks - Tracks buildPlaces()
    *   scans for dwell/energy: one entry single-track, N in collective.
    * @param {{collective:boolean, activeTrackCount:number}} view
-   * @private
    */
   _renderArousalPlacesFor(peaks, scoreTracks, view) {
     if (!peaks || peaks.length === 0) return;
@@ -339,7 +344,7 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
    * Layers go on this.clusterLayers (shared with the globe3d handoff and the
    * clear paths) and honour this.showClusters.
    *
-   * @param {Array<object>} places - Ranked place records, best-first.
+   * @param {Array<ArousalPlace>} places - Ranked place records, best-first.
    * @param {Array<Array<Array<{lat,lon}>>>} blobRings - Per-place getConcaveBlob()
    *   output (array of closed rings), parallel to `places`. Precomputed and
    *   memoised by _renderArousalPlacesFor() so a cache hit skips the KDE passes.
@@ -535,7 +540,6 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
    * count and lists the folded places in its tooltip. Re-run on zoomend (map_base.mjs)
    * and when the layer is toggled back on, so badges separate again on zoom-in.
    * Screen-space presentation only — the outlines and clusterLayers are untouched.
-   * @private
    */
   _declutterArousalPlaceBadges() {
     const badges = this._arousalPlaceBadges;
@@ -566,7 +570,10 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
       });
       if (host) host.folded.push(b.label);
       else survivors.push({ i, folded: [] });
-      this._toggleLayer(b.marker, !host);
+      /** @type {GSRMapManager} */ (/** @type {unknown} */ (this))._toggleLayer(
+        b.marker,
+        !host,
+      );
     });
 
     for (const { i, folded } of survivors) {

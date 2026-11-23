@@ -6,6 +6,12 @@ import { AppState } from '../core/app_state.mjs';
 import { JunctionResponse } from '../gps/junction_response.mjs';
 import { updateSortHeaders } from './table_sort.mjs';
 
+/**
+ * @typedef {{passages?: Array<*>, overview?: Array<*>, responses?: Array<*>,
+ *   comparison?: Array<*>, tracksNeedingGeoms?: number}} JunctionStats
+ *   The environmental dashboard's junction results.
+ */
+
 const WINDOW = `${JunctionResponse.WINDOW_S} s`;
 const neutralBand = (metric) => (metric === 'peakRate' ? 0.5 : 0.02);
 const fmtP = (v) => {
@@ -51,7 +57,7 @@ export const JunctionsTableUI = {
    * Overview box: arousal near ANY junction (turn, straight, U-turn or unclear)
    * vs on plain road. Fed by JunctionResponse.compareJunctionVsRoad.
    *
-   * @param {{passages:Array, overview:Array}} junctionStats
+   * @param {JunctionStats} junctionStats
    */
   renderJunctionOverview(junctionStats) {
     if (typeof document === 'undefined') return;
@@ -167,7 +173,7 @@ export const JunctionsTableUI = {
   /**
    * Render cached junction stats to HTML (headline banner, 3 moment cards, and detailed table).
    *
-   * @param {{passages:Array, responses:Array, comparison:Array}} junctionStats
+   * @param {JunctionStats} junctionStats
    */
   renderJunctionsTable(junctionStats) {
     if (typeof document === 'undefined') return;

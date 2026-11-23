@@ -121,7 +121,9 @@ export const GSRLayoutManager = {
     // Publish the stats row's height as --stats-row-h so the collective map
     // can be exactly "the column minus the stats row" (styles.css); the row's
     // height varies with width and wrapping, so CSS alone can't know it.
-    const statsRow = document.querySelector('.stats-row');
+    const statsRow = /** @type {HTMLElement} */ (
+      document.querySelector('.stats-row')
+    );
     if (statsRow) {
       this._statsObserver = new ResizeObserver(() => {
         this._scheduleResize('stats', 0, statsRow.offsetHeight);
@@ -357,9 +359,10 @@ export const GSRLayoutManager = {
     this._shortcutsBound = true;
 
     document.addEventListener('keydown', (e) => {
+      const target = /** @type {HTMLElement|null} */ (e.target);
       if (
-        e.target &&
-        (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')
+        target &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')
       )
         return;
 

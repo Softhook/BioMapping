@@ -123,25 +123,27 @@ export const ExportUI = {
         const mode = AppState.viewMode || 'single';
         const suggestedName = `${baseName}_globe3d_${mode}_export.png`;
 
-        await new Promise((resolve) => {
-          const remove = viewer.scene.postRender.addEventListener(() => {
-            remove(); // one-shot
-            if (typeof canvas.toBlob === 'function') {
-              canvas.toBlob(async (blob) => {
-                if (blob) await GSRFileSaver.saveFile(blob, suggestedName);
+        await /** @type {Promise<void>} */ (
+          new Promise((resolve) => {
+            const remove = viewer.scene.postRender.addEventListener(() => {
+              remove(); // one-shot
+              if (typeof canvas.toBlob === 'function') {
+                canvas.toBlob(async (blob) => {
+                  if (blob) await GSRFileSaver.saveFile(blob, suggestedName);
+                  resolve();
+                }, 'image/png');
+              } else if (typeof canvas.toDataURL === 'function') {
+                GSRFileSaver.saveFile(
+                  canvas.toDataURL('image/png'),
+                  suggestedName,
+                ).then(() => resolve());
+              } else {
                 resolve();
-              }, 'image/png');
-            } else if (typeof canvas.toDataURL === 'function') {
-              GSRFileSaver.saveFile(
-                canvas.toDataURL('image/png'),
-                suggestedName,
-              ).then(resolve);
-            } else {
-              resolve();
-            }
-          });
-          viewer.render(); // trigger the frame that will compile + upload pending geometry
-        });
+              }
+            });
+            viewer.render(); // trigger the frame that will compile + upload pending geometry
+          })
+        );
       } else if (AppState.mapManager) {
         // 2D Map Mode (Native vector SVG rendered to PNG)
         await GSRMapExporter.exportToPng(AppState.mapManager);

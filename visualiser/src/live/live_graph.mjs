@@ -85,7 +85,9 @@ export function niceStep(span) {
 }
 
 export function drawGraph() {
-  const canvas = document.getElementById('graph');
+  const canvas = /** @type {HTMLCanvasElement} */ (
+    document.getElementById('graph')
+  );
   const wrap = document.getElementById('graphWrap');
   const dpr = window.devicePixelRatio || 1;
   const w = wrap.clientWidth,

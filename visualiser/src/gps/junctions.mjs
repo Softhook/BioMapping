@@ -16,6 +16,11 @@
  */
 import { GeoUtils } from './geo_utils.mjs';
 
+/**
+ * @typedef {{nodes: Map<string, *>, wayNodes: Map<*, string[]>}} JunctionIndex
+ *   Junction nodes and each way's node ids (Junctions.buildIndex).
+ */
+
 export const Junctions = {
   /** A fix must be within this of a junction node to count as passing it. */
   PASS_RADIUS_M: 15,
@@ -147,7 +152,7 @@ export const Junctions = {
    * Coarse lat/lon grid over junction nodes for radius queries.  Cells are
    * 0.001° (≥ 55 m wide at UK latitudes), so a 3×3 block covers any radius up
    * to ~30 m; callers still apply their own exact distance test.
-   * @returns {{near: function(number, number): object[]}}
+   * @returns {{near: (lat: number, lon: number) => Array<*>}}
    */
   _nodeGrid(nodes) {
     const CELL = 0.001;
@@ -198,7 +203,7 @@ export const Junctions = {
    * 2, a way end adds 1, so a side road joining a through road gives 3.
    *
    * @param {Array} ways Overpass ways ({id, tags, coordinates})
-   * @returns {{nodes: Map<string, object>, wayNodes: Map<*, string[]>}}
+   * @returns {JunctionIndex}
    */
   buildIndex(ways) {
     const nodes = new Map();
@@ -361,7 +366,7 @@ export const Junctions = {
    *   matched fixes in time order (snapped position + way).  When rawLat/rawLon
    *   are given, a passage is only turn/straight/reverse if snapped and raw agree.
    * @param {Array} ways Overpass ways covering the track.
-   * @param {object} [opts] { includeControl?: boolean, index?: a buildIndex result to reuse }
+   * @param {{includeControl?: boolean, index?: JunctionIndex}} [opts] - index: a buildIndex result to reuse
    * @returns {Array<object>} one entry per passage, time-ordered:
    *   {key, lat, lon, i, idx, time, iBefore, iAfter, kind, degree, decision,
    *    turnAngleDeg, rawTurnAngleDeg, inWay, outWay, inClass, outClass}
@@ -456,7 +461,7 @@ export const Junctions = {
    * @param {Array} ways Overpass ways covering the track
    * @param {Array} juncPassages already classified junction passages
    * @param {number[]} [cum] cumulative track distance array (optional, computed if missing)
-   * @param {object} [cache] pre-built { nodes, wayNodes } index
+   * @param {JunctionIndex|null} [cache] pre-built { nodes, wayNodes } index
    * @returns {Array<object>} control passages
    */
   findControlPassages(pts, ways, juncPassages = [], cum = null, cache = null) {

@@ -9,6 +9,8 @@
  */
 import { GSRMapProcess } from './process.mjs';
 
+/** @import { GSRAnalyzer } from '../../signal/analyzer.mjs' */
+
 export class GSRMapViewport extends GSRMapProcess {
   _getTrackSetSignature(collectiveManager) {
     if (!collectiveManager) return '';
@@ -25,7 +27,7 @@ export class GSRMapViewport extends GSRMapProcess {
    * Fit the map to one track's drawn path — Collective view's track-list
    * click. Reuses the per-track draw-point cache the collective render fills.
    *
-   * @param {object} track
+   * @param {{id: *, analyzer: GSRAnalyzer, gpsFilterParams?: Partial<GSRGpsParams>}} track
    * @returns {boolean} false when the track has no drawable GPS path
    */
   zoomToTrack(track) {
@@ -68,6 +70,7 @@ export class GSRMapViewport extends GSRMapProcess {
       return;
     }
     this._pendingFit = null;
+    /** @type {L.FitBoundsOptions & {fly?: boolean}} */
     const fitOpts = {
       padding: [30, 30],
       maxZoom: 17,
@@ -123,7 +126,7 @@ export class GSRMapViewport extends GSRMapProcess {
   fitToTrack() {
     const paths = this.getRenderLayers().paths;
     if (this.map && paths.length > 0) {
-      const group = new L.featureGroup(paths);
+      const group = L.featureGroup(paths);
       this._flyOrFitBounds(group.getBounds());
     }
   }
@@ -150,6 +153,7 @@ export class GSRMapViewport extends GSRMapProcess {
     // drives a per-frame _move() loop that never fires zoomanim/moveend, so the
     // RF surface — which only re-anchors on those — visibly lags the track and
     // snaps into place at the end.
+    /** @type {L.LatLngTuple} */
     const latlng = [coords.lat, coords.lon];
     if (typeof this.map.panTo === 'function') {
       this.map.panTo(latlng, {
@@ -179,6 +183,7 @@ export class GSRMapViewport extends GSRMapProcess {
     }
 
     if (panTo) {
+      /** @type {L.LatLngTuple} */
       const pos = [lat, lon];
       if (!this.map.getBounds().contains(pos)) {
         this.map.panTo(pos);

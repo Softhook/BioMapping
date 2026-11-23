@@ -188,7 +188,9 @@ export async function cacheCurrentMapArea() {
   const startZoom = Math.min(currentZoom, 18);
   const maxZoom = Math.min(startZoom + 3, 18);
 
-  const cacheMapBtn = document.getElementById('cacheMapBtn');
+  const cacheMapBtn = /** @type {HTMLButtonElement} */ (
+    document.getElementById('cacheMapBtn')
+  );
   const originalText = cacheMapBtn.textContent;
   cacheMapBtn.disabled = true;
   cacheMapBtn.textContent = 'Caching...';
@@ -330,7 +332,9 @@ function initLiveMap() {
     .addTo(liveMap);
 
   // Enable the Cache Map button
-  document.getElementById('cacheMapBtn').disabled = false;
+  /** @type {HTMLButtonElement} */ (
+    document.getElementById('cacheMapBtn')
+  ).disabled = false;
 
   if (typeof liveMap.on === 'function') {
     liveMap.on('click dragstart', () => Controllers.liveView.closeFabMenu());
@@ -506,6 +510,7 @@ export function updateLiveMap(pkt) {
   );
   if (gated.length === 0) return;
 
+  /** @type {L.LatLngTuple} */
   const latlng = [pkt.lat, pkt.lon];
 
   if (liveMap) {

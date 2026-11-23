@@ -14,10 +14,18 @@ export const ModalsUI = {
    */
   openStreetView(lat, lon, label, heading) {
     const modal = document.getElementById('streetviewModal');
-    const mapillaryIframe = document.getElementById('svIframe');
-    const googleIframe = document.getElementById('svGoogleIframe');
-    const googleLink = document.getElementById('svGoogleLink');
-    const mapillaryExtLink = document.getElementById('svMapillaryExtLink');
+    const mapillaryIframe = /** @type {HTMLIFrameElement} */ (
+      document.getElementById('svIframe')
+    );
+    const googleIframe = /** @type {HTMLIFrameElement} */ (
+      document.getElementById('svGoogleIframe')
+    );
+    const googleLink = /** @type {HTMLAnchorElement} */ (
+      document.getElementById('svGoogleLink')
+    );
+    const mapillaryExtLink = /** @type {HTMLAnchorElement} */ (
+      document.getElementById('svMapillaryExtLink')
+    );
     const coordsEl = document.getElementById('svModalCoords');
     const titleEl = document.getElementById('streetviewModalTitle');
 
@@ -71,7 +79,9 @@ export const ModalsUI = {
     this.switchStreetViewTab('google');
 
     // Restore saved API key into input field
-    const keyInput = document.getElementById('svApiKeyInput');
+    const keyInput = /** @type {HTMLInputElement} */ (
+      document.getElementById('svApiKeyInput')
+    );
     const savedKey = SafeStorage.get('bioMappingGoogleMapsKey');
     if (keyInput && savedKey) {
       keyInput.value = savedKey;
@@ -86,8 +96,12 @@ export const ModalsUI = {
     if (event && event.target !== document.getElementById('streetviewModal'))
       return;
     const modal = document.getElementById('streetviewModal');
-    const mapillaryIframe = document.getElementById('svIframe');
-    const googleIframe = document.getElementById('svGoogleIframe');
+    const mapillaryIframe = /** @type {HTMLIFrameElement} */ (
+      document.getElementById('svIframe')
+    );
+    const googleIframe = /** @type {HTMLIFrameElement} */ (
+      document.getElementById('svGoogleIframe')
+    );
     if (modal) modal.style.display = 'none';
     if (mapillaryIframe) mapillaryIframe.src = '';
     if (googleIframe) googleIframe.src = '';
@@ -109,7 +123,9 @@ export const ModalsUI = {
     const googleIframeContainer = document.getElementById(
       'svGoogleIframeContainer',
     );
-    const googleIframe = document.getElementById('svGoogleIframe');
+    const googleIframe = /** @type {HTMLIFrameElement} */ (
+      document.getElementById('svGoogleIframe')
+    );
     const googleFallback = document.getElementById('svGoogleFallback');
 
     mapillaryTab.classList.toggle('active', tab === 'mapillary');
@@ -160,7 +176,9 @@ export const ModalsUI = {
    * Save the Google Maps API key from the input field to localStorage.
    */
   saveGoogleMapsKey() {
-    const input = document.getElementById('svApiKeyInput');
+    const input = /** @type {HTMLInputElement} */ (
+      document.getElementById('svApiKeyInput')
+    );
     const msg = document.getElementById('svKeySavedMsg');
     if (!input) return;
     const key = input.value.trim();

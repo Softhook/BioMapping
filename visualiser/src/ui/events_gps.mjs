@@ -47,7 +47,9 @@ export const GpsEvents = {
     // ── Snap radius slider ───────────────────────────────────────────────────
     // Re-evaluates road snapping locally from cached OSM data when released.
     {
-      const slider = document.getElementById('gpsSnapRadius');
+      const slider = /** @type {HTMLInputElement} */ (
+        document.getElementById('gpsSnapRadius')
+      );
       const label = document.getElementById('valGpsSnapRadius');
       if (slider && label) {
         const fmt = this._sliderDef('gpsSnapRadius').fmt;
@@ -89,7 +91,9 @@ export const GpsEvents = {
 
     // ── Graph background-band overlay toggles (OSM context, NDVI, EM Fog) ───
     for (const { id, stateKey } of GRAPH_BAND_TOGGLE_DEFS) {
-      const toggle = document.getElementById(id);
+      const toggle = /** @type {HTMLInputElement} */ (
+        document.getElementById(id)
+      );
       if (!toggle) continue;
       toggle.checked = !!AppState[stateKey];
       toggle.addEventListener('change', () => {
@@ -102,7 +106,9 @@ export const GpsEvents = {
     // follows the drag; the environmental dashboard (junction permutation
     // tests take seconds on a large collective) only recomputes on release.
     {
-      const slider = document.getElementById('responseDelay');
+      const slider = /** @type {HTMLInputElement} */ (
+        document.getElementById('responseDelay')
+      );
       const label = document.getElementById('valResponseDelay');
       const fmt = this._sliderDef('responseDelay').fmt;
       const updateDim = () => {

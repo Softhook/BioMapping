@@ -73,8 +73,12 @@ export const MapPanelEvents = {
     if (rfFluidMode) {
       rfFluidMode.addEventListener('change', (e) => {
         if (AppState.mapManager)
-          AppState.mapManager.setRFFluidMode(e.target.value);
-        GSRGlobe3DView.applyRfMode(e.target.value);
+          AppState.mapManager.setRFFluidMode(
+            /** @type {HTMLSelectElement} */ (e.target).value,
+          );
+        GSRGlobe3DView.applyRfMode(
+          /** @type {HTMLSelectElement} */ (e.target).value,
+        );
       });
     }
 
@@ -140,7 +144,8 @@ export const MapPanelEvents = {
       .getElementById('mapColoringMetric')
       .addEventListener('change', (e) => {
         if (AppState.mapManager) {
-          AppState.mapManager.activeColoringMetric = e.target.value;
+          AppState.mapManager.activeColoringMetric =
+            /** @type {HTMLSelectElement} */ (e.target).value;
           // Only the path's colour changes here — a full rerenderMap() also
           // destroys/rebuilds peak+hotspot markers for no reason (perf-routes
           // doc §2.2). Single-track view has a scoped path-only refresh;
@@ -165,7 +170,9 @@ export const MapPanelEvents = {
         // active surface. Without this the globe only updates after the map emits
         // 'map:rendered' → 250ms debounce → full renderData rebuild. The
         // setColoringMetric() fast path avoids that wall-primitive teardown.
-        GSRGlobe3DView.applyColorMetric(e.target.value);
+        GSRGlobe3DView.applyColorMetric(
+          /** @type {HTMLSelectElement} */ (e.target).value,
+        );
       });
 
     // ── Panel Collapse Toggles (DRY via bindCollapseButton) ──────────────────
@@ -239,7 +246,9 @@ export const MapPanelEvents = {
     });
 
     const bindCi = (id, labelId, fmt) => {
-      const input = document.getElementById(id);
+      const input = /** @type {HTMLInputElement} */ (
+        document.getElementById(id)
+      );
       const label = document.getElementById(labelId);
       // Initial dim state — matters for hillshadeStrength specifically,
       // whose default is 0 ("off"); the others can never reach 0 (all have

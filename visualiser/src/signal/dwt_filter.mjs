@@ -303,7 +303,7 @@ export const DWT = (() => {
    * through _inversePass, then trims the mirror padding. Full inverse of
    * decompose() — with unmodified coeffs it round-trips to machine precision.
    *
-   * @param {object} coeffs  result of decompose() (details may be modified)
+   * @param {ReturnType<typeof decompose>} coeffs  result of decompose() (details may be modified)
    * @param {number} levels
    * @returns {number[]}  length = coeffs.originalLen
    */

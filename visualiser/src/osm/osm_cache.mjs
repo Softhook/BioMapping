@@ -294,12 +294,14 @@ export const OsmCache = {
   },
 
   _putOne(db, storeName, record) {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readwrite');
-      tx.objectStore(storeName).put(record);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
+    return /** @type {Promise<void>} */ (
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readwrite');
+        tx.objectStore(storeName).put(record);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      })
+    );
   },
 
   /**
@@ -318,44 +320,48 @@ export const OsmCache = {
    *   was meant to replace.
    */
   _putEntry(db, meta, data, deleteIds = []) {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(
-        [this.META_STORE, this.DATA_STORE],
-        'readwrite',
-      );
-      const metaStore = tx.objectStore(this.META_STORE);
-      const dataStore = tx.objectStore(this.DATA_STORE);
-      const metaReq = metaStore.put(meta);
-      metaReq.onsuccess = () => {
-        const id = meta.id != null ? meta.id : metaReq.result;
-        dataStore.put({ id, data });
-      };
-      for (const delId of deleteIds) {
-        metaStore.delete(delId);
-        dataStore.delete(delId);
-      }
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
+    return /** @type {Promise<void>} */ (
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(
+          [this.META_STORE, this.DATA_STORE],
+          'readwrite',
+        );
+        const metaStore = tx.objectStore(this.META_STORE);
+        const dataStore = tx.objectStore(this.DATA_STORE);
+        const metaReq = metaStore.put(meta);
+        metaReq.onsuccess = () => {
+          const id = meta.id != null ? meta.id : metaReq.result;
+          dataStore.put({ id, data });
+        };
+        for (const delId of deleteIds) {
+          metaStore.delete(delId);
+          dataStore.delete(delId);
+        }
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      })
+    );
   },
 
   /** Delete both the metadata and data records for each id, atomically. */
   _deleteEntries(db, ids) {
     if (ids.length === 0) return Promise.resolve();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(
-        [this.META_STORE, this.DATA_STORE],
-        'readwrite',
-      );
-      const metaStore = tx.objectStore(this.META_STORE);
-      const dataStore = tx.objectStore(this.DATA_STORE);
-      for (const id of ids) {
-        metaStore.delete(id);
-        dataStore.delete(id);
-      }
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
+    return /** @type {Promise<void>} */ (
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(
+          [this.META_STORE, this.DATA_STORE],
+          'readwrite',
+        );
+        const metaStore = tx.objectStore(this.META_STORE);
+        const dataStore = tx.objectStore(this.DATA_STORE);
+        for (const id of ids) {
+          metaStore.delete(id);
+          dataStore.delete(id);
+        }
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      })
+    );
   },
 
   /* ======================================================================
@@ -453,15 +459,17 @@ export const OsmCache = {
   /** Delete every cached entry. Used by the "Clear Cached Map Data" button. */
   async clear() {
     const db = await this._openDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(
-        [this.META_STORE, this.DATA_STORE],
-        'readwrite',
-      );
-      tx.objectStore(this.META_STORE).clear();
-      tx.objectStore(this.DATA_STORE).clear();
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
+    return /** @type {Promise<void>} */ (
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(
+          [this.META_STORE, this.DATA_STORE],
+          'readwrite',
+        );
+        tx.objectStore(this.META_STORE).clear();
+        tx.objectStore(this.DATA_STORE).clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      })
+    );
   },
 };

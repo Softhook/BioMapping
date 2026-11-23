@@ -102,6 +102,9 @@ export const SCRDeconvolution = {
    * @param {number} [opts.dminSec=1.25]          - Minimum spacing between kept driver events (official SparsEDA).
    * @param {number} [opts.rho=0.025]             - Relative post-pruning threshold (official SparsEDA).
    * @param {string} [opts.algorithm='sparseda']  - 'sparseda' | 'matching_pursuit'.
+   * @param {boolean} [opts.strictReference=false] - SparsEDA: keep the reference code's quirks (see sparseda.mjs).
+   * @param {boolean} [opts.zeroBaseline=false]   - SparsEDA's zeroBaseline mode (see SparsEDA.deconvolve).
+   * @param {Array<number>} [opts.stretches]      - SparsEDA kernel time stretches (default SparsEDA.REFERENCE_STRETCHES).
    * @returns {{
    *   driver: Float64Array,
    *   clean: Float64Array,

@@ -28,7 +28,7 @@ import { SpectralEDA } from './spectral_eda.mjs';
 /**
  * Keep the closest {t, pk, diff} pairs first, each store key `t` and each
  * peak used at most once — for matching stored labels / exclusions to peaks.
- * @returns {Map<number, object>} store key -> peak
+ * @returns {Map<number, GSRPeak>} store key -> peak
  */
 function closestOneToOne(pairs) {
   pairs.sort((a, b) => a.diff - b.diff);
@@ -131,6 +131,50 @@ export class GSRAnalyzer {
     // dashboard) key their cache on this instead of relying on being told
     // to invalidate.
     this._dataVersion = 0;
+
+    /** @type {ArrayLike<number>|undefined} Sample times to use when there
+     * are no rows (computeResponseDynamics; set by tests). */
+    this.times = undefined;
+
+    // Set by other modules, which keep their results and caches on the
+    // track's analyzer. Unset (undefined) until they first run.
+    // OSM enrichment (osm/osm_enrichment.mjs, ui/ui_enrichment.mjs):
+    /** @type {*} Overpass reply the track was enriched from. */
+    this.osmJson = undefined;
+    /** @type {*} Area that reply covers. */
+    this.osmJsonBBox = undefined;
+    /** @type {*} Road / park / water shapes rebuilt from osmJson. */
+    this.osmGeoms = undefined;
+    /** @type {Array<GSRSnapPoint>|null|undefined} One per row: the road-snapped position. */
+    this.snappedGps = undefined;
+    /** @type {*} */
+    this._analysisSnap = undefined;
+    /** @type {*} */
+    this._junctionPassages = undefined;
+    /** @type {boolean|undefined} NDVI sampled (osm/ndvi_sampler.mjs). */
+    this.hasNdvi = undefined;
+    // The smoothed GPS path's caches (gps/gps_pipeline.mjs):
+    /** @type {{maxHdop: number, maxSpeed: number}|undefined} */
+    this._pathParams = undefined;
+    /** @type {string|undefined} */
+    this._pathKey = undefined;
+    /** @type {Array<GSRRow>|undefined} */
+    this._pathRaw = undefined;
+    /** @type {Array<GSRFix>|undefined} */
+    this._pathFixes = undefined;
+    /** @type {string|undefined} */
+    this._filteredGpsCacheKey = undefined;
+    /** @type {string|undefined} */
+    this._unsnappedKey = undefined;
+    /** @type {Array<GSRRow>|undefined} */
+    this._unsnappedRaw = undefined;
+    /** @type {Array<LatLon>|undefined} */
+    this._unsnappedPath = undefined;
+    // Peak object -> its index in peaks (render/renderer_markers.mjs):
+    /** @type {Map<GSRPeak, number>|undefined} */
+    this._peakIndexMap = undefined;
+    /** @type {Array<GSRPeak>|undefined} The peaks array that map was built for. */
+    this._peakIndexMapRef = undefined;
 
     // ── Reused per-sample series buffers (perf) ──────────────────────────────
     // analyze() reruns on every settled slider-drag frame. Rebuilding the six
@@ -322,7 +366,7 @@ export class GSRAnalyzer {
    * within 1 s, closest pairs first, each side used at most once. Two nearby
    * peaks can carry the same text, so "any same-text peak within 1 s" would
    * credit one peak with both entries.
-   * @returns {Map<number, object>} store key -> peak
+   * @returns {Map<number, GSRPeak>} store key -> peak
    * @private
    */
   _matchLabelEntriesToPeaks() {
@@ -389,7 +433,7 @@ export class GSRAnalyzer {
   /**
    * Pair each stored exclusion decision with its detected peak: within 1 s,
    * closest pairs first, each side used at most once (as for labels).
-   * @returns {Map<number, object>} store key -> peak
+   * @returns {Map<number, GSRPeak>} store key -> peak
    * @private
    */
   _matchExclusionEntriesToPeaks() {
@@ -451,7 +495,7 @@ export class GSRAnalyzer {
 
   /**
    * Assign persistent user labels to a list of detected peak objects using optimal 1-to-1 timestamp matching.
-   * @param {Array<object>} peaks - List of detected peak objects
+   * @param {Array<GSRPeak>} peaks - List of detected peak objects
    * @private
    */
   _assignLabelsToPeaks(peaks) {
@@ -643,7 +687,7 @@ export class GSRAnalyzer {
   /**
    * Run the analysis pipeline with current parameter adjustments.
    *
-   * @param {object} params - GSR filter/detection params (see GSRStorage.readGsrSliderValues()).
+   * @param {GSRParams} params - GSR filter/detection params (see GSRStorage.readGsrSliderValues()).
    */
   analyze(params) {
     if (this.raw.length === 0) return;
@@ -1063,7 +1107,7 @@ export class GSRAnalyzer {
    * The scalar is uniform, so per-peak ordering is preserved.
    *
    * @param {Array<number>} phasicVals - Tonic-subtracted phasic values (>= 0).
-   * @param {object} params - Analysis parameters (peakThreshold, minPeakQuality, shapeMinSnr).
+   * @param {GSRParams} params - Analysis parameters (peakThreshold, minPeakQuality, shapeMinSnr).
    * @private
    */
   _runDeconvolutionPipeline(phasicVals, params) {
@@ -1327,7 +1371,7 @@ export class GSRAnalyzer {
             bandIdx: meta ? meta.bandIdx : 2,
             durationScale: meta ? meta.durationScale : 1.0,
             scaleFactor: meta ? meta.scaleFactor : 1.0,
-            speedLabel: meta ? meta.speedLabel : 'Standard',
+            speedLabel: meta ? meta.speedLabel : 'Typical',
           });
         }
       }
@@ -1937,8 +1981,8 @@ export class GSRAnalyzer {
    * slider is dragged, and a peak with no position (GPS warm-up, after the
    * last fix) neither is one nor counts towards how many.
    *
-   * @param {object} params - Analysis params (may carry hotspotPercentile).
-   * @returns {Array<object>} Selected peak objects, biggest-amplitude first.
+   * @param {GSRParams} params - Analysis params (may carry hotspotPercentile).
+   * @returns {Array<GSRPeak>} Selected peak objects, biggest-amplitude first.
    * @private
    */
   _selectMemorableEvents(params) {
@@ -2043,7 +2087,7 @@ export class GSRAnalyzer {
    * PeakDetectors.detectPeaksByProminence (params.usePeakProminence). See
    * those functions' doc comments for the algorithms.
    * @param {Function} detect - one of the two PeakDetectors functions.
-   * @param {object} params - Analysis params (peakThreshold, shapeMinSnr, minPeakQuality).
+   * @param {GSRParams} params - Analysis params (peakThreshold, shapeMinSnr, minPeakQuality).
    * @private
    */
   _runPeakDetector(detect, params) {

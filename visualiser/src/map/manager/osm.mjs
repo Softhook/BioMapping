@@ -172,7 +172,7 @@ export class GSRMapOsm extends GSRMapLegend {
     // Ensure dedicated pane exists with zIndex 250 (between base map and vector layers)
     if (!this.map.getPane('ndviPane')) {
       const pane = this.map.createPane('ndviPane');
-      pane.style.zIndex = 250;
+      pane.style.zIndex = '250';
       pane.style.pointerEvents = 'none';
     }
 
@@ -187,63 +187,66 @@ export class GSRMapOsm extends GSRMapLegend {
       typeof document !== 'undefined' &&
       typeof document.createElement === 'function'
     ) {
-      const RawNdviLayer = L.TileLayer.extend({
-        createTile: (coords, done) => {
-          const tile = document.createElement('canvas');
-          tile.width = 256;
-          tile.height = 256;
-          const ctx = tile.getContext('2d');
-          if (!ctx) {
-            done(null, tile);
-            return;
-          }
-          const url = NDVISampler.buildRawTileUrl(
-            coords.x,
-            coords.y,
-            coords.z,
-            options,
-          );
+      const RawNdviLayer =
+        /** @type {new (url: string, options?: L.TileLayerOptions) => L.TileLayer} */ (
+          L.TileLayer.extend({
+            createTile: (coords, done) => {
+              const tile = document.createElement('canvas');
+              tile.width = 256;
+              tile.height = 256;
+              const ctx = tile.getContext('2d');
+              if (!ctx) {
+                done(null, tile);
+                return;
+              }
+              const url = NDVISampler.buildRawTileUrl(
+                coords.x,
+                coords.y,
+                coords.z,
+                options,
+              );
 
-          const paintAndFinish = (rasterTile) => {
-            try {
-              NDVISampler.paintGreyscaleTile(rasterTile, ctx);
-              done(null, tile);
-            } catch (e) {
-              done(e, tile);
-            }
-          };
+              const paintAndFinish = (rasterTile) => {
+                try {
+                  NDVISampler.paintGreyscaleTile(rasterTile, ctx);
+                  done(null, tile);
+                } catch (e) {
+                  done(e, tile);
+                }
+              };
 
-          const cached = NDVISampler._getTileCache(url);
-          if (cached) {
-            // Must not call `done` synchronously here: Leaflet's _addTile
-            // only stores this tile in its internal _tiles map *after*
-            // createTile() returns. Calling done() (== _tileReady) before
-            // that means its lookup finds nothing and silently no-ops —
-            // the pixels are painted correctly, but the tile never gets its
-            // "loaded" class and stays at opacity:0 forever. Deferring one
-            // microtask runs this after _addTile has finished. (This is why
-            // the layer worked on first show — a genuine async fetch — but
-            // not after toggling off/on once its tiles were cached.)
-            Promise.resolve().then(() => paintAndFinish(cached));
-            return tile;
-          }
+              const cached = NDVISampler._getTileCache(url);
+              if (cached) {
+                // Must not call `done` synchronously here: Leaflet's _addTile
+                // only stores this tile in its internal _tiles map *after*
+                // createTile() returns. Calling done() (== _tileReady) before
+                // that means its lookup finds nothing and silently no-ops —
+                // the pixels are painted correctly, but the tile never gets its
+                // "loaded" class and stays at opacity:0 forever. Deferring one
+                // microtask runs this after _addTile has finished. (This is why
+                // the layer worked on first show — a genuine async fetch — but
+                // not after toggling off/on once its tiles were cached.)
+                Promise.resolve().then(() => paintAndFinish(cached));
+                return tile;
+              }
 
-          fetch(url, { signal: AbortSignal.timeout(30000) })
-            .then((r) =>
-              r.ok
-                ? r.arrayBuffer()
-                : Promise.reject(new Error(`HTTP ${r.status}`)),
-            )
-            .then((buf) => NDVISampler.parseFloat32Tiff(buf))
-            .then((rasterTile) => {
-              NDVISampler._putTileCache(url, rasterTile);
-              paintAndFinish(rasterTile);
-            })
-            .catch((err) => done(err, tile));
+              fetch(url, { signal: AbortSignal.timeout(30000) })
+                .then((r) =>
+                  r.ok
+                    ? r.arrayBuffer()
+                    : Promise.reject(new Error(`HTTP ${r.status}`)),
+                )
+                .then((buf) => NDVISampler.parseFloat32Tiff(buf))
+                .then((rasterTile) => {
+                  NDVISampler._putTileCache(url, rasterTile);
+                  paintAndFinish(rasterTile);
+                })
+                .catch((err) => done(err, tile));
 
-          return tile;
-        },
-      });
+              return tile;
+            },
+          })
+        );
 
       this.ndviTileLayer = new RawNdviLayer('', {
         pane: 'ndviPane',
@@ -269,6 +272,7 @@ export class GSRMapOsm extends GSRMapLegend {
       urlTemplate ||
       activeProvider?.urlTemplate ||
       NDVISampler.DEFAULT_TILE_URL;
+    /** @type {L.TileLayerOptions} */
     const layerOpts = {
       pane: 'ndviPane',
       opacity: opacity,
@@ -277,7 +281,7 @@ export class GSRMapOsm extends GSRMapLegend {
       attribution:
         activeProvider?.attribution ||
         'Satellite imagery © <a href="https://s2maps.eu" target="_blank">Sentinel-2 cloudless / EOX</a>',
-      crossOrigin: 'Anonymous',
+      crossOrigin: 'anonymous',
     };
 
     this.ndviTileLayer = L.tileLayer(url, layerOpts).addTo(this.map);

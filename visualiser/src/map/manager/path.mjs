@@ -20,6 +20,11 @@ import { PathOverlap } from '../path_overlap.mjs';
 import { isUserMovingMap } from '../smooth_wheel_zoom.mjs';
 import { GSRMapRfFluid } from './rf_fluid.mjs';
 
+/**
+ * GSRMapManager: the whole class chain, for calls to methods that later links define.
+ * @import { GSRMapManager } from '../map.mjs'
+ */
+
 // Map-colouring metrics backed by a per-sample analyzer array (analyzer.phasic[i],
 // analyzer.tonic[i], etc.) rather than a static field already present on the
 // drawPoint objects. Looked up live at render time via origIdx — see
@@ -138,7 +143,6 @@ export class GSRMapPath extends GSRMapRfFluid {
    * a zoom are still on the map. Cancelled by _cancelPathRefreshOnZoom
    * (zoomstart). The recolour only touches spots where the walk retraces
    * itself, so landing a moment after the zoom goes unnoticed.
-   * @private
    */
   _schedulePathRefreshOnZoom() {
     this._cancelPathRefreshOnZoom();
@@ -152,7 +156,7 @@ export class GSRMapPath extends GSRMapRfFluid {
     }, PATH_REFRESH_DELAY_MS);
   }
 
-  /** @private */
+  /** */
   _cancelPathRefreshOnZoom() {
     clearTimeout(this._pathRefreshTimer);
     this._pathRefreshTimer = null;
@@ -167,7 +171,6 @@ export class GSRMapPath extends GSRMapRfFluid {
    * unless it differs from the last render's. Also no-ops in collective view,
    * before the first render, when the path provably never retraces itself, and
    * when the zoom level is unchanged. Called via _schedulePathRefreshOnZoom.
-   * @private
    */
   _refreshPathOnZoom() {
     try {
@@ -213,7 +216,9 @@ export class GSRMapPath extends GSRMapRfFluid {
         acc,
       };
       try {
-        this.refreshPath(AppState.analyzer, params);
+        /** @type {GSRMapManager} */ (
+          /** @type {unknown} */ (this)
+        ).refreshPath(AppState.analyzer, params);
       } finally {
         this._zoomOverlapHandoff = null;
       }

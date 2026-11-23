@@ -405,29 +405,31 @@ export const GSRMapExporter = {
       const ringsOut = Math.ceil(maxMarginPx / tileSize);
       const timeoutMs = Math.min(30000, 8000 + ringsOut * 500);
 
-      await new Promise((resolve) => {
-        if (
-          typeof layer._noTilesToLoad !== 'function' ||
-          layer._noTilesToLoad()
-        ) {
-          resolve();
-          return;
-        }
-        let settled = false;
-        const done = () => {
-          if (settled) return;
-          settled = true;
-          layer.off('load', done);
-          clearTimeout(timer);
-          resolve();
-        };
-        layer.on('load', done);
-        // Never let a slow/failed tile fetch block the export indefinitely.
-        // unref()'d so a still-pending timer (the common case: 'load' fires
-        // first and clears it) can never keep the process alive on its own.
-        const timer = setTimeout(done, timeoutMs);
-        if (typeof timer.unref === 'function') timer.unref();
-      });
+      await /** @type {Promise<void>} */ (
+        new Promise((resolve) => {
+          if (
+            typeof layer._noTilesToLoad !== 'function' ||
+            layer._noTilesToLoad()
+          ) {
+            resolve();
+            return;
+          }
+          let settled = false;
+          const done = () => {
+            if (settled) return;
+            settled = true;
+            layer.off('load', done);
+            clearTimeout(timer);
+            resolve();
+          };
+          layer.on('load', done);
+          // Never let a slow/failed tile fetch block the export indefinitely.
+          // unref()'d so a still-pending timer (the common case: 'load' fires
+          // first and clears it) can never keep the process alive on its own.
+          const timer = setTimeout(done, timeoutMs);
+          if (typeof timer.unref === 'function') timer.unref();
+        })
+      );
     } catch (err) {
       GSRNotices.report(err, 'map_exporter:_ensureTileCoverage');
     }
@@ -1349,16 +1351,14 @@ export const GSRMapExporter = {
     const url = URL.createObjectURL(svgBlob);
     try {
       const img = new Image();
-      await new Promise((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = (e) =>
-          reject(
-            new Error(
-              `Failed to rasterize SVG: ${e?.message || 'image load error'}`,
-            ),
-          );
-        img.src = url;
-      });
+      await /** @type {Promise<void>} */ (
+        new Promise((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = () =>
+            reject(new Error('Failed to rasterize SVG: image load error'));
+          img.src = url;
+        })
+      );
 
       const canvas = document.createElement('canvas');
       canvas.width = width;

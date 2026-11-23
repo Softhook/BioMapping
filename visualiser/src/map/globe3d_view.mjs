@@ -791,7 +791,9 @@ export const GSRGlobe3DView = {
 
   /** The map header's RF band (#rfFluidMode) — the single band source now. */
   _headerRfMode() {
-    const sel = document.getElementById('rfFluidMode');
+    const sel = /** @type {HTMLSelectElement} */ (
+      document.getElementById('rfFluidMode')
+    );
     return sel?.value || GSRGlobe3DView.manager?.rfMode || 'triband';
   },
 
@@ -1026,7 +1028,9 @@ export const GSRGlobe3DView = {
     const rfOn =
       !rfDisabled &&
       (rfBtn2d ? rfBtn2d.classList.contains('active') : !!mm.showRFFluid);
-    const rfMode2d = document.getElementById('rfFluidMode');
+    const rfMode2d = /** @type {HTMLSelectElement} */ (
+      document.getElementById('rfFluidMode')
+    );
     const rfMode = rfMode2d ? rfMode2d.value : mgr ? mgr.rfMode : 'triband';
     if (els.rfRow) els.rfRow.style.display = rfOn ? 'flex' : 'none';
     if (mgr) {
@@ -1042,26 +1046,28 @@ export const GSRGlobe3DView = {
       return Promise.resolve();
     if (GSRGlobe3DView._cesiumPromise) return GSRGlobe3DView._cesiumPromise;
 
-    GSRGlobe3DView._cesiumPromise = new Promise((resolve, reject) => {
-      try {
-        window.CESIUM_BASE_URL = CESIUM_BASE;
-        if (!document.querySelector('link[data-cesium-widgets]')) {
-          const link = document.createElement('link');
-          link.rel = 'stylesheet';
-          link.href = `${CESIUM_BASE}Widgets/widgets.css`;
-          link.setAttribute('data-cesium-widgets', '1');
-          document.head.appendChild(link);
+    GSRGlobe3DView._cesiumPromise = /** @type {Promise<void>} */ (
+      new Promise((resolve, reject) => {
+        try {
+          window.CESIUM_BASE_URL = CESIUM_BASE;
+          if (!document.querySelector('link[data-cesium-widgets]')) {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = `${CESIUM_BASE}Widgets/widgets.css`;
+            link.setAttribute('data-cesium-widgets', '1');
+            document.head.appendChild(link);
+          }
+          const s = document.createElement('script');
+          s.src = `${CESIUM_BASE}Cesium.js`;
+          s.async = true;
+          s.onload = () => resolve();
+          s.onerror = () => reject(new Error('Failed to load CesiumJS'));
+          document.head.appendChild(s);
+        } catch (e) {
+          reject(e);
         }
-        const s = document.createElement('script');
-        s.src = `${CESIUM_BASE}Cesium.js`;
-        s.async = true;
-        s.onload = () => resolve();
-        s.onerror = () => reject(new Error('Failed to load CesiumJS'));
-        document.head.appendChild(s);
-      } catch (e) {
-        reject(e);
-      }
-    });
+      })
+    );
     return GSRGlobe3DView._cesiumPromise;
   },
 

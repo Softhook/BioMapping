@@ -162,7 +162,8 @@ function patchLeaflet() {
   if (leafletPatched || !L.GridLayer) return;
   leafletPatched = true;
   for (const Layer of [L.Polyline, L.CircleMarker, L.Circle]) {
-    const project = Layer.prototype._project;
+    // Leaflet internals: not in its type declarations.
+    const project = /** @type {*} */ (Layer.prototype)._project;
     Layer.include({
       _project() {
         return withExactLayerPoints(this._map, () => project.call(this));
@@ -186,7 +187,7 @@ function patchLeaflet() {
       L.DomUtil.setTransform(level.el, translate, scale);
     },
   });
-  const rendererUpdate = L.Renderer.prototype._update;
+  const rendererUpdate = /** @type {*} */ (L.Renderer.prototype)._update;
   L.Renderer.include({
     _update() {
       rendererUpdate.call(this);

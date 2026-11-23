@@ -11,6 +11,11 @@ import {
   SMOOTH_ZOOM_MAP_OPTIONS,
 } from './smooth_wheel_zoom.mjs';
 
+/**
+ * GSRMapManager: the whole class chain, for calls to methods that later links define.
+ * @import { GSRMapManager } from './map.mjs'
+ */
+
 export class GSRMapBase {
   // Lifecycle stubs overridden by subclasses
   _initLegend() {}
@@ -147,8 +152,16 @@ export class GSRMapBase {
     // Overlap-aware path colour depends on the on-screen stroke width, which
     // changes with zoom — re-run the path renderer once zooming has stopped
     // (see _schedulePathRefreshOnZoom / _refreshPathOnZoom).
-    this.map.on('zoomstart', () => this._cancelPathRefreshOnZoom());
-    this.map.on('zoomend', () => this._schedulePathRefreshOnZoom());
+    this.map.on('zoomstart', () =>
+      /** @type {GSRMapManager} */ (
+        /** @type {unknown} */ (this)
+      )._cancelPathRefreshOnZoom(),
+    );
+    this.map.on('zoomend', () =>
+      /** @type {GSRMapManager} */ (
+        /** @type {unknown} */ (this)
+      )._schedulePathRefreshOnZoom(),
+    );
 
     // Arousal Place badges are screen-space — re-fold/unfold colliding ones once
     // the new zoom settles (see _declutterArousalPlaceBadges).

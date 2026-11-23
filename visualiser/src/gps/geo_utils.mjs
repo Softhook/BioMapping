@@ -10,7 +10,7 @@ export const GeoUtils = {
   /**
    * Conversion factors from degrees to metres at a given latitude.
    *
-   * @param {number} lat - Latitude in degrees.
+   * @param {number|string} lat - Latitude in degrees.
    * @returns {{degToMeterLat: number, degToMeterLon: number}} Scaling factors.
    */
   getGeodesicScale(lat) {
@@ -22,10 +22,10 @@ export const GeoUtils = {
   /**
    * Fast flat-earth squared distance in metres given scale factors.
    *
-   * @param {number} lat1 - Point 1 latitude.
-   * @param {number} lon1 - Point 1 longitude.
-   * @param {number} lat2 - Point 2 latitude.
-   * @param {number} lon2 - Point 2 longitude.
+   * @param {number|string} lat1 - Point 1 latitude.
+   * @param {number|string} lon1 - Point 1 longitude.
+   * @param {number|string} lat2 - Point 2 latitude.
+   * @param {number|string} lon2 - Point 2 longitude.
    * @param {{degToMeterLat: number, degToMeterLon: number}} [scale] - Scale factors.
    * @returns {number} Squared distance in metres.
    */
@@ -55,7 +55,7 @@ export const GeoUtils = {
   /**
    * Extract standardised {lat, lon} numbers from various point representations.
    *
-   * @param {object|Array} p - Point representation ({lat, lon}, {lat, lng}, [lat, lon], etc.)
+   * @param {*} p - Point representation ({lat, lon}, {lat, lng}, [lat, lon], etc.)
    * @returns {{lat: number, lon: number}|null} Standardised coordinate pair or null.
    */
   extractCoord(p) {
@@ -79,7 +79,7 @@ export const GeoUtils = {
   /**
    * Compute bounding box for an array of points ({lat, lon} or [lat, lon]).
    *
-   * @param {Array<object|Array>} points - Array of points.
+   * @param {Array<*>} points - Array of points.
    * @param {number} [marginRatio=0] - Optional margin ratio (e.g. 0.1 for 10% padding).
    * @param {function} [filterFn] - Optional point filter predicate.
    * @returns {{minLat: number, maxLat: number, minLon: number, maxLon: number}|null}
@@ -207,10 +207,10 @@ export const GeoUtils = {
   /**
    * Initial bearing (forward azimuth) from point 1 to point 2 in radians (-π..π).
    *
-   * @param {number} lat1 - Start latitude.
-   * @param {number} lon1 - Start longitude.
-   * @param {number} lat2 - End latitude.
-   * @param {number} lon2 - End longitude.
+   * @param {number|string} lat1 - Start latitude.
+   * @param {number|string} lon1 - Start longitude.
+   * @param {number|string} lat2 - End latitude.
+   * @param {number|string} lon2 - End longitude.
    * @returns {number} Bearing in radians.
    */
   bearingRad(lat1, lon1, lat2, lon2) {

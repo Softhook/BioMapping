@@ -106,8 +106,8 @@ export const MapMatcher = {
    * @param {Array}  evalPoints  — [{idx, lat, lon, nearby}] where nearby is the
    *                               spatial-index query result for that point.
    * @param {Array}  raw         — full raw data array (used for .time values).
-   * @param {number} [matchRadius] — override for MATCH_RADIUS in metres.
-   * @returns {Map<number, object>}  Map from raw-array index to snapped position:
+   * @param {number} [matchRadius] - override for MATCH_RADIUS in metres.
+   * @returns {Map<number, GSRSnapPoint>}  Map from raw-array index to snapped position:
    *   { lat, lon, roadLat, roadLon, alpha, wayId, dist }
    */
   match(evalPoints, raw, matchRadius) {

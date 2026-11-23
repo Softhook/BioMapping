@@ -25,6 +25,11 @@ import { GSRMapMarkers } from '../map_markers.mjs';
 import { MapPopups } from '../map_popups.mjs';
 import { GSRMapPath } from './path.mjs';
 
+/**
+ * GSRMapManager: the whole class chain, for calls to methods that later links define.
+ * @import { GSRMapManager } from '../map.mjs'
+ */
+
 export class GSRMapPeaks extends GSRMapPath {
   _renderPeakMarkers(analyzer, _data, track, options) {
     options = options || {};
@@ -174,7 +179,9 @@ export class GSRMapPeaks extends GSRMapPath {
           // clock the graph shows.
           time: ap.peak.time - (analyzer.responseDelay || 0),
         }));
-      this._renderArousalPlacesFor(
+      /** @type {GSRMapManager} */ (
+        /** @type {unknown} */ (this)
+      )._renderArousalPlacesFor(
         activePeaks,
         [this._placesTrack(trackId, analyzer)],
         { collective: false, activeTrackCount: 1 },
@@ -310,7 +317,7 @@ export class GSRMapPeaks extends GSRMapPath {
    * click-to-focus — collective view has no single "active track" for a
    * focus action to target (see the regular per-track peak markers built
    * just above this method's call site in renderCollectiveData()).
-   * @private
+   * @protected
    */
   _renderCollectiveTrackHotspots(track) {
     const analyzer = track.analyzer;
@@ -346,7 +353,7 @@ export class GSRMapPeaks extends GSRMapPath {
    * clustering pass) and refreshCollectivePeakMarkers() (label-edit-only
    * partial refresh, passes null — see that method's doc comment for why
    * skipping the clustering push is correct there).
-   * @private
+   * @protected
    */
   _renderCollectiveTrackPeaks(track, layerGroup, trackColor, activePeaksSink) {
     const map = this.map;
@@ -493,7 +500,9 @@ export class GSRMapPeaks extends GSRMapPath {
     const layerGroup = track.layerGroup;
     const trackColor = track.color || '#0ea5e9';
 
-    this._refreshTrackLayers(
+    /** @type {GSRMapManager} */ (
+      /** @type {unknown} */ (this)
+    )._refreshTrackLayers(
       track,
       new Set(['collectivePeak', 'collectiveConnector']),
       () =>

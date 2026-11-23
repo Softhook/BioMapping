@@ -14,18 +14,20 @@ import { SUB_GHZ_BANDS } from './em_fog.mjs';
 export const AnalyzerExport = {
   /**
    * @param {object} state
-   * @param {Array<object>} state.raw
+   * @param {Array<GSRRow>} state.raw
    * @param {Array<{val:number}>} state.filtered
    * @param {Array<{val:number}>} state.tonic
    * @param {Array<{val:number}>} state.phasic
-   * @param {Array<object>} state.peaks
+   * @param {Array<GSRPeak>} state.peaks
+   * @param {Array<{time:number, label:string}>} [state.hiddenLabels] - Labels on peaks the current settings don't find.
+   * @param {Array<{time:number}>} [state.hiddenExclusions] - Exclusions on peaks the current settings don't find.
    * @param {Array<{lat:number,lon:number}>|null} state.filteredGps
    * @param {boolean} state.isEnriched
    * @param {number} state.recordingStartTime
    * @param {Array<string>} [state.deviceHeaderLines] - Device metadata lines from the source file.
    * @param {number} [state.responseDelay] - Response delay (s) the walk was shown at.
-   * @param {object} [params] - Filter params, echoed into a header comment for re-import.
-   * @param {object} [gpsParams] - GPS filter params, echoed into a header comment for re-import.
+   * @param {GSRParams} [params] - Filter params, echoed into a header comment for re-import.
+   * @param {GSRGpsParams} [gpsParams] - GPS filter params, echoed into a header comment for re-import.
    * @returns {string}
    */
   toCSV(state, params, gpsParams) {

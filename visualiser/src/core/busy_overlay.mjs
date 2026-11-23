@@ -38,15 +38,17 @@ function ensureOverlay() {
 // fires in a hidden tab, so a timeout backstop stops the work being deferred
 // until the tab is next visible.
 const nextPaint = () =>
-  new Promise((resolve) => {
-    const timer = setTimeout(resolve, 100);
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        clearTimeout(timer);
-        resolve();
-      }),
-    );
-  });
+  /** @type {Promise<void>} */ (
+    new Promise((resolve) => {
+      const timer = setTimeout(resolve, 100);
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          clearTimeout(timer);
+          resolve();
+        }),
+      );
+    })
+  );
 
 export const BusyOverlay = {
   /**

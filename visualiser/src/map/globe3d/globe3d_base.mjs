@@ -15,6 +15,11 @@ import { ResponseDynamics } from '../../signal/response_dynamics.mjs';
 import { GSRBasemap } from '../basemap.mjs';
 import { MapColors } from '../map_colors.mjs';
 
+/**
+ * @import { GSRAnalyzer } from '../../signal/analyzer.mjs'
+ * @import { GSRGlobeManager } from '../globe3d.mjs'
+ */
+
 /** basemap id -> factory producing a fresh Cesium imagery provider (no API key required) */
 export const BASEMAP_PROVIDERS = {
   satellite: () =>
@@ -170,6 +175,13 @@ export class GSRGlobeBase {
    * @param {number}  [options.orbitResolutionScale]    render-resolution
    *   multiplier while the 360° turntable orbit runs (restored on stop).
    *   Defaults to 0.85 on HiDPI displays and 1.0 on 1x displays.
+   * @param {number}  [options.idleRenderMs=2200]   how long rendering stays
+   *   continuous after the camera stops (see _wakeRenderLoop).
+   * @param {number}  [options.tileCacheSize=500]   map tiles kept in memory.
+   * @param {string}  [options.heightMetric='phasic']  series the wall height follows.
+   * @param {number}  [options.wallMaxSegments]     wall thinning budget.
+   * @param {boolean} [options.showGroundPath=false]  draw the flat ground trace.
+   * @param {number}  [options.trackWidth=5]        ground trace width, px.
    */
   constructor(containerId, options = {}) {
     this.containerId = containerId;
@@ -288,6 +300,15 @@ export class GSRGlobeBase {
     // map path. See onScrubHover() and _setupCameraControls().
     this._scrubHoverCb = null;
     this._scrubHoverLeaveHandler = null;
+
+    // Optional callbacks the host sets (globe3d_view.mjs) to hear about a
+    // basemap or 3D-buildings change made from inside the globe.
+    /** @type {((type: string) => void)|undefined} */
+    this.onBasemapChange = undefined;
+    /** @type {((show: boolean) => void)|undefined} */
+    this.onBuildingsChange = undefined;
+    /** @type {Map<string, *>|undefined} Per-render memo (_getMetricSeries). */
+    this._metricSeriesCache = undefined;
 
     // Teardown bookkeeping — every listener this class adds, so destroy() is exact.
     this._keyDownHandler = null;
@@ -619,7 +640,10 @@ export class GSRGlobeBase {
 
       let isPeak = false;
       try {
-        const picked = scene.pick(pos);
+        // pos is a plain {x, y} copy; pick() only reads x and y.
+        const picked = scene.pick(
+          /** @type {import('@cesium/engine').Cartesian2} */ (pos),
+        );
         isPeak = Boolean(
           picked?.id && typeof picked.id._biomapPeakIndex === 'number',
         );
@@ -1206,7 +1230,9 @@ export class GSRGlobeBase {
       lat,
       terrainAlt + Math.max(0, resolvedHeight) + 2.5,
     );
-    this.scrubEntity.position = pos;
+    // Cesium wraps a plain Cartesian3 in a position property; its type
+    // declarations only list the property.
+    this.scrubEntity.position = /** @type {*} */ (pos);
     this.scrubEntity.show = true;
   }
 
@@ -1395,7 +1421,9 @@ export class GSRGlobeBase {
    * @private
    */
   _scrubFitRange(range, pitch, halfHeight) {
-    const fovy = this.viewer.camera.frustum?.fovy || 0.6;
+    // Only a perspective frustum has fovy.
+    const fovy =
+      /** @type {{fovy?: number}} */ (this.viewer.camera.frustum)?.fovy || 0.6;
     const limit = (fovy / 2) * SCRUB_FIT_MARGIN;
     const fits = (r) => {
       for (const v of [halfHeight, -halfHeight]) {
@@ -1424,7 +1452,7 @@ export class GSRGlobeBase {
   /**
    * Render a BioMapping track in 3D.
    * @param {GSRAnalyzer} analyzer  Analysed track instance.
-   * @param {object} [gpsParams]    The host's GPS params object (from
+   * @param {GSRGpsParams} [gpsParams] The host's GPS params object (from
    *                                GSRStorage.buildGpsParams). This class never
    *                                runs the GPS chain — the host supplies
    *                                `opts.drawPoints` — but `trackWeight`
@@ -1506,7 +1534,10 @@ export class GSRGlobeBase {
     this._rebuildLayers();
 
     if (!isPreview) {
-      this.flyToTrack();
+      // Defined further down the class chain (globe3d/navigation.mjs).
+      /** @type {GSRGlobeManager} */ (
+        /** @type {unknown} */ (this)
+      ).flyToTrack();
     }
   }
 
@@ -1894,7 +1925,7 @@ export class GSRGlobeBase {
 
   /**
    * Terrain elevation (m) at lat/lon, or 0 when terrain isn't loaded / the tile
-   * isn't ready. Mirrors setScrubPosition()'s sampling. @private
+   * isn't ready. Mirrors setScrubPosition()'s sampling. @protected
    */
   _groundHeightAt(lat, lon) {
     try {
@@ -2016,45 +2047,49 @@ export class GSRGlobeBase {
    * slider-driven refresh from the same cached track). Both had grown a
    * byte-identical copy of this sequence, so a fix to one — the batch, the
    * clear order, _syncClusterBlobs — had to be mirrored into the other by hand.
-   * @private
+   * @protected
    */
   _rebuildLayers() {
+    // Most layers' clear and render methods are defined further down the
+    // class chain (globe3d/osm.mjs, rf.mjs, peaks.mjs, toggles.mjs).
+    // biome-ignore lint/complexity/noUselessThisAlias: `this` typed as the whole class chain, for the type checker
+    const self = /** @type {GSRGlobeManager} */ (/** @type {unknown} */ (this));
     this._invalidateMetricSeriesCache();
     this._withEntityBatch(() => {
-      this.clearTrackEntities();
-      this.clearPeakEntities();
-      this.clearHotspotEntities();
-      this.clearRfEntities();
+      self.clearTrackEntities();
+      self.clearPeakEntities();
+      self.clearHotspotEntities();
+      self.clearRfEntities();
       this._render3DWallAndPath(this.currentAnalyzer, this.currentDrawPoints);
       if (this.showPeaks || this.showLabels) {
-        this._renderPeakSpires(this.currentAnalyzer, this.currentPeaks);
+        self._renderPeakSpires(this.currentAnalyzer, this.currentPeaks);
       }
-      if (this.showHotspots) this._renderHotspots(this.currentAnalyzer);
+      if (this.showHotspots) self._renderHotspots(this.currentAnalyzer);
       // Ground blobs only when the hulls / Clusters toggle actually changed — a
       // GSR/GPS/extrusion/metric slider push never touches them, and
       // clamp-to-ground primitives blink on remove+add (see _syncClusterBlobs).
-      this._syncClusterBlobs();
+      self._syncClusterBlobs();
       // Replay tour: hide the wall segments / markers the clock hasn't reached.
       if (this._replay) this._applyReplayReveal();
       // RF volume: its raw Primitive is lost on context restore and stale after
       // a slider-driven metric/extrusion change, so re-upload it here.
       if (this.showRfVolumetric)
-        this.render3DRfExpanse(this.currentAnalyzer, this.currentDrawPoints);
+        self.render3DRfExpanse(this.currentAnalyzer, this.currentDrawPoints);
 
       // OSM buildings: clearAll() (a track being removed, or a context loss)
       // drops the extruded primitive but leaves show3DBuildings set. Re-assert
       // it here, but ONLY when it is genuinely gone — present buildings are
       // left alone so a slider drag doesn't blink them.
       if (
-        this.show3DBuildings &&
+        self.show3DBuildings &&
         this.cachedOsmJson &&
         !this.buildingPrimitive &&
         !this.buildingsTileset?.show &&
-        !this._buildingsFetching
+        !self._buildingsFetching
       ) {
-        this.renderOsm3DBuildings(
+        self.renderOsm3DBuildings(
           this.cachedOsmJson,
-          this.buildingStyle || 'monochrome',
+          self.buildingStyle || 'monochrome',
         );
       }
     });

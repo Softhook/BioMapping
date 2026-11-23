@@ -10,7 +10,7 @@
  *
  * @param {string} tableId
  * @param {string|null|undefined} column - data-sort key of the sorted column
- * @param {'asc'|'desc'} direction
+ * @param {string} direction - 'asc' or 'desc'
  */
 export function updateSortHeaders(tableId, column, direction) {
   if (
@@ -21,7 +21,9 @@ export function updateSortHeaders(tableId, column, direction) {
   const table = document.getElementById(tableId);
   if (!table || typeof table.querySelectorAll !== 'function') return;
 
-  table.querySelectorAll('thead th.sortable').forEach((th) => {
+  /** @type {NodeListOf<HTMLElement>} */ (
+    table.querySelectorAll('thead th.sortable')
+  ).forEach((th) => {
     const icon = th.querySelector('.sort-icon');
     th.classList.remove('sort-asc', 'sort-desc');
     if (th.dataset.sort === column) {

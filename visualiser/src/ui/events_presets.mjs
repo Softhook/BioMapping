@@ -27,13 +27,15 @@ export const PresetEvents = {
     }
 
     const btnApplyPreset = document.getElementById('btnApplyPreset');
-    const presetFileInput = document.getElementById('presetFileInput');
+    const presetFileInput = /** @type {HTMLInputElement} */ (
+      document.getElementById('presetFileInput')
+    );
     if (btnApplyPreset && presetFileInput) {
       btnApplyPreset.addEventListener('click', () => {
         presetFileInput.click();
       });
       presetFileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
+        const file = /** @type {HTMLInputElement} */ (e.target).files[0];
         if (file) {
           GSRStorage.importPresetFile(file);
           presetFileInput.value = '';

@@ -18,6 +18,8 @@
 import { GeoUtils } from './geo_utils.mjs';
 import { GpsCvKalman } from './gps_cv_kalman.mjs';
 
+/** @import { GSRAnalyzer } from '../signal/analyzer.mjs' */
+
 // Absolute distance ceiling for a "plausible" gap, regardless of how much
 // time it spans — guards a long gap between two points that happen to be
 // close together but were actually reached by a real detour (e.g. a
@@ -597,7 +599,7 @@ export const GpsPipeline = {
    *
    * @param {number} count - number of candidate positions
    * @param {number} step - decimation stride (1 = keep everything)
-   * @param {function(number): number} origIdxAt - maps a position to its raw row index
+   * @param {(pos: number) => number} origIdxAt - maps a position to its raw row index
    * @param {Set<number>} [forceIndexSet] - raw row indices that must survive the stride
    * @returns {number[]} chosen positions, ascending by origIdx
    */

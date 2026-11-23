@@ -6,6 +6,11 @@
 import { GSRNotices } from '../core/notices.mjs';
 
 /**
+ * @typedef {{box: {left: number, top: number, right: number, bottom: number},
+ *   dir: string}} LabelSpot  A label's chosen box and its direction from the dot.
+ */
+
+/**
  * Uniform 1-D spatial index for equal-height axis-aligned boxes.
  *
  * Every box handed in is exactly `bandHeight` tall, so filing it under the
@@ -100,7 +105,7 @@ export const GSRLabelManager = {
    * cartographic approach for point-feature label placement.
    *
    * @param {Array} peaksWithCoords — array of { idx, px, py, text }
-   * @returns {Map<number, { box: object, dir: string }>} map from peakIndex to positioned candidate
+   * @returns {Map<number, LabelSpot>} map from peakIndex to positioned candidate
    */
   computeLabelPositions(peaksWithCoords) {
     if (peaksWithCoords.length === 0) return new Map();
@@ -123,6 +128,7 @@ export const GSRLabelManager = {
       const W = p.text ? GSRLabelManager.textWidth(p.text) : 120;
       p.tw = W; // cache for later use
       const halfW = W / 2;
+      /** @type {Array<[string, (px: number, py: number, g: number) => number, (px: number, py: number, g: number) => number]>} */
       const gens = [
         ['S', (px, _py, _g) => px - halfW, (_px, py, g) => py + g],
         ['N', (px, _py, _g) => px - halfW, (_px, py, g) => py - H - g],
@@ -253,7 +259,7 @@ export const GSRLabelManager = {
    * @param {number} px - Dot center X (pixel)
    * @param {number} py - Dot center Y (pixel)
    * @param {string} labelText - Label text
-   * @param {object} dirResult - Direction result with bounding box
+   * @param {LabelSpot} dirResult - Direction result with bounding box
    * @param {object} [opts] - Optional styling overrides
    * @param {number} [opts.dotSize=24] - Icon-box sizing/positioning reference (not the visible dot diameter — see dotPx)
    * @param {string} [opts.wrapperClass='stress-peak-icon-wrapper'] - Container CSS class

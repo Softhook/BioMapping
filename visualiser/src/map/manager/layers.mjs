@@ -17,6 +17,11 @@
  */
 import { GSRMapBase } from '../map_base.mjs';
 
+/**
+ * GSRMapManager: the whole class chain, for calls to methods that later links define.
+ * @import { GSRMapManager } from '../map.mjs'
+ */
+
 export class GSRMapLayers extends GSRMapBase {
   /**
    * Remove all layers in the array from the map and clear the array.
@@ -45,7 +50,7 @@ export class GSRMapLayers extends GSRMapBase {
    * render handle — an L.layerGroup() added to the map that owns all of this
    * track's path/peak/hotspot layers. Null tracks (a bare analyzer rendered
    * outside the track manager) fall back to the legacy direct-to-map path.
-   * @private
+   * @protected
    */
   _getTrackLayerGroup(track) {
     if (!track) return null;
@@ -125,7 +130,7 @@ export class GSRMapLayers extends GSRMapBase {
    * Record a layer as owned by a track (or, in the legacy
    * no-track fallback, by this manager) so visibility toggles can find ALL
    * created layers — the layerGroup only holds the currently-visible ones.
-   * @private
+   * @protected
    */
   _registerTrackLayer(track, layer) {
     if (track?._ownedLayers) track._ownedLayers.push(layer);
@@ -135,7 +140,7 @@ export class GSRMapLayers extends GSRMapBase {
   /**
    * Every per-track render layer this manager has created
    * (visible or hidden), across all rendered tracks + the legacy fallback.
-   * @private
+   * @protected
    */
   _allTrackLayers() {
     const layers = [];
@@ -150,7 +155,7 @@ export class GSRMapLayers extends GSRMapBase {
    * Remove every per-track layerGroup this manager has
    * rendered from the map and null the track handle. Shared by clearMap and
    * clearCollectiveLayers so a group can't linger when either clear path runs.
-   * @private
+   * @protected
    */
   _clearRenderedTrackGroups() {
     if (!this.map) return;
@@ -208,14 +213,16 @@ export class GSRMapLayers extends GSRMapBase {
       this.map.removeLayer(this.scrubMarker);
     }
 
-    this._clearRfFluid();
+    /** @type {GSRMapManager} */ (
+      /** @type {unknown} */ (this)
+    )._clearRfFluid();
 
     // Reset legend
     this._legendMinVal = 0;
     this._legendMaxVal = 0;
     this._legendUniqueVals = null;
     this.hasRfData = false;
-    this.updateLegend();
+    /** @type {GSRMapManager} */ (/** @type {unknown} */ (this)).updateLegend();
   }
 
   /**
@@ -226,6 +233,8 @@ export class GSRMapLayers extends GSRMapBase {
    */
   clearAll() {
     this.clearMap();
-    this.clearCollectiveLayers();
+    /** @type {GSRMapManager} */ (
+      /** @type {unknown} */ (this)
+    ).clearCollectiveLayers();
   }
 }

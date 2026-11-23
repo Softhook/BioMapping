@@ -222,8 +222,12 @@ export const TrackList = {
     const item = document.querySelector(`li[data-track-id="${trackId}"]`);
     if (!item) return;
 
-    const nameSpan = item.querySelector('.track-name');
-    const nameInput = item.querySelector('.track-name-input');
+    const nameSpan = /** @type {HTMLElement} */ (
+      item.querySelector('.track-name')
+    );
+    const nameInput = /** @type {HTMLInputElement} */ (
+      item.querySelector('.track-name-input')
+    );
     if (!nameSpan || !nameInput) return;
 
     nameSpan.style.display = 'none';

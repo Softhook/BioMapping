@@ -119,7 +119,7 @@ export const GpsCvKalman = {
    * below 0.5 is unrealistically optimistic, above 10 the HDOP gate has
    * already dropped the fix.
    *
-   * @param {object} pt - point with optional hacc/pdop/hdop fields
+   * @param {{hacc?: number, pdop?: number, hdop?: number}} pt - point with optional hacc/pdop/hdop fields
    */
   measurementVarianceM2(pt) {
     if (!isNaN(pt.hacc) && pt.hacc > 0 && pt.hacc < 50.0) {

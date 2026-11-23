@@ -45,7 +45,7 @@ export const AnalyzerStats = {
    * Evaluated efficiently in O(n + peakCount) via a two-pointer sliding window (±3.5 sigma).
    *
    * @param {Array<{time:number,val:number}>} phasic
-   * @param {Array<object>} peaks - Detected peak objects (excluded ones are ignored).
+   * @param {Array<GSRPeak>} peaks - Detected peak objects (excluded ones are ignored).
    * @param {number|null} windowSizeSec - Spotlight time window in seconds (default: GSR_CONST.TEMPORAL_PEAK_DENSITY.windowSizeSec || 60)
    * @returns {Array<{time: number, val: number}>}
    */
@@ -349,7 +349,7 @@ export const AnalyzerStats = {
    *
    * @param {Array<{time:number,val:number}>} raw
    * @param {Array<{time:number,val:number}>} tonic
-   * @param {Array<object>} peaks
+   * @param {Array<GSRPeak>} peaks
    * @param {Array<{time:number,val:number}>} phasicAUC
    * @param {Array<{startIdx:number,endIdx:number}>} [offSpans]
    */

@@ -15,6 +15,15 @@
  */
 import { GeoUtils } from '../gps/geo_utils.mjs';
 
+/**
+ * @typedef {{label: string, cluster: Array<*>, lat: number, lon: number,
+ *   memberCount: number, trackIds: Array<*>, trackCount: number,
+ *   visitCount: number, meanAmp: number, maxAmp: number,
+ *   firstTime: number|null, energy: number, dwellSeconds: number,
+ *   rate: number, rankScore?: number, provisional: boolean, osm: *}} ArousalPlace
+ *   One Arousal Place (GSRArousalPlaces.buildPlaces).
+ */
+
 export const GSRArousalPlaces = {
   /**
    * @param {Array<Array<object>>} clusters - Output of
@@ -25,10 +34,11 @@ export const GSRArousalPlaces = {
    *   { id, sampleRate, raw: [{ time, lat, lon, hasGps, osm_road_class?,
    *     osm_dist_green?, osm_canopy_pct_50m? }], phasic: [{ time, val }] }.
    *   raw[i] and phasic[i] are assumed sample-aligned.
-   * @param {object} [opts] - GSR_CONST.AROUSAL_PLACES shape:
-   *   { mergeM, footprintPadM, dwellFloorS, minVisitS, provisionalMaxTracks,
-   *     walkRankExponent, minWalks }.
-   * @returns {Array<object>} Place records sorted by `rankScore` descending
+   * @param {{mergeM?: number, footprintPadM?: number, dwellFloorS?: number,
+   *   minVisitS?: number, provisionalMaxTracks?: number, minMembers?: number,
+   *   minWalks?: number, maxPlaces?: number, walkRankExponent?: number}} [opts]
+   *   - mostly GSR_CONST.AROUSAL_PLACES.
+   * @returns {Array<ArousalPlace>} Place records sorted by `rankScore` descending
    *   (rate boosted by how many walks reacted), each:
    *   { label, cluster, lat, lon, memberCount, trackIds, trackCount,
    *     visitCount, meanAmp, maxAmp, firstTime, energy, dwellSeconds, rate,

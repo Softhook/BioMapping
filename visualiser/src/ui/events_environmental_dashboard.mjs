@@ -22,7 +22,9 @@ export const EnvironmentalDashboardEvents = {
         document.querySelectorAll('#envTabSwitcher .view-tab').forEach((b) => {
           b.classList.remove('active');
         });
-        document.querySelectorAll('.env-tab-content').forEach((p) => {
+        /** @type {NodeListOf<HTMLElement>} */ (
+          document.querySelectorAll('.env-tab-content')
+        ).forEach((p) => {
           p.style.display = 'none';
           p.classList.remove('active');
         });
@@ -65,7 +67,11 @@ export const EnvironmentalDashboardEvents = {
     const envTabJunctions = document.getElementById('envTabJunctions');
     if (envTabJunctions) {
       envTabJunctions.addEventListener('click', (e) => {
-        const fetchBtn = e.target.closest('.btn-fetch-junction-geoms');
+        const fetchBtn = /** @type {HTMLButtonElement|null} */ (
+          /** @type {HTMLElement} */ (e.target).closest(
+            '.btn-fetch-junction-geoms',
+          )
+        );
         if (fetchBtn && Controllers.ui?.ensureOsmGeoms) {
           fetchBtn.disabled = true;
           fetchBtn.innerHTML =

@@ -30,6 +30,11 @@ const TYPICAL = 'Typical';
 const BRIEF = 'Brief';
 const SHARP = 'Sharp';
 
+/**
+ * @typedef {{id: string, label: string, scale: number, color: string,
+ *   minVal: number, maxVal: number}} SpeedBand
+ */
+
 export const ResponseDynamics = {
   /**
    * Category labels, in ascending speed-factor order.
@@ -50,6 +55,8 @@ export const ResponseDynamics = {
   /**
    * Speed-factor bands. A factor of 1.25 means the peak rose in 80 % of the
    * typical time for its size; 0.5 means it took twice as long.
+   *
+   * @type {SpeedBand[]}
    */
   BANDS: [
     {
@@ -98,7 +105,7 @@ export const ResponseDynamics = {
    * Resolve the discrete band for a numeric speed factor.
    *
    * @param {number} val - Speed factor (e.g. 0.50 .. 1.50).
-   * @returns {object|null} Band descriptor or null if resting / inactive (<= 0).
+   * @returns {SpeedBand|null} Band descriptor or null if resting / inactive (<= 0).
    */
   getBand(val) {
     if (val == null || !isFinite(val) || val <= 0) return null;
@@ -275,7 +282,7 @@ export const ResponseDynamics = {
    * @param {number} fs - Its sample rate.
    * @param {number} winStart - First sample of the peak's atom window.
    * @param {number} apexIdx - Detected apex sample.
-   * @param {Array<object>} earlierAtoms - Atoms with onset before winStart.
+   * @param {Array<{onsetSec: number, bandAmps: number[]}>} earlierAtoms - Atoms with onset before winStart.
    * @param {{bandKernels: Array<Float64Array>, workRate: number}} kinetics
    * @returns {number|null} Seconds, or null if there is no rise.
    */
@@ -368,8 +375,8 @@ export const ResponseDynamics = {
    * bump is rebuilt and measured; otherwise the strongest atom's own
    * (template-based) label is used.
    *
-   * @param {Array<object>} peaks - List of detected peaks.
-   * @param {Array<object>} driverPeaks - SparsEDA driver impulses.
+   * @param {Array<GSRPeak>} peaks - List of detected peaks.
+   * @param {Array<GSRDriverPeak>} driverPeaks - SparsEDA driver impulses.
    * @param {number} sampleRate - Sampling rate in Hz.
    * @param {{bandKernels: Array<Float64Array>, workRate: number,
    *          signal?: ArrayLike<number>}} [kinetics] - signal = the phasic
@@ -511,9 +518,9 @@ export const ResponseDynamics = {
    * @param {object} opts
    * @param {number} opts.n - Total number of samples.
    * @param {number} opts.sampleRate - Sampling rate in Hz.
-   * @param {Array<object>} [opts.raw] - Raw sample array with time field.
-   * @param {Array<number>} [opts.times] - Array of sample timestamps.
-   * @param {Array<object>} [opts.peaks] - Analyzed peaks.
+   * @param {Array<{time: number}>} [opts.raw] - Raw sample array with time field.
+   * @param {ArrayLike<number>} [opts.times] - Array of sample timestamps.
+   * @param {Array<GSRPeak>} [opts.peaks] - Analyzed peaks.
    * @param {boolean} [opts.isSparseda=true] - Whether SparsEDA is the active deconvolution algorithm.
    * @returns {Array<{ time: number, val: number }>} Continuous series
    */

@@ -216,9 +216,10 @@ Bug reports, hardware build notes, and pull requests are welcome. A few things t
   - `npm test` — Node test runner
   - `npm run lint` — [Biome](https://biomejs.dev/) linter (also runs on every PR via CI)
   - `npm run lint:deps` — checks module dependencies with [dependency-cruiser](https://github.com/sverweij/dependency-cruiser) (e.g. no circular imports)
+  - `npm run typecheck` — [TypeScript](https://www.typescriptlang.org/) checks the JavaScript against its JSDoc comments (`@param`, `@returns`, `@typedef`). Nothing is compiled; the shared data shapes are in `visualiser/types/`
   - `npm run format` — auto-format with Biome
-  - `npm run check` — lint, dependency check and tests in one go
-- CI runs lint, the dependency check and tests automatically on every push to `main` and on every pull request.
+  - `npm run check` — lint, dependency check, type check and tests in one go
+- CI runs lint, the dependency check, the type check and tests automatically on every push to `main` and on every pull request.
 - Run `git config core.hooksPath .githooks` once per clone to enable a pre-commit hook that auto-formats/lints staged visualiser files with Biome, so CI's lint step doesn't fail on something that could have been caught locally.
 
 **Docs & CSV Schema**

@@ -67,8 +67,8 @@ export const PeaksTableUI = {
     this._markUnsavedLabels(track);
 
     // 1. Sync table input if it exists and is not the active typing element
-    const tableInput = document.querySelector(
-      `.peak-label-input[data-peak-idx="${idx}"]`,
+    const tableInput = /** @type {HTMLTextAreaElement} */ (
+      document.querySelector(`.peak-label-input[data-peak-idx="${idx}"]`)
     );
     if (tableInput && tableInput.value !== value) {
       tableInput.value = value;
@@ -77,7 +77,9 @@ export const PeaksTableUI = {
     }
 
     // 2. Sync map popup input if it exists and is not the active typing element
-    const mapInput = document.querySelector('.peak-popup-label-input');
+    const mapInput = /** @type {HTMLTextAreaElement} */ (
+      document.querySelector('.peak-popup-label-input')
+    );
     if (mapInput && mapInput.value !== value) {
       mapInput.value = value;
       mapInput.style.height = 'auto';
@@ -246,7 +248,7 @@ export const PeaksTableUI = {
 
     // Create array of { p, idx } pairs to sort without mutating AppState.analyzer.peaks
     const indexedPeaks = peaks.map((p, idx) => ({ p, idx }));
-    const getRiseTime = (p) => p.riseTime ?? p.time - p.onsetTime ?? 0;
+    const getRiseTime = (p) => p.riseTime ?? p.time - p.onsetTime;
 
     indexedPeaks.sort((a, b) => {
       let diff = 0;

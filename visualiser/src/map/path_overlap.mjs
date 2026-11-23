@@ -34,9 +34,12 @@ export const PathOverlap = {
    * @param {number} revisitGapS
    * @param {Array} [vals]  getVal of every draw point, when the caller has
    *   them already (vals[i] is used in place of getVal(drawPoints[i]))
-   * @returns {{ cells: Map<number,{cr,cc,sum,count,lastT,revisited}>,
-   *            rLat:number, rLon:number, keyAt:(lat:number,lon:number)=>number,
-   *            anyRevisited:boolean } | null}
+   * @returns {{ cells: Map<number|string,{cr,cc,sum,count,lastT,revisited}>,
+   *            rLat:number, rLon:number,
+   *            keyOf:(cr:number,cc:number)=>number|string,
+   *            keyAt:(lat:number,lon:number)=>number|string,
+   *            anyRevisited:boolean } | null}  Keys are packed numbers, or
+   *   "cr|cc" text when the grid is too big to pack.
    */
   buildCells(drawPoints, getVal, radiusM, revisitGapS, vals) {
     if (!Array.isArray(drawPoints) || drawPoints.length < 4 || !(radiusM > 0))

@@ -1232,7 +1232,8 @@ export const NDVISampler = {
    *
    * @param {Array<Object>} tracks - Array of track objects ({ analyzer, name, id })
    * @param {Object} [options={}] - Options { zoom, radiusM, onProgress, signal, maxMosaicAreaKm2, maxMosaicTiles }
-   * @returns {Promise<{ mode: string, totalCount: number, enrichedCount: number, failedCount: number, tooBigCount: number, failedTracks: Array, tilesFailed?: number }>}
+   * @returns {Promise<{ mode: string, totalCount: number, enrichedCount: number, failedCount: number, tooBigCount: number, failedTracks: Array, tilesFetched?: number, tilesFailed?: number }>}
+   *   tilesFetched = satellite tiles downloaded for a shared mosaic.
    *   tilesFailed = satellite tiles that never arrived; the stretches under
    *   them have no reading.
    */

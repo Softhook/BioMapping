@@ -268,7 +268,9 @@ export const EnrichmentUI = {
       }
 
       const snapEnabled =
-        document.getElementById('gpsSnapToRoads')?.checked ?? false;
+        /** @type {HTMLInputElement|null} */ (
+          document.getElementById('gpsSnapToRoads')
+        )?.checked ?? false;
       const snapParams = { enabled: snapEnabled, radiusOut: snapRadius };
 
       const unionBBox = OSMEnricher.calculateBBox(combinedRaw, bufferM);

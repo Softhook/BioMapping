@@ -13,6 +13,8 @@
 import { HEIGHT_CAPABLE_METRICS, isHiDpi } from './globe3d_base.mjs';
 import { GSRGlobeRf } from './rf.mjs';
 
+/** @import { GSRGlobeManager } from '../globe3d.mjs' */
+
 export class GSRGlobePeaks extends GSRGlobeRf {
   /**
    * Ground position for a peak/hotspot marker: the Response delay back along
@@ -81,7 +83,7 @@ export class GSRGlobePeaks extends GSRGlobeRf {
    * click-tagged with this index (NOT the filtered render list's) — it's what
    * GSRUI.updatePeakLabel()/togglePeakExclusion() and _peakClickCb expect. Built
    * as a Map because `indexOf` per rendered peak was O(peaks²), ~800k scans on a
-   * 900-peak walk. @private
+   * 900-peak walk. @protected
    */
   _peakIndexMap(analyzer) {
     const allPeaks = analyzer?.peaks || [];
@@ -333,7 +335,7 @@ export class GSRGlobePeaks extends GSRGlobeRf {
    * slider or the active-peak set moves — so the fingerprint, not array
    * identity, decides whether the ground blobs need rebuilding. The replay
    * tour hides them (a place summarises the whole walk, so it can't be drawn
-   * "so far"); its own signature makes leaving the replay redraw them. @private
+   * "so far"); its own signature makes leaving the replay redraw them. @protected
    */
   _clusterBlobSignature() {
     if (this._replay) return 'replay';
@@ -369,12 +371,15 @@ export class GSRGlobePeaks extends GSRGlobeRf {
   /**
    * Rebuild the ground blobs only when the hulls or the Clusters toggle changed
    * since the last sync — otherwise the existing clamp-to-ground entities stay
-   * put (no remove+add blink). @private
+   * put (no remove+add blink).
    */
   _syncClusterBlobs() {
     const sig = this._clusterBlobSignature();
     if (sig === this._clusterBlobSig) return;
-    this.clearClusterEntities();
+    // Defined further down the class chain (globe3d/toggles.mjs).
+    /** @type {GSRGlobeManager} */ (
+      /** @type {unknown} */ (this)
+    ).clearClusterEntities();
     if (this.showClusters && !this._replay) this._renderClusterBlobs();
     this._clusterBlobSig = sig;
   }

@@ -9,6 +9,8 @@
 import { AppState } from '../../core/app_state.mjs';
 import { GSRGlobeToggles } from './toggles.mjs';
 
+/** @import { GSRAnalyzer } from '../../signal/analyzer.mjs' */
+
 export class GSRGlobeNavigation extends GSRGlobeToggles {
   /**
    * Fly camera to focus on a specific peak index.
@@ -103,10 +105,10 @@ export class GSRGlobeNavigation extends GSRGlobeToggles {
     // dot well above the circle over any non-flat ground.
     if (this.scrubEntity) {
       const wallHeight = this._peakWallHeight(a, peak);
-      this.scrubEntity.position = Cesium.Cartesian3.fromDegrees(
-        coords.lon,
-        coords.lat,
-        wallHeight + 3.0,
+      // Cesium wraps a plain Cartesian3 in a position property; its type
+      // declarations only list the property.
+      this.scrubEntity.position = /** @type {*} */ (
+        Cesium.Cartesian3.fromDegrees(coords.lon, coords.lat, wallHeight + 3.0)
       );
       this.scrubEntity.show = true;
     }

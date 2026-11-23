@@ -711,7 +711,7 @@ const LIVE_GSR_TOGGLES = [
 
 function bindLiveGsrControls() {
   for (const [id, key] of LIVE_GSR_TOGGLES) {
-    const btn = document.getElementById(id);
+    const btn = /** @type {HTMLElement} */ (document.getElementById(id));
     if (!btn) continue;
     btn.classList.toggle('active', !!liveGsrView[key]);
     btn.addEventListener('click', () => {
@@ -722,7 +722,9 @@ function bindLiveGsrControls() {
       renderLiveMapMarkers();
     });
   }
-  const sel = document.getElementById('liveGraphView');
+  const sel = /** @type {HTMLSelectElement} */ (
+    document.getElementById('liveGraphView')
+  );
   if (sel) {
     sel.value = liveGsrView.graphView;
     sel.addEventListener('change', () => setLiveGraphMetric(sel.value));
@@ -738,10 +740,12 @@ function bindLiveGsrControls() {
 export function setLiveGraphMetric(metric) {
   if (!LIVE_GRAPH_VIEWS[metric] || liveGsrView.graphView === metric) return;
   liveGsrView.graphView = metric;
-  const sel = document.getElementById('liveGraphView');
+  const sel = /** @type {HTMLSelectElement} */ (
+    document.getElementById('liveGraphView')
+  );
   if (sel) sel.value = metric;
-  const metricBtns = document.querySelectorAll(
-    '#liveMetricGroup [data-metric]',
+  const metricBtns = /** @type {NodeListOf<HTMLElement>} */ (
+    document.querySelectorAll('#liveMetricGroup [data-metric]')
   );
   metricBtns.forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.metric === metric);
@@ -1046,7 +1050,9 @@ function bindLiveMapControls() {
   const metricGroup = document.getElementById('liveMetricGroup');
   if (metricGroup) {
     metricGroup.addEventListener('click', (e) => {
-      const btn = e.target.closest('button[data-metric]');
+      const btn = /** @type {HTMLElement|null} */ (
+        /** @type {HTMLElement} */ (e.target).closest('button[data-metric]')
+      );
       if (btn?.dataset.metric) setLiveGraphMetric(btn.dataset.metric);
     });
   }
@@ -1099,10 +1105,8 @@ function bindLiveKeyboardShortcuts() {
     // standalone live.html apart from index.html's embedded Live tab.
     if (isInAppShell() && AppState.viewMode !== 'live') return;
     // Don't hijack keys while typing in an input.
-    if (
-      e.target &&
-      (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')
-    )
+    const target = /** @type {HTMLElement|null} */ (e.target);
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA'))
       return;
 
     if (e.key === 'p' || e.key === 'P') {

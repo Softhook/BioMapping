@@ -236,7 +236,9 @@ export const OsmOverlayUI = {
 
     this.updateSpatialDataIndicator();
 
-    const select = document.getElementById('mapColoringMetric');
+    const select = /** @type {HTMLSelectElement} */ (
+      document.getElementById('mapColoringMetric')
+    );
     const envPanel = document.getElementById('environmentalPanel');
 
     // Re-render the shared OSM overlay for the now-active track(s) / surface.

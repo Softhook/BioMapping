@@ -208,7 +208,7 @@ export const MapPopups = {
       Controllers.ui.updatePeakLabel(index, input.value, trackId),
     );
     L.DomEvent.on(input, 'keydown', (e) => {
-      if (e.key === 'Enter') {
+      if (/** @type {KeyboardEvent} */ (e).key === 'Enter') {
         e.preventDefault();
         // Close BEFORE committing the label — updatePeakLabel() rebuilds the
         // peak-marker layer (a new marker replaces this one), so closing

@@ -20,7 +20,11 @@ export const SurfaceSwitcherEvents = {
    * read-only view of the 2D state — see src/map/globe3d_view.mjs.
    */
   bindSurfaceSwitcher() {
-    const tabs = Array.from(document.querySelectorAll('.surface-tab'));
+    const tabs = Array.from(
+      /** @type {NodeListOf<HTMLElement>} */ (
+        document.querySelectorAll('.surface-tab')
+      ),
+    );
     if (!tabs.length) return;
 
     GSRGlobe3DView.init();

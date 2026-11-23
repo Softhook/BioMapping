@@ -548,7 +548,7 @@ export const SpectralEDA = {
    * and its band power in µS².
    *
    * @param {Array<number>|Float64Array} signal - raw µS EDA values
-   * @param {Array<number>} times - per-sample times in seconds (length == signal.length)
+   * @param {ArrayLike<number>} times - per-sample times in seconds (length == signal.length)
    * @param {number} fs - sampling rate
    * @param {{windowSec?:number, hopSec?:number}} [opts]
    * @returns {Array<{time: number, val: number}>}
@@ -628,7 +628,7 @@ export const SpectralEDA = {
    * grid by linear interpolation with edge-hold. Result length == times.length.
    *
    * @param {Array<{time:number,val:number}>} series
-   * @param {Array<number>} times - target sample times (seconds)
+   * @param {ArrayLike<number>} times - target sample times (seconds)
    * @returns {Array<{time:number,val:number}>}
    */
   mapToSamples(series, times) {

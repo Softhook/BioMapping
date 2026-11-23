@@ -12,6 +12,8 @@ import { MapMatcher } from '../gps/map_match.mjs';
 import { SpatialGrid } from '../spatial/spatial_grid.mjs';
 import { OverpassClient } from './overpass_client.mjs';
 
+/** @import { GSRAnalyzer } from '../signal/analyzer.mjs' */
+
 // -- Numerical constants ---------------------------------------------------
 const METERS_PER_DEG_LAT = GeoUtils.METERS_PER_DEG_LAT; // m per degree of latitude
 const CELL_SIZE_DEG = 0.001; // spatial-hash cell (~111 m of latitude)
@@ -1120,11 +1122,11 @@ export const OSMEnricher = {
    * the corrected (snapped) position — never misattributes a building
    * because of GPS multipath drift.
    *
-   * @param {Object} analyzer     - GSRAnalyzer instance (has .raw, .getCoordinates())
+   * @param {GSRAnalyzer} analyzer - GSRAnalyzer instance (has .raw, .getCoordinates())
    * @param {Object} osmJson      - parsed Overpass API JSON
    * @param {number} radiusMeters - search radius (default 50)
    * @param {Object} [snapParams] - { enabled: bool, ... } road snapping config
-   * @param {Function} onProgress - optional progress callback(msg)
+   * @param {Function} [onProgress] - optional progress callback(msg)
    */
   enrichTrack(
     analyzer,
@@ -1227,7 +1229,7 @@ export const OSMEnricher = {
    * Snap a track to the roads: match the evaluation points (_withNearby) as
    * one sequence (MapMatcher), then fill the rows between them
    * (_interpolateSnappedGps).
-   * @returns {{snappedGps: Array<object>, matched: Map<number, object>}}
+   * @returns {{snappedGps: Array<GSRSnapPoint>, matched: Map<number, GSRSnapPoint>}}
    *   snappedGps has one entry per raw row; matched holds the points' own.
    */
   _snapTrack(raw, points, positions, radius) {
@@ -1349,13 +1351,13 @@ export const OSMEnricher = {
    * Useful when geometries are already available (e.g. from cache or OSM shapes)
    * so an enriched track can classify junction turns without a slow full re-enrichment.
    *
-   * @param {object} analyzer
-   * @param {object} geoms
+   * @param {GSRAnalyzer} analyzer
+   * @param {{ways: Array<*>}} geoms - reconstructed OSM shapes
    * @param {number} [snapRadius=25]
    * @param {{commit?: boolean}} [opts] commit:false leaves analyzer.snappedGps
    *   and _dataVersion untouched (the map keeps showing raw positions when the
    *   user has snapping off); the result is returned only.
-   * @returns {Array<object>|null}
+   * @returns {Array<GSRSnapPoint>|null}
    */
   snapTrackGps(analyzer, geoms, snapRadius = 25, opts = {}) {
     const commit = opts.commit !== false;
