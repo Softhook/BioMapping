@@ -229,6 +229,6 @@ It writes `board.scad`, builds `cardputer_back.stl` and `cardputer_back_rim_test
 - `cardputer_back.stl`: the back, ready for the slicer.
 - `cardputer_back_rim_test.stl`: its battery layer on a 1 mm plate, for Test 3.
 - `cardputer_back.png`: the picture at the top of this page, drawn by `./pcb case`.
-- `viewer.html`: the case, board, screws and inserts in 3D. Open it in a browser. It has buttons for set views (back, side, cuff end, inside, board), can show the case see-through, and can load another STL file. The case model is stored inside the page, so it doesn't change when `./pcb case` runs. After changing the drawing, load the new `cardputer_back.stl` with **Load .stl**.
+- `viewer.html`: the case, board, screws and inserts in 3D. Open it in a browser. It has buttons for set views (back, side, cuff end, inside, board), can show the case see-through, and can load another STL file. The case model is stored inside the page, so it doesn't change when `./pcb case` runs. The Cardputer's top half (shell, keys, screen bezel, Stamp module) is M5Stack's own model (`Cardputer-Adv.stl`, MIT licence, © M5Stack), also stored inside the page; the screen and its picture are added. After changing the drawing, load the new `cardputer_back.stl` with **Load .stl**.
 - `IMG_20261123_145254345_HDR.jpg`, `IMG_20261123_145307462_HDR.jpg`: the Cardputer ADV with its back removed, showing the battery, the EXT legs and their labels.
 - `adv3.stl`: see the licence note above. Ignored by git.
