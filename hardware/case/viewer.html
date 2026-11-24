@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Bio Mapping 2 — Cardputer ADV 3D Viewer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; background: #181a1f; color: #e6e9ef; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; overflow: hidden; user-select: none; }
+  .wrap { display: flex; flex-direction: column; height: 100%; padding: 12px; gap: 10px; }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  button, label.btn { background: #262a33; color: #e6e9ef; border: 1px solid #3a404d; border-radius: 6px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
+  button:hover, label.btn:hover { background: #313744; }
+  button.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+  #stage { position: relative; flex: 1; border-radius: 10px; overflow: hidden; border: 1px solid #323743; background: #1b1e25; }
+  canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+  canvas:active { cursor: grabbing; }
+  .pill { pointer-events: none; position: absolute; font-size: 12px; color: #aab2c0; background: rgba(24,26,31,0.82); border: 1px solid #323743; padding: 4px 8px; border-radius: 6px; }
+  #badge { top: 10px; left: 10px; }
+  #dims { bottom: 10px; right: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .footer { display: flex; align-items: center; gap: 12px; font-size: 13px; color: #aab2c0; }
+  .footer input[type=range] { flex: 1; accent-color: #3b82f6; }
+  #explodeVal { font-family: ui-monospace, monospace; width: 40px; text-align: right; color: #e6e9ef; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="bar">
+    <div class="group">
+      <button data-view="back" class="preset-btn">Back (Text)</button>
+      <button data-view="iso" class="preset-btn active">3/4 Back</button>
+      <button data-view="inside" class="preset-btn">Inside</button>
+      <button data-view="cuff" class="preset-btn">Cuff Scoop</button>
+      <button data-view="front" class="preset-btn">Front</button>
+    </div>
+    <div class="group">
+      <button id="toggleCase">Case Only</button>
+      <label class="btn">Load .stl<input id="stlFile" type="file" accept=".stl" class="hidden" /></label>
+    </div>
+  </div>
+  <div id="stage">
+    <canvas id="gl"></canvas>
+    <div id="badge" class="pill">Drag to orbit · Scroll to zoom · Double-click to reset</div>
+    <div id="dims" class="pill">84 × 54 × 33.5 mm</div>
+  </div>
+  <div class="footer">
+    <span>Explode stack</span>
+    <input id="explode" type="range" min="0" max="100" value="0" />
+    <span id="explodeVal">0%</span>
+  </div>
+</div>
+<script>
+const BACK_MESH_B64 = "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";
+
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl', { antialias: true, alpha: true });
+
+function mat4Identity() { return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]); }
+function mat4Mul(a, b) {
+  const o = new Float32Array(16);
+  for (let c = 0; c < 4; c++)
+    for (let r = 0; r < 4; r++)
+      o[c*4+r] = a[r]*b[c*4] + a[4+r]*b[c*4+1] + a[8+r]*b[c*4+2] + a[12+r]*b[c*4+3];
+  return o;
+}
+function mat4Persp(fov, asp, n, f) {
+  const t = 1 / Math.tan(fov / 2), nf = 1 / (n - f);
+  return new Float32Array([t/asp,0,0,0, 0,t,0,0, 0,0,(f+n)*nf,-1, 0,0,2*f*n*nf,0]);
+}
+function mat4Trans(x, y, z) { const m = mat4Identity(); m[12]=x; m[13]=y; m[14]=z; return m; }
+function mat4RotX(a) { const c=Math.cos(a), s=Math.sin(a); return new Float32Array([1,0,0,0, 0,c,s,0, 0,-s,c,0, 0,0,0,1]); }
+function mat4RotY(a) { const c=Math.cos(a), s=Math.sin(a); return new Float32Array([c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1]); }
+
+function compile(type, src) {
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s;
+}
+function makeProg(vs, fs) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  return p;
+}
+
+const solidProg = makeProg(`
+  attribute vec3 aPos;
+  attribute vec3 aNorm;
+  uniform mat4 uMVP;
+  uniform mat4 uMV;
+  varying vec3 vN;
+  varying vec3 vPos;
+  void main() {
+    gl_Position = uMVP * vec4(aPos, 1.0);
+    vN = normalize(mat3(uMV) * aNorm);
+    vPos = (uMV * vec4(aPos, 1.0)).xyz;
+  }
+`, `
+  precision mediump float;
+  uniform vec3 uColor;
+  uniform float uSpec;
+  varying vec3 vN;
+  varying vec3 vPos;
+  void main() {
+    vec3 N = normalize(vN);
+    vec3 V = normalize(-vPos);
+    vec3 L1 = normalize(vec3(0.45, 0.72, 0.85));
+    vec3 L2 = normalize(vec3(-0.7, -0.35, 0.55));
+    vec3 L3 = normalize(vec3(0.0, -0.8, -0.4));
+    float d1 = max(dot(N, L1), 0.0);
+    float d2 = max(dot(N, L2), 0.0);
+    float d3 = max(dot(N, L3), 0.0);
+    vec3 H = normalize(L1 + V);
+    float sp = pow(max(dot(N, H), 0.0), 36.0) * uSpec;
+    vec3 col = uColor * (0.28 + 0.62 * d1 + 0.24 * d2 + 0.12 * d3) + vec3(sp);
+    gl_FragColor = vec4(col, 1.0);
+  }
+`);
+
+const texProg = makeProg(`
+  attribute vec3 aPos;
+  attribute vec3 aNorm;
+  attribute vec2 aUV;
+  uniform mat4 uMVP;
+  uniform mat4 uMV;
+  varying vec3 vN;
+  varying vec2 vUV;
+  void main() {
+    gl_Position = uMVP * vec4(aPos, 1.0);
+    vN = normalize(mat3(uMV) * aNorm);
+    vUV = aUV;
+  }
+`, `
+  precision mediump float;
+  uniform sampler2D uTex;
+  varying vec3 vN;
+  varying vec2 vUV;
+  void main() {
+    vec4 t = texture2D(uTex, vUV);
+    if (t.a < 0.04) discard;
+    vec3 N = normalize(vN);
+    float lit = 0.52 + 0.48 * max(dot(N, normalize(vec3(0.45, 0.72, 0.85))), 0.0);
+    gl_FragColor = vec4(t.rgb * lit, t.a);
+  }
+`);
+
+function makeFlatBuffer(triVerts) {
+  const n = triVerts.length / 9;
+  const pos = new Float32Array(n * 9);
+  const norm = new Float32Array(n * 9);
+  for (let i = 0; i < n; i++) {
+    const o = i * 9;
+    const ax=triVerts[o], ay=triVerts[o+1], az=triVerts[o+2];
+    const bx=triVerts[o+3], by=triVerts[o+4], bz=triVerts[o+5];
+    const cx=triVerts[o+6], cy=triVerts[o+7], cz=triVerts[o+8];
+    const ux=bx-ax, uy=by-ay, uz=bz-az, vx=cx-ax, vy=cy-ay, vz=cz-az;
+    let nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
+    const l = Math.hypot(nx, ny, nz) || 1;
+    nx /= l; ny /= l; nz /= l;
+    for (let k = 0; k < 9; k++) pos[o+k] = triVerts[o+k];
+    for (let k = 0; k < 3; k++) { norm[o+k*3]=nx; norm[o+k*3+1]=ny; norm[o+k*3+2]=nz; }
+  }
+  const pb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, pb); gl.bufferData(gl.ARRAY_BUFFER, pos, gl.STATIC_DRAW);
+  const nb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, nb); gl.bufferData(gl.ARRAY_BUFFER, norm, gl.STATIC_DRAW);
+  return { pb, nb, count: n * 3 };
+}
+
+function addBox(out, x0, y0, z0, x1, y1, z1) {
+  const p = (x, y, z) => [42 - x, y + 27, 16.75 - z];
+  const X0=Math.min(x0,x1), X1=Math.max(x0,x1), Y0=Math.min(y0,y1), Y1=Math.max(y0,y1), Z0=Math.min(z0,z1), Z1=Math.max(z0,z1);
+  const faces = [
+    [p(X0,Y0,Z0), p(X0,Y1,Z0), p(X1,Y1,Z0), p(X1,Y0,Z0)],
+    [p(X0,Y0,Z1), p(X1,Y0,Z1), p(X1,Y1,Z1), p(X0,Y1,Z1)],
+    [p(X0,Y0,Z0), p(X1,Y0,Z0), p(X1,Y0,Z1), p(X0,Y0,Z1)],
+    [p(X0,Y1,Z0), p(X0,Y1,Z1), p(X1,Y1,Z1), p(X1,Y1,Z0)],
+    [p(X0,Y0,Z0), p(X0,Y0,Z1), p(X0,Y1,Z1), p(X0,Y1,Z0)],
+    [p(X1,Y0,Z0), p(X1,Y1,Z0), p(X1,Y1,Z1), p(X1,Y0,Z1)],
+  ];
+  for (const [a,b,c,d] of faces) out.push(...a,...b,...c, ...a,...c,...d);
+}
+
+function addRoundedSlab(out, x0, y0, x1, y1, rt, rb, z0, z1, segs=10) {
+  const pts = [];
+  const arc = (cx, cy, r, a0, a1) => {
+    for (let i = 0; i <= segs; i++) {
+      const a = a0 + (a1 - a0) * i / segs;
+      pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+    }
+  };
+  arc(x1 - rt, y1 - rt, rt, 0, Math.PI/2);
+  arc(x0 + rt, y1 - rt, rt, Math.PI/2, Math.PI);
+  arc(x0 + rb, y0 + rb, rb, Math.PI, 1.5*Math.PI);
+  arc(x1 - rb, y0 + rb, rb, 1.5*Math.PI, 2*Math.PI);
+  const p = (x, y, z) => [42 - x, y + 27, 16.75 - z];
+  const cx=(x0+x1)/2, cy=(y0+y1)/2;
+  const c0=p(cx,cy,z0), c1=p(cx,cy,z1);
+  for (let i = 0; i < pts.length; i++) {
+    const [ax,ay]=pts[i], [bx,by]=pts[(i+1)%pts.length];
+    const a0=p(ax,ay,z0), b0=p(bx,by,z0), a1=p(ax,ay,z1), b1=p(bx,by,z1);
+    out.push(...c0,...b0,...a0, ...c1,...a1,...b1, ...a0,...b0,...b1, ...a0,...b1,...a1);
+  }
+}
+
+function addCylX(out, x0, x1, cy, cz, r, segs=20) {
+  const p = (x, y, z) => [42 - x, y + 27, 16.75 - z];
+  const c0=p(x0,cy,cz), c1=p(x1,cy,cz);
+  for (let i = 0; i < segs; i++) {
+    const a=2*Math.PI*i/segs, b=2*Math.PI*(i+1)/segs;
+    const p0a=p(x0,cy+r*Math.cos(a),cz+r*Math.sin(a)), p0b=p(x0,cy+r*Math.cos(b),cz+r*Math.sin(b));
+    const p1a=p(x1,cy+r*Math.cos(a),cz+r*Math.sin(a)), p1b=p(x1,cy+r*Math.cos(b),cz+r*Math.sin(b));
+    out.push(...c0,...p0b,...p0a, ...c1,...p1a,...p1b, ...p0a,...p0b,...p1b, ...p0a,...p1b,...p1a);
+  }
+}
+
+function addCylZ(out, cx, cy, z0, z1, r, segs=18) {
+  const p = (x, y, z) => [42 - x, y + 27, 16.75 - z];
+  const c0=p(cx,cy,z0), c1=p(cx,cy,z1);
+  for (let i = 0; i < segs; i++) {
+    const a=2*Math.PI*i/segs, b=2*Math.PI*(i+1)/segs;
+    const p0a=p(cx+r*Math.cos(a),cy+r*Math.sin(a),z0), p0b=p(cx+r*Math.cos(b),cy+r*Math.sin(b),z0);
+    const p1a=p(cx+r*Math.cos(a),cy+r*Math.sin(a),z1), p1b=p(cx+r*Math.cos(b),cy+r*Math.sin(b),z1);
+    out.push(...c0,...p0b,...p0a, ...c1,...p1a,...p1b, ...p0a,...p0b,...p1b, ...p0a,...p1b,...p1a);
+  }
+}
+
+// WebGL-1 safe texture upload: NO mipmaps on NPOT canvases!
+function makeTexture(canvas2d) {
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas2d);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return tex;
+}
+
+function rrectPath(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x+r, y); g.lineTo(x+w-r, y); g.quadraticCurveTo(x+w, y, x+w, y+r);
+  g.lineTo(x+w, y+h-r); g.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+  g.lineTo(x+r, y+h); g.quadraticCurveTo(x, y+h, x, y+h-r);
+  g.lineTo(x, y+r); g.quadraticCurveTo(x, y, x+r, y);
+  g.closePath();
+}
+
+function buildBackDecal() {
+  // Power-of-two 2048 x 1024 mapped to 84 x 54 mm (scale independently in x/y)
+  const W = 2048, H = 1024;
+  const sx = W / 84, sy = H / 54;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, W, H);
+  g.scale(sx, sy); // draw directly in millimetres (0..84 x 0..54)!
+
+  const drawDebossed = (fn) => {
+    g.save(); g.translate(0, 0.16); fn('rgba(235,242,250,0.55)'); g.restore();
+    g.save(); g.translate(0, -0.10); fn('rgba(18,22,28,0.75)'); g.restore();
+    g.save(); fn('rgba(46,52,62,0.94)'); g.restore();
+  };
+
+  // "Bio Mapping 2" at (u = 42, v = 9.0), 5.5 mm bold
+  drawDebossed((col) => {
+    g.fillStyle = col;
+    g.font = '700 7.1px "Helvetica Neue", Helvetica, Arial, sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText('Bio Mapping 2', 42, 9.0);
+  });
+
+  // Rounded GPS box over U4 (x = 30.5 -> u = 53.5, v = 33.0), 16.5 x 16.5 mm, r = 2.5, line = 0.8
+  const gx = 84 - 30.5, gy = 33.0;
+  drawDebossed((col) => {
+    g.strokeStyle = col;
+    g.lineWidth = 0.85;
+    rrectPath(g, gx - 8.05, gy - 8.05, 16.1, 16.1, 2.5);
+    g.stroke();
+    g.fillStyle = col;
+    g.font = '700 5.4px "Helvetica Neue", Helvetica, Arial, sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText('GPS', gx, gy + 0.15);
+  });
+
+  const tex = makeTexture(c);
+  const z = 16.75 + 0.08;
+  const pos = new Float32Array([-42,-27,z, 42,-27,z, 42,27,z, -42,-27,z, 42,27,z, -42,27,z]);
+  const norm = new Float32Array([0,0,1, 0,0,1, 0,0,1, 0,0,1, 0,0,1, 0,0,1]);
+  const uv = new Float32Array([0,1, 1,1, 1,0, 0,1, 1,0, 0,0]);
+  const pb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, pb); gl.bufferData(gl.ARRAY_BUFFER, pos, gl.STATIC_DRAW);
+  const nb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, nb); gl.bufferData(gl.ARRAY_BUFFER, norm, gl.STATIC_DRAW);
+  const ub = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, ub); gl.bufferData(gl.ARRAY_BUFFER, uv, gl.STATIC_DRAW);
+  return { pb, nb, ub, tex, count: 6 };
+}
+
+function buildFrontDecal() {
+  const W = 1024, H = 512;
+  const sx = W / 84, sy = H / 54;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, W, H);
+  g.scale(sx, sy);
+
+  // Screen bezel
+  g.fillStyle = '#181a1e';
+  rrectPath(g, 6, 4, 72, 21, 2.2); g.fill();
+  g.fillStyle = '#0d1520';
+  g.fillRect(18, 6.2, 36, 16.6);
+  g.fillStyle = '#38bdf8';
+  g.font = '700 2.3px monospace';
+  g.fillText('GPS+GSR  12 sats', 19.5, 9.2);
+  g.strokeStyle = '#34d399'; g.lineWidth = 0.45;
+  g.beginPath();
+  for (let i = 0; i <= 40; i++) {
+    const px = 19.5 + i * 0.82;
+    const py = 17.5 - 3.6 * Math.sin(i * 0.28) - 1.6 * Math.cos(i * 0.65);
+    i === 0 ? g.moveTo(px, py) : g.lineTo(px, py);
+  }
+  g.stroke();
+  g.fillStyle = '#2c3038';
+  for (let r = 0; r < 5; r++) for (let col = 0; col < 5; col++) {
+    g.beginPath(); g.arc(60 + col*2.6, 8.5 + r*2.6, 0.65, 0, 7); g.fill();
+  }
+  g.fillStyle = '#f97316';
+  rrectPath(g, 8.5, 9, 6.5, 11, 1); g.fill();
+
+  // Keyboard
+  g.fillStyle = '#23262c';
+  rrectPath(g, 4, 27.5, 76, 23, 1.8); g.fill();
+  for (let r = 0; r < 4; r++) {
+    for (let col = 0; col < 14; col++) {
+      const kx = 5.4 + col * 5.25, ky = 29.0 + r * 5.25;
+      g.fillStyle = (r === 2 && col === 13) ? '#ea580c' : (col === 0 || (r === 3 && col < 3)) ? '#4b5563' : '#e5e7eb';
+      rrectPath(g, kx, ky, 4.4, 4.3, 0.7); g.fill();
+    }
+  }
+
+  const tex = makeTexture(c);
+  const z = -16.75 - 0.08;
+  const pos = new Float32Array([42,-27,z, -42,-27,z, -42,27,z, 42,-27,z, -42,27,z, 42,27,z]);
+  const norm = new Float32Array([0,0,-1, 0,0,-1, 0,0,-1, 0,0,-1, 0,0,-1, 0,0,-1]);
+  const uv = new Float32Array([0,1, 1,1, 1,0, 0,1, 1,0, 0,0]);
+  const pb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, pb); gl.bufferData(gl.ARRAY_BUFFER, pos, gl.STATIC_DRAW);
+  const nb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, nb); gl.bufferData(gl.ARRAY_BUFFER, norm, gl.STATIC_DRAW);
+  const ub = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, ub); gl.bufferData(gl.ARRAY_BUFFER, uv, gl.STATIC_DRAW);
+  return { pb, nb, ub, tex, count: 6 };
+}
+
+async function decodeBackMesh() {
+  const bin = atob(BACK_MESH_B64);
+  const raw = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) raw[i] = bin.charCodeAt(i);
+  const ds = new Response(raw).body.pipeThrough(new DecompressionStream('gzip'));
+  const ab = await new Response(ds).arrayBuffer();
+  const dv = new DataView(ab);
+  const nv = dv.getUint32(0, true), nt = dv.getUint32(4, true);
+  let off = 8;
+  const xs = new Float32Array(nv), ys = new Float32Array(nv), zs = new Float32Array(nv);
+  for (const arr of [xs, ys, zs]) {
+    let acc = 0;
+    for (let i = 0; i < nv; i++) { acc += dv.getInt16(off, true); off += 2; arr[i] = acc / 20.0; }
+  }
+  const ia = new Uint16Array(nt), ib = new Uint16Array(nt), ic = new Uint16Array(nt);
+  for (const arr of [ia, ib, ic]) {
+    let acc = 0;
+    for (let i = 0; i < nt; i++) { acc += dv.getInt16(off, true); off += 2; arr[i] = acc; }
+  }
+  const verts = new Float32Array(nt * 9);
+  for (let i = 0; i < nt; i++) {
+    const o = i * 9;
+    const ids = [ia[i], ib[i], ic[i]];
+    for (let k = 0; k < 3; k++) {
+      const id = ids[k];
+      verts[o+k*3]   = 42.0 - xs[id];
+      verts[o+k*3+1] = ys[id] + 27.0;
+      verts[o+k*3+2] = 16.75 - zs[id];
+    }
+  }
+  return makeFlatBuffer(verts);
+}
+
+function parseBinarySTL(ab) {
+  const dv = new DataView(ab);
+  const nt = dv.getUint32(80, true);
+  let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9,minZ=1e9,maxZ=-1e9;
+  const raw = new Float32Array(nt * 9);
+  for (let i = 0; i < nt; i++) {
+    const off = 84 + i * 50 + 12;
+    for (let k = 0; k < 3; k++) {
+      const x = dv.getFloat32(off+k*12, true);
+      const y = dv.getFloat32(off+k*12+4, true);
+      const z = dv.getFloat32(off+k*12+8, true);
+      raw[i*9+k*3]=x; raw[i*9+k*3+1]=y; raw[i*9+k*3+2]=z;
+      if (x<minX) minX=x; if (x>maxX) maxX=x;
+      if (y<minY) minY=y; if (y>maxY) maxY=y;
+      if (z<minZ) minZ=z; if (z>maxZ) maxZ=z;
+    }
+  }
+  const cx=(minX+maxX)/2, cy=(minY+maxY)/2, cz=(minZ+maxZ)/2;
+  for (let i = 0; i < nt*3; i++) {
+    raw[i*3]   = cx - raw[i*3];
+    raw[i*3+1] = raw[i*3+1] - cy;
+    raw[i*3+2] = cz - raw[i*3+2];
+  }
+  document.getElementById('dims').textContent = `${(maxX-minX).toFixed(1)} × ${(maxY-minY).toFixed(1)} × ${(maxZ-minZ).toFixed(1)} mm`;
+  return makeFlatBuffer(raw);
+}
+
+function buildAssemblyParts() {
+  const parts = [];
+  const mk = (verts, color, spec, group) => parts.push({ buf: makeFlatBuffer(verts), color, spec, group });
+
+  let v = [];
+  addRoundedSlab(v, 0, -54, 84, 0, 7.7, 3.0, 22.9, 32.3, 12);
+  addRoundedSlab(v, 0.8, -53.2, 83.2, -0.8, 6.9, 2.2, 32.3, 33.5, 12);
+  mk(v, [0.92, 0.92, 0.90], 0.25, 'front');
+
+  v = [];
+  addRoundedSlab(v, 0.2, -53.8, 83.8, -0.2, 7.5, 2.8, 21.9, 22.9, 10);
+  mk(v, [0.11, 0.34, 0.22], 0.15, 'front');
+
+  v = []; addBox(v, 32.8, -6.5, 16.9, 51.2, -0.1, 21.9); mk(v, [0.14, 0.14, 0.16], 0.2, 'front');
+  v = []; addCylX(v, 81.5, 84.3, -10.5, 19.65, 2.55, 20); mk(v, [0.84, 0.72, 0.28], 0.45, 'front');
+  v = []; addBox(v, 4.5, -51.5, 15.7, 79.5, -22.0, 21.6); mk(v, [0.76, 0.78, 0.80], 0.35, 'front');
+
+  v = []; addRoundedSlab(v, 2.1, -51.9, 81.9, -2.1, 5.7, 1.0, 13.8, 15.4, 10); mk(v, [0.16, 0.40, 0.66], 0.25, 'pcb');
+  v = []; addBox(v, 22.75, -40.75, 10.2, 38.25, -25.25, 13.8); mk(v, [0.78, 0.79, 0.81], 0.35, 'pcb');
+  v = []; addBox(v, 23.4, -40.1, 7.0, 37.6, -25.9, 10.2); mk(v, [0.85, 0.76, 0.56], 0.2, 'pcb');
+  v = []; addBox(v, 73.5, -40.9, 7.8, 81.15, -33.1, 13.8); mk(v, [0.94, 0.92, 0.86], 0.15, 'pcb');
+  v = []; addBox(v, 55.8, -8.3, 15.4, 69.4, -2.6, 19.65); mk(v, [0.94, 0.92, 0.86], 0.15, 'pcb');
+  v = [];
+  addBox(v, 56.5, -39.5, 12.0, 62.9, -34.5, 13.8);
+  addBox(v, 55.2, -31.0, 12.2, 60.0, -27.6, 13.8);
+  addBox(v, 43.4, -14.5, 12.3, 46.6, -11.5, 13.8);
+  mk(v, [0.16, 0.17, 0.19], 0.25, 'pcb');
+  v = []; addCylZ(v, 26.5, -47.0, 11.6, 13.8, 2.4, 18); mk(v, [0.82, 0.83, 0.85], 0.45, 'pcb');
+  v = []; addCylZ(v, 13.0, -18.0, 7.3, 8.9, 1.9, 16); addCylZ(v, 54.5, -18.0, 7.3, 8.9, 1.9, 16); mk(v, [0.55, 0.58, 0.62], 0.45, 'back');
+  return parts;
+}
+
+const VIEWS = {
+  back:   { yaw: 0.0,     pitch: 0.12, dist: 122 },
+  iso:    { yaw: -0.52,   pitch: 0.52, dist: 132 },
+  inside: { yaw: 2.65,    pitch: 0.62, dist: 132 },
+  cuff:   { yaw: -1.32,   pitch: 0.22, dist: 112 },
+  front:  { yaw: Math.PI, pitch: 0.14, dist: 124 },
+};
+let yaw = VIEWS.iso.yaw, pitch = VIEWS.iso.pitch, dist = VIEWS.iso.dist;
+let targetYaw = yaw, targetPitch = pitch, targetDist = dist;
+let explode = 0, caseOnly = false, customSTL = null;
+let backBuf = null, backDecal = null, frontDecal = null, parts = [];
+
+function clearBg() {
+  const isLight = document.documentElement.classList.contains('light');
+  if (isLight) gl.clearColor(0.95, 0.96, 0.97, 1);
+  else gl.clearColor(0.11, 0.12, 0.15, 1);
+}
+
+function drawMesh(buf, mv, proj, color, spec) {
+  gl.useProgram(solidProg);
+  gl.uniformMatrix4fv(gl.getUniformLocation(solidProg, 'uMV'), false, mv);
+  gl.uniformMatrix4fv(gl.getUniformLocation(solidProg, 'uMVP'), false, mat4Mul(proj, mv));
+  gl.uniform3fv(gl.getUniformLocation(solidProg, 'uColor'), color);
+  gl.uniform1f(gl.getUniformLocation(solidProg, 'uSpec'), spec);
+  const aPos = gl.getAttribLocation(solidProg, 'aPos');
+  const aNorm = gl.getAttribLocation(solidProg, 'aNorm');
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf.pb);
+  gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf.nb);
+  gl.enableVertexAttribArray(aNorm); gl.vertexAttribPointer(aNorm, 3, gl.FLOAT, false, 0, 0);
+  gl.drawArrays(gl.TRIANGLES, 0, buf.count);
+}
+
+function drawDecal(dec, mv, proj) {
+  gl.useProgram(texProg);
+  gl.uniformMatrix4fv(gl.getUniformLocation(texProg, 'uMV'), false, mv);
+  gl.uniformMatrix4fv(gl.getUniformLocation(texProg, 'uMVP'), false, mat4Mul(proj, mv));
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, dec.tex);
+  gl.uniform1i(gl.getUniformLocation(texProg, 'uTex'), 0);
+  const aPos = gl.getAttribLocation(texProg, 'aPos');
+  const aNorm = gl.getAttribLocation(texProg, 'aNorm');
+  const aUV = gl.getAttribLocation(texProg, 'aUV');
+  gl.bindBuffer(gl.ARRAY_BUFFER, dec.pb);
+  gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, dec.nb);
+  gl.enableVertexAttribArray(aNorm); gl.vertexAttribPointer(aNorm, 3, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, dec.ub);
+  gl.enableVertexAttribArray(aUV); gl.vertexAttribPointer(aUV, 2, gl.FLOAT, false, 0, 0);
+  gl.drawArrays(gl.TRIANGLES, 0, dec.count);
+}
+
+function render() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = Math.floor(canvas.clientWidth * dpr), h = Math.floor(canvas.clientHeight * dpr);
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  gl.viewport(0, 0, w, h);
+  clearBg();
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+  yaw += (targetYaw - yaw) * 0.18;
+  pitch += (targetPitch - pitch) * 0.18;
+  dist += (targetDist - dist) * 0.18;
+
+  const proj = mat4Persp(0.55, w / Math.max(h, 1), 1, 800);
+  const cam = mat4Mul(mat4Trans(0, 0, -dist), mat4Mul(mat4RotX(pitch), mat4RotY(yaw)));
+
+  if (customSTL) {
+    drawMesh(customSTL, cam, proj, [0.56, 0.62, 0.68], 0.28);
+  } else {
+    const mvBack = mat4Mul(cam, mat4Trans(0, 0, explode * 20));
+    const mvPcb = cam;
+    const mvFront = mat4Mul(cam, mat4Trans(0, 0, -explode * 24));
+
+    if (backBuf) {
+      drawMesh(backBuf, mvBack, proj, [0.58, 0.62, 0.67], 0.22);
+      if (backDecal) drawDecal(backDecal, mvBack, proj);
+    }
+    for (const p of parts) {
+      if (caseOnly && p.group !== 'back') continue;
+      const mv = p.group === 'back' ? mvBack : p.group === 'pcb' ? mvPcb : mvFront;
+      drawMesh(p.buf, mv, proj, p.color, p.spec);
+    }
+    if (!caseOnly && frontDecal) drawDecal(frontDecal, mvFront, proj);
+  }
+  requestAnimationFrame(render);
+}
+
+let dragging = false, lx = 0, ly = 0;
+canvas.addEventListener('pointerdown', (e) => { dragging = true; lx = e.clientX; ly = e.clientY; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointermove', (e) => {
+  if (!dragging) return;
+  targetYaw += (e.clientX - lx) * 0.01;
+  targetPitch = Math.max(-1.48, Math.min(1.48, targetPitch + (e.clientY - ly) * 0.01));
+  lx = e.clientX; ly = e.clientY;
+});
+canvas.addEventListener('pointerup', () => { dragging = false; });
+canvas.addEventListener('pointercancel', () => { dragging = false; });
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  targetDist = Math.max(55, Math.min(260, targetDist * (1 + e.deltaY * 0.0012)));
+}, { passive: false });
+canvas.addEventListener('dblclick', () => {
+  customSTL = null; caseOnly = false; updateCaseBtn();
+  document.getElementById('dims').textContent = '84 × 54 × 33.5 mm';
+  setView('iso');
+});
+
+function setView(name) {
+  const v = VIEWS[name];
+  targetYaw = v.yaw; targetPitch = v.pitch; targetDist = v.dist;
+  if (name === 'inside') { caseOnly = true; updateCaseBtn(); }
+  else if (name === 'front') { caseOnly = false; updateCaseBtn(); }
+  document.querySelectorAll('.preset-btn').forEach(b => b.classList.toggle('active', b.dataset.view === name));
+}
+document.querySelectorAll('.preset-btn').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+
+function updateCaseBtn() {
+  document.getElementById('toggleCase').textContent = caseOnly ? 'Show Full Device' : 'Case Only';
+}
+document.getElementById('toggleCase').addEventListener('click', () => { customSTL = null; caseOnly = !caseOnly; updateCaseBtn(); });
+
+const expEl = document.getElementById('explode');
+expEl.addEventListener('input', () => {
+  explode = Number(expEl.value) / 100;
+  document.getElementById('explodeVal').textContent = expEl.value + '%';
+  if (explode > 0 && caseOnly) { caseOnly = false; updateCaseBtn(); }
+});
+
+document.getElementById('stlFile').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  customSTL = parseBinarySTL(await f.arrayBuffer());
+  targetYaw = -0.5; targetPitch = 0.5; targetDist = 125;
+  document.getElementById('badge').textContent = `Loaded: ${f.name} · Double-click to restore assembly`;
+});
+
+window.addEventListener('themechange', clearBg);
+
+(async () => {
+  parts = buildAssemblyParts();
+  backDecal = buildBackDecal();
+  frontDecal = buildFrontDecal();
+  backBuf = await decodeBackMesh();
+  render();
+})();
+</script>
+</body>
+</html>
