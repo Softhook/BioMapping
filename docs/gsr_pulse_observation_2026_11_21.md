@@ -87,6 +87,33 @@ fingertips under the cuffs, which nudges the skin contact a little.
 **Not yet checked:** the rate against a pulse counted by hand at the
 same time.
 
+## More recordings (23 November)
+
+Three more sitting-still recordings with fingers in the cuffs, on firmware
+731226b and 0e7fa0f. Each was cut into 40 s chunks, and in each chunk the
+strongest peak between 0.95 and 1.7 a second was compared with the
+strongest between 1.9 and 3.4 a second.
+
+| Recording | Mode | Heartbeat | The faster peak |
+|---|---|---|---|
+| `tracks/biomap_0077_nodate.csv` (200 s) | GSR only | 1.22–1.26 a second (73–76 a minute), 10–16 times the background, in 7 of 8 chunks | exactly double (1.99–2.02 times) in 6 of 8 chunks |
+| `BioMapping-3E5C_biomap_0073_nodate.csv` (94 s) | GSR only | 1.24–1.31 a second (74–78 a minute) | about double (1.80–2.05 times) |
+| `BioMapping-3E5C_biomap_0074_2026-11-23_22-43-39.csv` (203 s) | GPS + GSR | no clear peak (at most 3 times the background) | a wave at 2.50–2.63 a second that is **not** double anything |
+
+- **The heartbeat is the same as on 21 November:** a peak that wanders
+  with the pulse, and its double. In recording 77 it moves the reading by
+  about 1 nS.
+- **The faster wave in recording 74 is something else.** It is about
+  3 nS, several times bigger than the whole heartbeat in recording 77,
+  and there is no heartbeat at half its rate. It is the only GPS + GSR
+  recording on skin so far, so it can't yet be told apart from GPS mode.
+  One guess, not yet tested: the screen redraws the graph about 30 times a
+  second, and a redraw rate of 27.4 a second would fold down to 2.6 a
+  second in rows of 10 a second.
+- **The visualiser's gait filter hides both.** It cuts everything faster
+  than about 1 a second, which is why the graph looks smooth.
+- The test resistor recordings show neither.
+
 ## How the analysis was done
 
 Plain numpy on the `gsr_raw` column at 10 readings a second: averaged

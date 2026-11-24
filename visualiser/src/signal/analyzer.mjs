@@ -19,6 +19,7 @@ import { SCRDeconvolution } from './deconvolution.mjs';
 import { calcEmFog } from './em_fog.mjs';
 import { detectAndRepairGsrDisconnects } from './gsr_disconnect_repair.mjs';
 import { GsrFilter } from './gsr_filter.mjs';
+import { HeartRate } from './heart_rate.mjs';
 import { PeakDetectors } from './peak_detectors.mjs';
 import { PeakShape } from './peak_shape.mjs';
 import { ResponseDelay } from './response_delay.mjs';
@@ -89,6 +90,13 @@ export class GSRAnalyzer {
     // independent of the filter/detector sliders, and cached
     // across re-analyses keyed on raw identity + length.
     this._edasympCache = null;
+    // Heartbeat ripple in the GSR (HeartRate, heart_rate.mjs), from the raw
+    // signal and independent of the sliders; cached like EDASymp.
+    this.heartPulse = []; // { time, val } — fast part of the signal, nS
+    this.heartRate = []; // { time, val } — pulse rate /min, NaN where none found
+    this.heartBeats = []; // { index, time } — one per beat in found stretches
+    this.heartSummary = null; // { bpm, foundSec, totalSec, movingSec, noSpeedSec }
+    this._heartCache = null;
 
     // Deconvolution state (Benedek & Kaernbach, 2010).
     this.phasicDriver = []; // Raw driver signal: { time, val }
@@ -977,6 +985,7 @@ export class GSRAnalyzer {
       this.peakDensity,
     );
     this._computeEDASymp(rawInputVals);
+    this._computeHeartRate(rawInputVals);
     const efArr = this._seriesPool.em_fog;
     let efMn = Infinity,
       efMx = -Infinity;
@@ -2271,6 +2280,63 @@ export class GSRAnalyzer {
       edasymp: this.edasymp,
     };
   }
+  /**
+   * Heartbeat ripple and pulse rate (HeartRate, heart_rate.mjs). Reads the
+   * same disconnect-repaired input as EDASymp, for the same reason: a
+   * dropout's step would swamp the spectrum. GPS speed, where there is a
+   * fix, leaves out the stretches spent walking, where the footsteps would
+   * read as a pulse. Cached on raw identity + length + input array.
+   * @private
+   */
+  _computeHeartRate(rawInputVals) {
+    const n = this.raw.length;
+    const cache = this._heartCache;
+    if (
+      cache &&
+      cache.raw === this.raw &&
+      cache.n === n &&
+      cache.vals === rawInputVals
+    ) {
+      this.heartPulse = cache.heartPulse;
+      this.heartRate = cache.heartRate;
+      this.heartBeats = cache.heartBeats;
+      this.heartSummary = cache.heartSummary;
+      return;
+    }
+    const times = new Float64Array(n);
+    const speed = new Float64Array(n);
+    let anySpeed = false;
+    for (let i = 0; i < n; i++) {
+      const d = this.raw[i];
+      times[i] = d.time;
+      const kts = d.hasGps ? d.speedKts : NaN;
+      speed[i] = Number.isFinite(kts) ? kts * GeoUtils.KNOTS_TO_MS : NaN;
+      if (Number.isFinite(speed[i])) anySpeed = true;
+    }
+    const r = HeartRate.analyse(rawInputVals, times, this.sampleRate, {
+      speedMps: anySpeed ? speed : null,
+    });
+    const heartPulse = new Array(n);
+    const heartRate = new Array(n);
+    for (let i = 0; i < n; i++) {
+      heartPulse[i] = { time: times[i], val: r.pulse[i] * 1000 };
+      heartRate[i] = { time: times[i], val: r.bpm[i] };
+    }
+    this.heartPulse = heartPulse;
+    this.heartRate = heartRate;
+    this.heartBeats = r.beats.map((b) => ({ index: b.index, time: b.time }));
+    this.heartSummary = r.summary;
+    this._heartCache = {
+      raw: this.raw,
+      n,
+      vals: rawInputVals,
+      heartPulse,
+      heartRate,
+      heartBeats: this.heartBeats,
+      heartSummary: this.heartSummary,
+    };
+  }
+
   /**
    * Track-level summary statistics. Delegates to AnalyzerStats.getStats.
    */

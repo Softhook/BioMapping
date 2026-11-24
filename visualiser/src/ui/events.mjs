@@ -100,6 +100,9 @@ export const GSREvents = {
       meanSCL: 'statMeanSCL',
       peakCount: 'statPeakCount',
       peakFreq: 'statPeakFreq',
+      pulse: 'statPulse',
+      pulseCard: 'statPulseCard',
+      pulseWarn: 'statPulseWarn',
       spatialData: 'statSpatialData',
       spatialDataCard: 'statSpatialDataCard',
     };

@@ -350,7 +350,8 @@ export const RendererInteraction = {
           6,
         );
       }
-    } else {
+    } else if (Number.isFinite(dLower.val)) {
+      // Heart rate is blank where no pulse was found: no dot there.
       stroke(colorLower);
       fill(colorLower);
       circle(xScrub, yL, 6);
@@ -396,6 +397,22 @@ export const RendererInteraction = {
       extraValStr = tip.valueStr;
       extraColor = tip.color;
     }
+    // Heart views: say so where no pulse was found, and give the rate
+    // alongside the pulse wave.
+    let heartRateRow = null;
+    if (lowerMode === 'heartRate' || lowerMode === 'heartPulse') {
+      const r = AppState.analyzer.heartRate?.[AppState.hoveredIndex]?.val;
+      const rateStr = Number.isFinite(r)
+        ? `${Math.round(r)}/min`
+        : 'no clear pulse';
+      if (lowerMode === 'heartRate') extraValStr = rateStr;
+      else
+        heartRateRow = {
+          label: 'Heart rate:',
+          color: colorLower,
+          valueStr: rateStr,
+        };
+    }
     const extraMetric =
       lowerMode !== 'phasic'
         ? {
@@ -418,6 +435,7 @@ export const RendererInteraction = {
       placeTime >= A.raw[0].time ? A.raw[A.findClosestIndex(placeTime)] : null;
     const extraRows = [];
     if (extraMetric) extraRows.push(extraMetric);
+    if (heartRateRow) extraRows.push(heartRateRow);
     if (AppState.showOsmContext && dPlace) {
       const osmClass = this._classifyOsmContext(dPlace);
       if (osmClass)

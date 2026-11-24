@@ -11,6 +11,7 @@
 import { AppState } from '../core/app_state.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { AnalyzerTimeFormat } from '../signal/analyzer_time_format.mjs';
+import { HeartRate } from '../signal/heart_rate.mjs';
 
 export const StatsPanelUI = {
   /**
@@ -142,9 +143,12 @@ export const StatsPanelUI = {
         'meanSCL',
         'peakCount',
         'peakFreq',
+        'pulse',
       ]) {
         if (F[key]) F[key].innerText = '--';
       }
+      if (F.pulseCard) F.pulseCard.title = '';
+      if (F.pulseWarn) F.pulseWarn.hidden = true;
       this.updateSpatialDataIndicator();
       return;
     }
@@ -161,8 +165,44 @@ export const StatsPanelUI = {
     if (F.peakCount) F.peakCount.innerText = stats.peakCount;
     if (F.peakFreq)
       F.peakFreq.innerText = `${stats.peakFrequency.toFixed(2)}/min`;
+    this.updatePulseCard(a);
 
     this.updateSpatialDataIndicator();
+  },
+
+  /**
+   * The Pulse card: the typical heart rate found in the GSR ripple, and (on
+   * hover) how much of the recording it was found in. "--" when none was
+   * found, with the reason in the hover text.
+   */
+  updatePulseCard(a) {
+    const F = AppState.statFields;
+    if (!F.pulse) return;
+    const s = a?.heartSummary;
+    const found = s && Number.isFinite(s.bpm) && s.foundSec > 0;
+    F.pulse.innerText = found ? `${Math.round(s.bpm)}/min` : '--';
+    let tip;
+    if (!s || s.totalSec <= 0) {
+      tip = 'Recording too short to look for a pulse';
+    } else if (found) {
+      const share = Math.round((100 * s.foundSec) / s.totalSec);
+      tip = `Typical heart rate from the tiny pulse ripple in the GSR. A clear pulse was found in ${share}% of the recording`;
+    } else {
+      tip =
+        'No clear pulse found in the GSR. It only shows when sitting still with a steady contact';
+    }
+    if (s?.movingSec > 0)
+      tip += `. ${Math.round(s.movingSec / 60)} min of walking was left out, as footsteps look like a pulse`;
+    const noSpeed = found && s.noSpeedSec > 0;
+    if (noSpeed) {
+      const where =
+        s.noSpeedSec >= s.foundSec
+          ? 'There was no GPS speed'
+          : `There was no GPS speed for ${Math.round((100 * s.noSpeedSec) / s.foundSec)}% of it`;
+      tip += `. ${where}, so walking can't be ruled out: if you were walking, this may be your footsteps, which beat at about the same rate`;
+    }
+    if (F.pulseWarn) F.pulseWarn.hidden = !HeartRate.mayBeFootsteps(s);
+    if (F.pulseCard) F.pulseCard.title = `${tip}.`;
   },
 
   /**

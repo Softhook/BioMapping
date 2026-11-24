@@ -4,6 +4,7 @@ import { Controllers } from '../core/controllers.mjs';
 import { GSRLayoutManager } from '../core/layout_manager.mjs';
 import { GSRMapManager } from '../map/map.mjs';
 import { GSRAnalyzer } from '../signal/analyzer.mjs';
+import { HeartRate } from '../signal/heart_rate.mjs';
 import { GSRCollectiveManager } from '../spatial/collective_manager.mjs';
 import { GSRRenderer } from './renderer.mjs';
 import {
@@ -200,6 +201,28 @@ const _LOWER_GRID_PRESETS = {
     defaultStep: 0.02,
     unit: ' \u03bcS\u00b2',
   },
+  heartPulse: {
+    steps: [
+      [2, 0.2],
+      [5, 0.5],
+      [10, 1],
+      [25, 2],
+      [50, 5],
+      [100, 10],
+    ],
+    defaultStep: 50,
+    unit: ' nS',
+  },
+  heartRate: {
+    steps: [
+      [10, 1],
+      [25, 2],
+      [50, 5],
+      [100, 10],
+    ],
+    defaultStep: 20,
+    unit: '/min',
+  },
   responseDynamics: {
     steps: [
       [0.05, 0.005],
@@ -274,6 +297,8 @@ export function draw() {
   _refreshForceIndices();
   _drawContextBands(frame);
   if (frame.view === 'signal') _drawSignalView(frame);
+  else if (frame.view === 'heartPulse' || frame.view === 'heartRate')
+    _drawHeartView(frame);
   else _drawMetricView(frame);
 
   // Overview timeline bar — pinned to the bottom, unless the panel is too short
@@ -737,6 +762,266 @@ function _drawRefLabel(y, colorPeak, label) {
   rect(x - w + pad, ty - 6, w, 12, 2);
   fill(color(`${colorPeak}96`));
   text(label, x, ty);
+}
+
+// ── Heart views — the pulse ripple in the GSR and the rate found from it ──
+// Both come from HeartRate (src/signal/heart_rate.mjs). The rate is blank
+// (NaN) wherever no clear pulse was found, so each found stretch is drawn as
+// its own line. The pulse wave is drawn everywhere, faint where no pulse was
+// found, with a dot on each beat.
+
+/** Y range for the heart views: from found stretches in view where there are any. */
+function _heartRange(frame, mode) {
+  const A = AppState.analyzer;
+  const { idxStart, idxEnd } = frame;
+  const rate = A.heartRate;
+  const pulse = A.heartPulse;
+  if (mode === 'heartRate') {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let i = idxStart; i <= idxEnd; i++) {
+      const v = rate[i]?.val;
+      if (Number.isFinite(v)) {
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+    }
+    if (lo === Infinity) return { yMin: 40, yMax: 140 };
+    const mid = (lo + hi) / 2;
+    const half = Math.max(10, (hi - lo) / 2 + 5);
+    return { yMin: Math.max(0, mid - half), yMax: mid + half };
+  }
+  // Pulse: the biggest swing inside found stretches; with none in view, the
+  // 98th percentile of the whole view so one twitch can't flatten the rest.
+  let m = 0;
+  for (let i = idxStart; i <= idxEnd; i++) {
+    if (!Number.isFinite(rate[i]?.val)) continue;
+    const v = Math.abs(pulse[i]?.val ?? 0);
+    if (v > m) m = v;
+  }
+  if (m === 0) {
+    const abs = [];
+    const step = Math.max(1, Math.floor((idxEnd - idxStart) / 4000));
+    for (let i = idxStart; i <= idxEnd; i += step)
+      if (pulse[i]) abs.push(Math.abs(pulse[i].val));
+    abs.sort((p, q) => p - q);
+    m = abs.length ? abs[Math.floor(abs.length * 0.98)] : 1;
+  }
+  m = Math.max(m, 0.5) * 1.15;
+  return { yMin: -m, yMax: m };
+}
+
+/**
+ * One series as a line, only over samples where `keep(i)` is true; each
+ * kept stretch is its own line. Many samples a pixel: a min–max band per
+ * pixel column. Few: a smooth curve through every sample.
+ */
+function _drawHeartLine(series, keep, frame, yOf, strokeColor, weight) {
+  const { bodyStartTime, bodyEndTime, idxStart, idxEnd } = frame;
+  const left = GSR_CONST.MARGIN.left;
+  const right = width - GSR_CONST.MARGIN.right;
+  const xOf = (t) => map(t, bodyStartTime, bodyEndTime, left, right);
+  const count = idxEnd - idxStart + 1;
+  noFill();
+  stroke(strokeColor);
+  strokeWeight(weight);
+  if (count > (right - left) * 1.5) {
+    // Min–max band per pixel column.
+    let col = -1;
+    let lo = 0;
+    let hi = 0;
+    let prev = null;
+    const flush = () => {
+      if (col < 0) return;
+      const yLo = yOf(lo);
+      const yHi = yOf(hi);
+      line(col, yLo, col, yHi);
+      if (prev && prev.col === col - 1)
+        line(prev.col, prev.y, col, (yLo + yHi) / 2);
+      prev = { col, y: (yLo + yHi) / 2 };
+    };
+    for (let i = idxStart; i <= idxEnd; i++) {
+      const d = series[i];
+      if (!d || !keep(i) || !Number.isFinite(d.val)) {
+        flush();
+        col = -1;
+        prev = null;
+        continue;
+      }
+      const c = Math.round(xOf(d.time));
+      if (c !== col) {
+        flush();
+        col = c;
+        lo = hi = d.val;
+      } else {
+        if (d.val < lo) lo = d.val;
+        if (d.val > hi) hi = d.val;
+      }
+    }
+    flush();
+    return;
+  }
+  const smooth = count < GSR_CONST.SPLINE_THRESHOLD;
+  const v = smooth ? curveVertex : vertex;
+  let open = false;
+  let last = null;
+  for (let i = idxStart; i <= idxEnd + 1; i++) {
+    const d = i <= idxEnd ? series[i] : null;
+    const ok = d && keep(i) && Number.isFinite(d.val);
+    if (ok) {
+      const x = xOf(d.time);
+      const y = yOf(d.val);
+      if (!open) {
+        beginShape();
+        if (smooth) curveVertex(x, y);
+        open = true;
+      }
+      v(x, y);
+      last = [x, y];
+    } else if (open) {
+      if (smooth && last) curveVertex(last[0], last[1]);
+      endShape();
+      open = false;
+    }
+  }
+}
+
+function _drawHeartView(frame) {
+  const { viewStartTime, viewEndTime, bodyStartTime, bodyEndTime } = frame;
+  const { plotTop, plotBottom, idxStart, idxEnd } = frame;
+  const A = AppState.analyzer;
+  const mode = frame.view;
+  const cfg = GSR_CONST.LOWER_GRAPH_MODES[mode];
+  const rate = A.heartRate || [];
+  const pulse = A.heartPulse || [];
+  const { yMin, yMax } = _easedYRange(
+    `${mode}|${A._dataVersion}`,
+    _heartRange(frame, mode),
+  );
+  const grid = _LOWER_GRID_PRESETS[mode];
+  const yOf = (val) => map(val, yMin, yMax, plotBottom, plotTop);
+  const colorHeart = GSRRenderer.getThemeColor(cfg.colorVar, cfg.colorDefault);
+  const colorMuted = GSRRenderer.getThemeColor('--color-raw', '#7c7c76');
+  const found = (i) => Number.isFinite(rate[i]?.val);
+  // Sweat peaks and hotspots aren't drawn here (they mean nothing on a
+  // pulse or /min axis), so clear what the last view left: the hotspot
+  // rings are page elements over the canvas, and the click targets would
+  // still answer clicks.
+  GSRRenderer.clearPulseRings();
+  AppState._peakExcludeButtons = [];
+  AppState._peakClickTargets = [];
+
+  GSRRenderer.drawGridX(
+    viewStartTime,
+    viewEndTime,
+    plotBottom,
+    plotBottom,
+    true,
+  );
+  GSRRenderer.drawGridY(
+    yMin,
+    yMax,
+    plotBottom,
+    plotTop,
+    grid.steps,
+    grid.defaultStep,
+    grid.unit,
+  );
+
+  push();
+  const left = GSR_CONST.MARGIN.left;
+  drawingContext.beginPath();
+  drawingContext.rect(
+    left,
+    plotTop,
+    width - GSR_CONST.MARGIN.right - left,
+    plotBottom - plotTop,
+  );
+  drawingContext.clip();
+
+  let anyFound = false;
+  for (let i = idxStart; i <= idxEnd && !anyFound; i++)
+    if (found(i)) anyFound = true;
+
+  if (mode === 'heartPulse') {
+    _drawHeartLine(
+      pulse,
+      (i) => !found(i),
+      frame,
+      yOf,
+      color(`${colorMuted}66`),
+      1,
+    );
+    _drawHeartLine(pulse, found, frame, yOf, colorHeart, 1.6);
+    // A dot on each beat, when they are far enough apart to see.
+    const beats = A.heartBeats || [];
+    const pxPerSec =
+      (width - GSR_CONST.MARGIN.right - left) / (bodyEndTime - bodyStartTime);
+    if (pxPerSec >= 15) {
+      noStroke();
+      fill(colorHeart);
+      for (const b of beats) {
+        if (b.time < bodyStartTime || b.time > bodyEndTime) continue;
+        const i = b.index;
+        const i1 = Math.min(pulse.length - 1, i + 1);
+        const f =
+          pulse[i1].time > pulse[i].time
+            ? (b.time - pulse[i].time) / (pulse[i1].time - pulse[i].time)
+            : 0;
+        const val = pulse[i].val + f * (pulse[i1].val - pulse[i].val);
+        circle(
+          map(
+            b.time,
+            bodyStartTime,
+            bodyEndTime,
+            left,
+            width - GSR_CONST.MARGIN.right,
+          ),
+          yOf(val),
+          5,
+        );
+      }
+    }
+  } else {
+    _drawHeartLine(rate, found, frame, yOf, colorHeart, 2);
+  }
+  pop();
+
+  // Typical rate (whole recording) in the top-left corner, or why there is none.
+  const s = A.heartSummary;
+  let label;
+  if (s && Number.isFinite(s.bpm) && s.foundSec > 0) {
+    const share = Math.round((100 * s.foundSec) / s.totalSec);
+    label = `Typical pulse ${Math.round(s.bpm)}/min · found in ${share}% of the recording`;
+    if (HeartRate.mayBeFootsteps(s))
+      label += ' · no GPS speed: may be footsteps if walking';
+    if (!anyFound) label += ' · none here';
+  } else {
+    label = 'No clear pulse found · it only shows when sitting still';
+  }
+  noStroke();
+  textSize(10);
+  textAlign(LEFT, TOP);
+  const pad = 4;
+  const tw = textWidth(label) + pad * 2;
+  fill(color(`${GSRRenderer.getThemeColor('--bg-card', '#ffffff')}d9`));
+  rect(left + 6, plotTop + 4, tw, 16, 2);
+  fill(colorHeart);
+  text(label, left + 6 + pad, plotTop + 7);
+
+  _drawNoPlaceShadeAndButtons(frame);
+  _drawTourPlayhead(frame);
+  GSRRenderer.handleScrubber(
+    bodyStartTime,
+    bodyEndTime,
+    0,
+    1,
+    plotBottom,
+    yMin,
+    yMax,
+    plotTop,
+    plotBottom,
+  );
 }
 
 // ── Single metric view — one derived series, full height, own Y axis ────

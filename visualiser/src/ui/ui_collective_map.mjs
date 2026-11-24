@@ -48,6 +48,8 @@ export const CollectiveMapUI = {
       if (F0.meanSCL) F0.meanSCL.innerText = '--';
       if (F0.peakCount) F0.peakCount.innerText = '--';
       if (F0.peakFreq) F0.peakFreq.innerText = '--';
+      if (F0.pulse) F0.pulse.innerText = '--';
+      if (F0.pulseWarn) F0.pulseWarn.hidden = true;
       return;
     }
 
@@ -94,5 +96,10 @@ export const CollectiveMapUI = {
     if (F.meanSCL) F.meanSCL.innerText = `${meanSCL.toFixed(3)} \u03bcS`;
     if (F.peakCount) F.peakCount.innerText = totalPeaks;
     if (F.peakFreq) F.peakFreq.innerText = `${meanPeakFreq.toFixed(2)}/min`;
+    // Pulse is per recording only.
+    if (F.pulse) F.pulse.innerText = '--';
+    if (F.pulseWarn) F.pulseWarn.hidden = true;
+    if (F.pulseCard)
+      F.pulseCard.title = 'Pulse is shown for one recording at a time';
   },
 };

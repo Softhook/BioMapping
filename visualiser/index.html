@@ -750,6 +750,17 @@
             </div>
           </div>
 
+          <!-- Typical heart rate from the pulse ripple in the GSR; only found while sitting still -->
+          <div class="stat-card" id="statPulseCard">
+            <div class="stat-info">
+              <span class="stat-label">Pulse</span>
+              <span class="stat-value-row">
+                <span class="stat-value" id="statPulse">--</span>
+                <i class="fa-solid fa-person-walking stat-warn-icon" id="statPulseWarn" hidden></i>
+              </span>
+            </div>
+          </div>
+
           <!-- Green dot = all active track(s) have spatial data; grey = none or a mix -->
           <div class="stat-card" id="statSpatialDataCard">
             <div class="stat-info">
@@ -796,6 +807,8 @@
                 <option value="triIndex">Tri Index</option>
                 <option value="edasymp">EDASymp</option>
                 <option value="responseDynamics" disabled>Rise Speed</option>
+                <option value="heartPulse">Pulse Wave</option>
+                <option value="heartRate">Heart Rate</option>
               </select>
               <span class="control-divider"></span>
               <button class="icon-btn fullscreen-btn" id="btnGsrFullscreen" title="Full screen" type="button"><i class="fa-solid fa-expand"></i></button>

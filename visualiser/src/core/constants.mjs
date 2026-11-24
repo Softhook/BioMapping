@@ -423,6 +423,27 @@ export const GSR_CONST = {
       showPeakOverlay: false,
       allowNegative: false,
     },
+    // The heartbeat ripple in the GSR (HeartRate, src/signal/heart_rate.mjs):
+    // the fast part of the signal in nS, and the pulse rate found from it.
+    // Only while sitting still; blank where no clear pulse was found.
+    heartPulse: {
+      label: 'Pulse wave',
+      unit: 'nS',
+      decimals: 2,
+      colorVar: '--color-heart',
+      colorDefault: '#be123c',
+      showPeakOverlay: false,
+      allowNegative: true,
+    },
+    heartRate: {
+      label: 'Heart rate',
+      unit: '/min',
+      decimals: 0,
+      colorVar: '--color-heart',
+      colorDefault: '#be123c',
+      showPeakOverlay: false,
+      allowNegative: false,
+    },
     // SparsEDA rise speed — Phasic SCR amplitude coloured by how quickly each
     // response rose, relative to typical for its size (see ResponseDynamics).
     responseDynamics: {
