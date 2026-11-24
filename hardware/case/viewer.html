@@ -23,6 +23,8 @@
   #legend { bottom: 10px; left: 10px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 11px; }
   .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
   #dims { bottom: 10px; right: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #measureLabel { transform: translate(-50%, -130%); white-space: nowrap; color: #fde68a; border-color: #b45309; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #measureLabel small { color: #aab2c0; }
   .footer { display: flex; align-items: center; gap: 12px; font-size: 13px; color: #aab2c0; }
   .footer input[type=range] { flex: 1; accent-color: #3b82f6; }
   #explodeVal { font-family: ui-monospace, monospace; width: 40px; text-align: right; color: #e6e9ef; }
@@ -44,6 +46,7 @@
     <div class="group">
       <button id="caseModeBtn">Case: Solid</button>
       <button id="frontModeBtn">Cardputer: On</button>
+      <button id="measureBtn">Measure</button>
       <label class="btn">Load .stl<input id="stlFile" type="file" accept=".stl" class="hidden" /></label>
     </div>
   </div>
@@ -57,6 +60,7 @@
       <span><i class="sw" style="background:#d99b26"></i>C9 tantalum</span>
     </div>
     <div id="dims" class="pill">84 × 54 × 31.5 mm</div>
+    <div id="measureLabel" class="pill hidden"></div>
   </div>
   <div class="footer">
     <span>Explode stack</span>
@@ -191,10 +195,10 @@ function makeFlatBuffer(triVerts) {
   }
   const pb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, pb); gl.bufferData(gl.ARRAY_BUFFER, pos, gl.STATIC_DRAW);
   const nb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, nb); gl.bufferData(gl.ARRAY_BUFFER, norm, gl.STATIC_DRAW);
-  return { pb, nb, count: n * 3 };
+  return { pb, nb, count: n * 3, pos };  // pos is kept for the measuring tool's clicks
 }
 
-const P = (x, y, z) => [42 - x, y + 27, 15.75 - z];
+const P =(x, y, z) => [42 - x, y + 27, 15.75 - z];
 
 function addBox(out, x0, y0, z0, x1, y1, z1) {
   const X0=Math.min(x0,x1), X1=Math.max(x0,x1), Y0=Math.min(y0,y1), Y1=Math.max(y0,y1), Z0=Math.min(z0,z1), Z1=Math.max(z0,z1);
@@ -795,11 +799,134 @@ function render() {
       gl.depthMask(true);
     }
   }
+  drawMeasure(cam, proj);
   requestAnimationFrame(render);
 }
 
-let dragging = false, lx = 0, ly = 0;
-canvas.addEventListener('pointerdown', (e) => { dragging = true; lx = e.clientX; ly = e.clientY; canvas.setPointerCapture(e.pointerId); });
+// ── Measuring: click two points on the model to get the distance between them ──
+// Points are kept in the viewer's own space, which is in millimetres.
+let measureOn = false, measurePts = [];
+const markProg = makeProg(`
+  attribute vec3 aPos;
+  uniform mat4 uMVP;
+  uniform float uSize;
+  void main() { gl_Position = uMVP * vec4(aPos, 1.0); gl_PointSize = uSize; }
+`, `
+  precision mediump float;
+  uniform vec3 uColor;
+  void main() { gl_FragColor = vec4(uColor, 1.0); }
+`);
+const markBuf = gl.createBuffer();
+
+const groupOffsetZ = (g) => g === 'back' ? explode * 20 : g === 'longScrews' ? explode * 30
+  : g === 'boardScrews' ? -explode * 8 : g === 'pcb' ? 0 : -explode * 26;
+
+// The meshes that can be clicked: what is drawn solid. The see-through (X-Ray) case is skipped,
+// so a click goes through it to the parts inside.
+function pickableMeshes() {
+  if (customSTL) return [[customSTL, 0]];
+  const list = [];
+  if (backBuf && caseMode === 'solid') list.push([backBuf, groupOffsetZ('back')]);
+  if (pcbBuf) list.push([pcbBuf, 0]);
+  for (const p of parts) {
+    if (p.group === 'front' && !showFront) continue;
+    if (p.group === 'back' && caseMode === 'off') continue;
+    if (p.group === 'longScrews' && caseMode === 'off' && !showFront) continue;
+    list.push([p.buf, groupOffsetZ(p.group)]);
+  }
+  return list;
+}
+
+// Where a ray from the camera through the clicked pixel first hits the model (null if it misses).
+function pickPoint(clientX, clientY) {
+  const r = canvas.getBoundingClientRect();
+  const nx = ((clientX - r.left) / r.width) * 2 - 1;
+  const ny = 1 - ((clientY - r.top) / r.height) * 2;
+  const t = Math.tan(0.55 / 2), asp = r.width / Math.max(r.height, 1);
+  // Undo the camera's turn: world = RotY(-yaw) · RotX(-pitch) · eye
+  const inv = mat4Mul(mat4RotY(-yaw), mat4RotX(-pitch));
+  const rot = (v) => [inv[0]*v[0] + inv[4]*v[1] + inv[8]*v[2], inv[1]*v[0] + inv[5]*v[1] + inv[9]*v[2], inv[2]*v[0] + inv[6]*v[1] + inv[10]*v[2]];
+  const o = rot([0, 0, dist]);
+  const d = rot([nx * asp * t, ny * t, -1]);
+  let best = Infinity;
+  for (const [buf, oz] of pickableMeshes()) {
+    const p = buf.pos, ox = o[0], oy = o[1], oz0 = o[2] - oz;
+    for (let i = 0; i < p.length; i += 9) {   // Möller–Trumbore ray / triangle test
+      const e1x = p[i+3]-p[i], e1y = p[i+4]-p[i+1], e1z = p[i+5]-p[i+2];
+      const e2x = p[i+6]-p[i], e2y = p[i+7]-p[i+1], e2z = p[i+8]-p[i+2];
+      const hx = d[1]*e2z - d[2]*e2y, hy = d[2]*e2x - d[0]*e2z, hz = d[0]*e2y - d[1]*e2x;
+      const a = e1x*hx + e1y*hy + e1z*hz;
+      if (a > -1e-9 && a < 1e-9) continue;
+      const f = 1 / a, sx = ox - p[i], sy = oy - p[i+1], sz = oz0 - p[i+2];
+      const u = f * (sx*hx + sy*hy + sz*hz);
+      if (u < 0 || u > 1) continue;
+      const qx = sy*e1z - sz*e1y, qy = sz*e1x - sx*e1z, qz = sx*e1y - sy*e1x;
+      const v = f * (d[0]*qx + d[1]*qy + d[2]*qz);
+      if (v < 0 || u + v > 1) continue;
+      const s = f * (e2x*qx + e2y*qy + e2z*qz);
+      if (s > 1e-6 && s < best) best = s;
+    }
+  }
+  return best === Infinity ? null : [o[0] + d[0]*best, o[1] + d[1]*best, o[2] + d[2]*best];
+}
+
+function drawMeasure(cam, proj) {
+  const label = document.getElementById('measureLabel');
+  if (!measurePts.length) { label.classList.add('hidden'); return; }
+  const mvp = mat4Mul(proj, cam);
+  gl.disable(gl.DEPTH_TEST);   // always on top, so a point behind a part stays visible
+  gl.useProgram(markProg);
+  gl.uniformMatrix4fv(gl.getUniformLocation(markProg, 'uMVP'), false, mvp);
+  gl.bindBuffer(gl.ARRAY_BUFFER, markBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(measurePts.flat()), gl.DYNAMIC_DRAW);
+  const aPos = gl.getAttribLocation(markProg, 'aPos');
+  gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+  // the other programs' extra attributes must be off while this one draws
+  for (let i = 0; i < 4; i++) if (i !== aPos) gl.disableVertexAttribArray(i);
+  gl.uniform3fv(gl.getUniformLocation(markProg, 'uColor'), [0.98, 0.75, 0.14]);
+  if (measurePts.length === 2) gl.drawArrays(gl.LINES, 0, 2);
+  gl.uniform1f(gl.getUniformLocation(markProg, 'uSize'), 9 * Math.min(window.devicePixelRatio || 1, 2));
+  gl.drawArrays(gl.POINTS, 0, measurePts.length);
+  gl.enable(gl.DEPTH_TEST);
+
+  if (measurePts.length < 2) { label.classList.add('hidden'); return; }
+  const [a, b] = measurePts;
+  const m = [(a[0]+b[0])/2, (a[1]+b[1])/2, (a[2]+b[2])/2];
+  const c = [0, 1, 2, 3].map((r) => mvp[r]*m[0] + mvp[4+r]*m[1] + mvp[8+r]*m[2] + mvp[12+r]);
+  if (c[3] <= 0) { label.classList.add('hidden'); return; }
+  label.style.left = `${(c[0]/c[3] + 1) / 2 * canvas.clientWidth}px`;
+  label.style.top = `${(1 - c[1]/c[3]) / 2 * canvas.clientHeight}px`;
+  label.classList.remove('hidden');
+}
+
+function setMeasureLabelText() {
+  const [a, b] = measurePts;
+  const dx = Math.abs(a[0]-b[0]), dy = Math.abs(a[1]-b[1]), dz = Math.abs(a[2]-b[2]);
+  document.getElementById('measureLabel').innerHTML =
+    `${Math.hypot(dx, dy, dz).toFixed(1)} mm <small>· length ${dx.toFixed(1)} · width ${dy.toFixed(1)} · depth ${dz.toFixed(1)}</small>`;
+}
+
+const MEASURE_HINT = 'Measuring: click two points · a third click starts again · Esc clears';
+const ORBIT_HINT = 'Drag to orbit · Scroll to zoom · Double-click to reset';
+function setMeasure(on) {
+  measureOn = on; measurePts = [];
+  document.getElementById('measureBtn').classList.toggle('active', on);
+  document.getElementById('badge').textContent = on ? MEASURE_HINT : ORBIT_HINT;
+}
+document.getElementById('measureBtn').addEventListener('click', () => setMeasure(!measureOn));
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') measurePts = []; });
+
+let dragging = false, lx = 0, ly = 0, downX = 0, downY = 0;
+canvas.addEventListener('pointerdown', (e) => { dragging = true; lx = downX = e.clientX; ly = downY = e.clientY; canvas.setPointerCapture(e.pointerId); });
+// A click that hardly moved is a measuring click; anything more is turning the view.
+canvas.addEventListener('pointerup', (e) => {
+  if (!measureOn || Math.hypot(e.clientX - downX, e.clientY - downY) > 4) return;
+  const pt = pickPoint(e.clientX, e.clientY);
+  if (!pt) return;
+  if (measurePts.length === 2) measurePts = [];
+  measurePts.push(pt);
+  if (measurePts.length === 2) setMeasureLabelText();
+});
 canvas.addEventListener('pointermove', (e) => {
   if (!dragging) return;
   targetYaw += (e.clientX - lx) * 0.01;
@@ -813,7 +940,7 @@ canvas.addEventListener('wheel', (e) => {
   targetDist = Math.max(45, Math.min(260, targetDist * (1 + e.deltaY * 0.0012)));
 }, { passive: false });
 canvas.addEventListener('dblclick', () => {
-  customSTL = null; caseMode = 'solid'; showFront = true; explode = 0;
+  customSTL = null; caseMode = 'solid'; showFront = true; explode = 0; measurePts = [];
   expEl.value = 0; document.getElementById('explodeVal').textContent = '0%';
   updateButtons();
   document.getElementById('dims').textContent = '84 × 54 × 31.5 mm';
