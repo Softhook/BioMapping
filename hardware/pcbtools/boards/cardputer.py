@@ -50,7 +50,7 @@ from ..rules import SIG, PWR, TEXT
 # the pull-ups R6/R7 reach across from the spine. SDA passes between R7's
 # pads, as it must cross SCL's pull-up to reach the lower pin.
 PLACE = {
-    "J1": (62.6, 5.4, 0, "F"),          # pin 1 (GPS TX) at x 58.225 ... pin 8 (ready) at x 66.975
+    "J1": (59.5, 5.4, 0, "F"),          # pin 1 (GPS TX) at x 55.125 ... pin 8 (ready) at x 63.875
     "H1": (6.8, 6.8, 0, "F"), "H2": (75.0, 18.0, 0, "F"),
     "H3": (13.0, 18.0, 0, "F"), "H4": (54.5, 18.0, 0, "F"),
     # 5 V -> 3.3 V in a column above the GPS: filter FB1 (5 V comes in at its top pad),
@@ -74,7 +74,7 @@ PLACE = {
     "TP7": (39.9, 36.0, 0, "B"), "TP6": (21.1, 35.7, 0, "B"),
     # each serial resistor sits at the end that drives its wire: TX just above the GPS's TX
     # pin, RX just after the cable socket
-    "R10": (30.5, 22.6, 90, "B"), "R9": (55.0, 6.55, 0, "B"),
+    "R10": (30.5, 22.6, 90, "B"), "R9": (51.9, 6.55, 0, "B"),
     # backup cell charger in a row below the module, the cell itself to its left
     "D1": (36.0, 47.0, 0, "B"), "R8": (32.4, 47.0, 180, "B"),
     "BT1": (26.5, 47.0, 0, "B"),
@@ -99,20 +99,20 @@ PLACE = {
     "TP4": (59.7, 32.2, 0, "B"), "TP3": (62.18, 32.2, 0, "B"), "TP5": (64.7, 32.2, 0, "B"),
     # the ADC's ready line, on its wire on the way down (the only other places to probe it
     # are the ADC's 0.5 mm pins and the cable socket, which is under the battery side)
-    "TP8": (66.975, 24.0, 0, "B"),
+    "TP8": (63.875, 24.0, 0, "B"),
 }
 TRACKS = [
     # ── the cable socket's pins (inner face) down to their vias ──
-    ("F", SIG, ["J1.1", (58.225, 5.15)]),
-    ("F", SIG, ["J1.2", (59.475, 5.15)]),
-    ("F", SIG, ["J1.3", (60.725, 5.15)]),
-    ("F", PWR, ["J1.4", (61.975, 5.15)]),
-    ("F", SIG, ["J1.5", (63.225, 5.15)]),
-    ("F", SIG, ["J1.6", (64.475, 5.15)]),
-    ("F", SIG, ["J1.7", (65.725, 5.15)]),
-    ("F", SIG, ["J1.8", (66.975, 5.15)]),
+    ("F", SIG, ["J1.1", (55.125, 5.15)]),
+    ("F", SIG, ["J1.2", (56.375, 5.15)]),
+    ("F", SIG, ["J1.3", (57.625, 5.15)]),
+    ("F", PWR, ["J1.4", (58.875, 5.15)]),
+    ("F", SIG, ["J1.5", (60.125, 5.15)]),
+    ("F", SIG, ["J1.6", (61.375, 5.15)]),
+    ("F", SIG, ["J1.7", (62.625, 5.15)]),
+    ("F", SIG, ["J1.8", (63.875, 5.15)]),
     # ── 5 V: left under the GPS pair to FB1, then down to the regulator ──
-    ("B", PWR, ["net:+5V_EXT", (61.975, 5.15), (61.975, 8.24), "FB1.1"]),
+    ("B", PWR, ["net:+5V_EXT", (58.875, 5.15), (58.875, 8.24), "FB1.1"]),
     ("B", PWR, ["FB1.2", (41.55, 10.36), (41.55, 15.85), "C4.1"]),     # down the left of U3
     ("B", PWR, [(41.55, 12.05), "U3.3"]),                              # EN, tied to IN
     ("B", PWR, [(41.55, 13.95), "U3.1"]),                              # IN
@@ -138,17 +138,17 @@ TRACKS = [
     # serial: from the cable's two left-hand vias along the top edge, then two parallel
     # 45-degree runs down to the top of the module, TX outside RX
     ("B", SIG, ["U4.13", "R10.1"]),
-    ("B", SIG, ["R10.2", (30.5, 13.0), (38.35, 5.15), (58.225, 5.15)]),
+    ("B", SIG, ["R10.2", (30.5, 13.0), (38.35, 5.15), (55.125, 5.15)]),
     ("B", SIG, ["U4.14", (32.4, 14.9), (40.75, 6.55), "R9.1"]),
-    ("B", SIG, ["R9.2", (59.475, 6.55), (59.475, 5.15)]),
+    ("B", SIG, ["R9.2", (56.375, 6.55), (56.375, 5.15)]),
     # ── I2C: straight down right of the screw post, left along the channel above the ADC,
     # then down its left side. SDA above SCL along the channel and outside it on the way
     # down, so they reach the ADC's pins 9 and 10 without crossing. Each wire steps left
     # by one resistor gap halfway down: R6 reaches SDA above the step, R7 reaches SCL
     # below it, with SDA passing between R7's pads ──
-    ("B", SIG, ["net:I2C_SDA", (63.225, 5.15), (63.225, 22.6), (52.52, 22.6), (52.52, 25.4),
+    ("B", SIG, ["net:I2C_SDA", (60.125, 5.15), (60.125, 22.6), (52.52, 22.6), (52.52, 25.4),
                 (51.61, 26.31), (51.61, 28.8), "U2.9"]),
-    ("B", SIG, ["net:I2C_SCL", (64.475, 5.15), (64.475, 23.3), (53.43, 23.3), (53.43, 25.4),
+    ("B", SIG, ["net:I2C_SCL", (61.375, 5.15), (61.375, 23.3), (53.43, 23.3), (53.43, 25.4),
                 (52.52, 26.31), (52.52, 28.3), "U2.10"]),
     # ── 3V3 to the GSR side: a spine from C5 down the left of the screw post and the GSR
     # circuit; the pull-ups' 3.3 V pads sit on it ──
@@ -181,13 +181,13 @@ TRACKS = [
     ("B", SIG, ["U2.3", (58.5, 29.3)]),
     # the ready line straight down from its via, outside the I2C pair, through TP8, then
     # left into the ADC's right side
-    ("B", SIG, ["net:ADC_READY", (66.975, 5.15), "TP8.1", (66.975, 28.8), "U2.2"]),
+    ("B", SIG, ["net:ADC_READY", (63.875, 5.15), "TP8.1", (63.875, 28.8), "U2.2"]),
 ]
 VIAS = [
     # the cable socket's pins, one via each, in front of the pins (under the socket)
-    ("GPS_TX_TO_HOST", 58.225, 5.15), ("HOST_TX_TO_GPS", 59.475, 5.15), ("GND", 60.725, 5.15),
-    ("+5V_EXT", 61.975, 5.15), ("I2C_SDA", 63.225, 5.15), ("I2C_SCL", 64.475, 5.15),
-    ("GND", 65.725, 5.15), ("ADC_READY", 66.975, 5.15),
+    ("GPS_TX_TO_HOST", 55.125, 5.15), ("HOST_TX_TO_GPS", 56.375, 5.15), ("GND", 57.625, 5.15),
+    ("+5V_EXT", 58.875, 5.15), ("I2C_SDA", 60.125, 5.15), ("I2C_SCL", 61.375, 5.15),
+    ("GND", 62.625, 5.15), ("ADC_READY", 63.875, 5.15),
     ("GND", 42.5, 13.0), ("GND", 44.4, 16.95), ("GND", 48.3, 17.0),
     ("GND", 58.5, 29.3), ("GND", 51.75, 31.75), ("GND", 55.25, 32.05), ("GND", 52.4, 37.7),
     ("GND", 62.18, 40.0), ("GND", 70.5, 31.2), ("GND", 64.7, 30.6),
@@ -226,10 +226,10 @@ LABELS = {"B": [("Bio Mapping 2", 66.0, 44.25, 1.8), ("Christian Nold, 2004 - 20
                 # goes between, as C7, TP7 and the module leave it no other room
                 ("SAFEBOOT/PPS", 13.95, 33.0, TEXT), ("GND", 18.1, 35.7, TEXT),
                 ("RESET", 47.2, 33.3, TEXT), ("GND", 42.9, 36.0, TEXT),
-                ("RDY", 69.6, 24.0, TEXT), ("5V to 3.3V", 37.0, 18.6, TEXT)],
-          "F": [("CABLE TO EXT LEGS", 62.6, 9.25, TEXT),
-                ("1 G15  2 G13  3 GND  4 5VO", 62.6, 12.9, TEXT),
-                ("5 G5  6 G3  7 GND  8 G4", 62.6, 14.6, TEXT)]}
+                ("RDY", 66.5, 24.0, TEXT), ("5V to 3.3V", 37.0, 18.6, TEXT)],
+          "F": [("CABLE TO EXT LEGS", 59.5, 9.25, TEXT),
+                ("1 G15  2 G13  3 GND  4 5VO", 59.5, 12.9, TEXT),
+                ("5 G5  6 G3  7 GND  8 G4", 59.5, 14.6, TEXT)]}
 
 # The board's edge (the case draws its wall 0.5 mm outside it: hardware/case/):
 # big rounded corners on the EXT edge (y 2.1), smaller ones on the keyboard edge,
