@@ -6,7 +6,9 @@
 // from the circuit board, builds the STLs and checks the fit. Or open this
 // file in OpenSCAD, change a choice below, render (F6) and export.
 //
-// Print it floor down, open side up, in PETG or ASA. No supports needed.
+// Print it floor down, open side up, in PETG or ASA. No supports needed. Then
+// push a 2 mm drill through the thin cover at the top of each long screw's
+// head hole.
 //
 // The top 6.5 mm (the rim and battery layer) copies M5Stack's own back, as
 // measured from M5Stack's 3D model of the Cardputer ADV (MIT licence,
@@ -27,15 +29,19 @@ include <board.scad>
 gps_gap = 5.0;
 // Floor thickness
 floor_t = 2.0;
-// Shelf round the inside of the wall that the board's edge rests on
-ledge = 1.0;
+// Air between the board's edge and the wall, all round: room for the board's cutting tolerance and a print that comes out a little small
+board_gap = 0.5;
+// Shelf round the inside of the wall that the board's edge rests on, measured from the wall: the board sits on this less board_gap
+ledge = 1.2;
 // Length of the two long M2 screws into the Cardputer
 screw_len = 16;
 // How far they go into the Cardputer's inserts: M5Stack's own screw length less 6 (README, measurement 1)
 screw_engage = 3;
 // true: holes for M2 heat-set inserts in the two board posts; false: the M2 screws cut their own thread
-board_screw_inserts = false;
-// What to make: back, rim_test (the top 4 mm only, to try the fit), assembly (a picture), fit_check
+board_screw_inserts = true;
+// A finger scoop in the end wall round the cuff window, so the cuff plug can be gripped
+cuff_scoop = true;
+// What to make: back, rim_test (the battery layer on a 1 mm plate, to try the fit), assembly (a picture), fit_check
 part = "back"; // [back, rim_test, assembly, fit_check]
 
 /* [Hidden] */
@@ -56,7 +62,7 @@ batt_d = 6.5;                      // rim to the inner face of M5Stack's floor: 
 batt_in = [1.5, 1.75, 82.5, 52.5];
 batt_r_ext = 6.2; batt_r_kbd = 1.5;
 batt_in_low = [1.2, 1.5];          // EXT wall's inner face (y), and how far up from the battery layer's bottom
-post_d = 4.0; post_hole = 2.2;     // its two screw posts
+post_d = 4.0;                      // its two screw posts (with 2.2 mm holes; ours are screw_hole)
 ext_open = [32.7, 51.3, 5.1];      // the EXT socket's opening: x from, x to, depth below the rim
 phone_slot = [7.75, 13.25, 5.0];   // the headphone socket's slot: y from, y to, depth (round bottom)
 // The strap corner (keyboard edge, headphone end): a thin wall cuts the corner off;
@@ -68,11 +74,15 @@ strap_pin = [82.3, 52.3, 1.8];     // x, y, diameter
 // ── our parts ──
 ledge_post_d = 7;                  // the long screw posts under the board: the ledge it rests on
 head_d = 4.4;                      // room for an M2 screw head (cap head 3.8, pan head 4.0)
+screw_hole = 2.4;                  // their holes: a printed 2.2 mm hole comes out about 2.0, and the screw would thread into it
+cover = 0.3;                       // a thin cover over each head hole, so the hole above it never prints in mid-air: at least one layer
 board_post_d = 6;                  // posts under the board's two M2 screws
 pilot_d = 1.7; pilot_depth = 6;    // for an M2 screw to cut its own thread
 insert_d = 3.2; insert_depth = 4;  // or for an M2 heat-set insert (3.2 mm hole, up to 4 mm long)
 cuff_h = 6.0;                      // window in the end wall for the cuff plug, below the board:
-cuff_w = cuff_socket[2] + 0.6;     // as wide as the socket, and this tall
+cuff_w = cuff_socket[2] + 0.6;     // as wide as the socket, and this tall ...
+cuff_up = 0.5;                     // ... plus this much above the board's face, so a sagging top can't rub the plug
+scoop_w = 16; scoop_d = 2.5;       // the finger scoop round it: width along the wall, and depth
 
 // ── the stack, from the floor up ──
 part_h = max([for (p = parts_B) p[4]]);        // the tallest part on the board's outer face: the GPS
@@ -133,15 +143,21 @@ module hollow() {
             rrect(batt_in[0], batt_in[1], batt_in[2], batt_in[3], batt_r_ext, batt_r_kbd);
             strap_block();
         }
-    translate([0, 0, z_board_F]) linear_extrude(batt_in_low[1])
-        difference() {
-            rrect(batt_in[0], batt_in_low[0], batt_in[2], batt_in[3], batt_r_ext, batt_r_kbd);
-            strap_block();
+    // the thinner bottom band of the EXT wall, then a 45 degree slope up to the full wall, so it
+    // never overhangs. Along the slope our wall is still thinner than M5Stack's
+    translate([0, 0, z_board_F]) difference() {
+        hull() {
+            linear_extrude(batt_in_low[1])
+                rrect(batt_in[0], batt_in_low[0], batt_in[2], batt_in[3], batt_r_ext, batt_r_kbd);
+            translate([0, 0, batt_in_low[1] + batt_in[1] - batt_in_low[0]]) linear_extrude(eps)
+                rrect(batt_in[0], batt_in[1], batt_in[2], batt_in[3], batt_r_ext, batt_r_kbd);
         }
+        translate([0, 0, -1]) linear_extrude(batt_d + 2) strap_block();
+    }
     // the board's own layer: its edge plus the gap
-    translate([0, 0, z_board_B]) linear_extrude(board_t + eps) offset(delta = 0.3) board_shape();
+    translate([0, 0, z_board_B]) linear_extrude(board_t + eps) offset(delta = board_gap) board_shape();
     // under the board: the ledge it rests on all round
-    translate([0, 0, floor_t]) linear_extrude(z_board_B - floor_t + eps) offset(delta = 0.3 - ledge) board_shape();
+    translate([0, 0, floor_t]) linear_extrude(z_board_B - floor_t + eps) offset(delta = board_gap - ledge) board_shape();
 }
 
 module posts() {
@@ -154,7 +170,7 @@ module posts() {
 
 module holes() {
     for (p = long_posts) translate([p[0], p[1], 0]) {
-        translate([0, 0, -1]) cylinder(d = post_hole, h = H + 2);
+        translate([0, 0, z_seat + cover]) cylinder(d = screw_hole, h = H);
         translate([0, 0, -1]) cylinder(d = head_d, h = z_seat + 1);
     }
     for (p = board_screws) translate([p[0], p[1], 0])
@@ -172,7 +188,21 @@ module holes() {
     translate([0, 0, H - strap_d]) linear_extrude(strap_d + 1) strap_open();
     // window for the cuff plug, under the board
     translate([cuff_socket[0] - 2, cuff_socket[1] - cuff_w / 2, z_board_B - cuff_h])
-        cube([L - cuff_socket[0] + 4, cuff_w, cuff_h + eps]);
+        cube([L - cuff_socket[0] + 4, cuff_w, cuff_h + cuff_up]);
+    if (cuff_scoop) scoop();
+}
+
+// A shallow dip in the end wall round the cuff window, so a finger and thumb reach the sides of
+// the plug: part of a big upright cylinder, scoop_w wide where it meets the wall and scoop_d
+// deep. Its top slopes back at 45 degrees, so it never overhangs; the slope starts a little
+// below the board, which keeps the wall beside the board whole
+module scoop() {
+    r = (pow(scoop_w / 2, 2) + pow(scoop_d, 2)) / (2 * scoop_d);
+    z0 = z_board_B - cuff_h - 1; z1 = z_board_B - 0.5;
+    translate([L - scoop_d + r, cuff_socket[1], 0]) hull() {
+        translate([0, 0, z0]) cylinder(r = r, h = z1 - z0);
+        translate([scoop_d, 0, z1 + scoop_d]) cylinder(r = r, h = eps);
+    }
 }
 
 module back_raw() {
@@ -188,8 +218,8 @@ module back_raw() {
 
 // ── the board, its parts and the plugs, for the fit check and the picture ──
 
-// lifted 0.02 mm clear of the faces they are meant to touch (the ledge, the post tops), so
-// only a real overlap shows in the fit check
+// lifted 0.02 mm clear of the faces they are meant to touch (the ledge, the post tops, the
+// cuff window's floor), so only a real overlap shows in the fit check
 t = 0.02;
 module board3d() translate([0, 0, z_board_B + t]) linear_extrude(board_t - 2 * t) difference() {
     board_shape();
@@ -197,7 +227,7 @@ module board3d() translate([0, 0, z_board_B + t]) linear_extrude(board_t - 2 * t
     for (p = board_screws) translate(p) circle(d = board_screw_holes);
 }
 module parts3d() {
-    for (p = parts_B) translate([p[0], p[1], z_board_B - p[4]]) cube([p[2] - p[0], p[3] - p[1], p[4] - t]);
+    for (p = parts_B) translate([p[0], p[1], z_board_B - p[4] + t]) cube([p[2] - p[0], p[3] - p[1], p[4] - 2 * t]);
     for (p = parts_F) translate([p[0], p[1], z_board_F + t]) cube([p[2] - p[0], p[3] - p[1], p[4]]);
 }
 module plugs3d() {
@@ -214,17 +244,30 @@ module board_path() translate([0, 0, z_board_B + t]) linear_extrude(H - z_board_
     for (p = long_posts) translate(p) circle(d = post_holes);
 }
 
+// The battery layer on a 1 mm plate, to try on the Cardputer in about an hour. The plate is
+// where M5Stack's floor was (just under the battery layer), so nothing of the Cardputer can be
+// there; it joins the walls and both screw posts into one piece. Printed plate down
+module rim_test() {
+    z0 = z_board_F - 1;
+    translate([0, 0, -z0]) intersection() {
+        union() {
+            back_raw();
+            difference() {
+                intersection() { outside(); translate([-5, -5, z0]) cube([L + 10, W + 10, 1]); }
+                for (p = long_posts) translate([p[0], p[1], z0 - 1]) cylinder(d = screw_hole, h = 3);
+            }
+        }
+        translate([-5, -5, z0]) cube([L + 10, W + 10, H - z0 + 1]);
+    }
+}
+
 // ── output ──
 echo(str("rim to floor ", H, " mm (M5Stack's back: 8 mm); the Cardputer becomes ", round((19.6 - 8 + H) * 10) / 10,
          " mm thick (19.6 today). Long screws M2 x ", screw_len, ", heads ", z_seat, " mm up from the floor."));
 
 mirror([0, 1, 0]) {
     if (part == "back") back_raw();
-    if (part == "rim_test")   // the top 4 mm, floor down, to try on the Cardputer in half an hour
-        translate([0, 0, -(H - 4)]) intersection() {
-            back_raw();
-            translate([-5, -5, H - 4]) cube([L + 10, W + 10, 5]);
-        }
+    if (part == "rim_test") rim_test();
     if (part == "fit_check")  // must come out empty
         intersection() {
             back_raw();

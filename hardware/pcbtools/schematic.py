@@ -63,6 +63,7 @@ def two_pin_v(name, ref, body, n1="~", n2="~"):
 RES = rect(-1.016, -2.54, 1.016, 2.54)
 CAP = (poly((-2.032, -0.762), (2.032, -0.762), width=0.508) + poly((-2.032, 0.762), (2.032, 0.762), width=0.508)
        + poly((0, 2.54), (0, 0.762), width=0) + poly((0, -2.54), (0, -0.762), width=0))
+CAP_POL = CAP + poly((-1.778, 1.778), (-0.762, 1.778), width=0.254) + poly((-1.27, 2.286), (-1.27, 1.27), width=0.254)
 BEAD = (rect(-1.27, -2.54, 1.27, 2.54) + poly((0, 2.54), (0, 2.54)))
 CELL = (poly((-2.032, 0.762), (2.032, 0.762), width=0.508) + poly((-1.016, -0.254), (1.016, -0.254), width=0.508)
         + poly((0, 2.54), (0, 0.762), width=0) + poly((0, -2.54), (0, -0.254), width=0)
@@ -120,6 +121,7 @@ def power_sym(name, kind="power_in", shape="up"):
 SYMS = {
     "R": two_pin_v("R", "R", RES),
     "C": two_pin_v("C", "C", CAP),
+    "CP": two_pin_v("C_Polarized", "C", CAP_POL),
     "FB": two_pin_v("FerriteBead", "FB", BEAD),
     "BT": two_pin_v("Battery_Cell", "BT", CELL, "+", "-"),
     "D": sym("D_Schottky", "D", {1: dict(
@@ -206,6 +208,7 @@ BUY = {
     "1uF":           ("Samsung", "CL21B105KBFNNNE", "C28323"),
     "100nF C0G":     ("FH (Guangdong Fenghua)", "1206CG104J500NT", "C46348"),
     "10uF":          ("Samsung", "CL21A106KAYNNNE", "C15850"),
+    "10uF tantalum": ("Kyocera AVX", "TAJP106M010RNJ", "C1952866"),
     "600R@100MHz":   ("Sunlord", "GZ2012D601TF", "C1017"),
     "OPA2333AIDR":   ("Texas Instruments", "OPA2333AIDR", "C38732"),
     "ADS1115IDGSR":  ("Texas Instruments", "ADS1115IDGSR", "C37593"),
@@ -224,9 +227,20 @@ def part(ref, key, value, fp, pins, note=""):
     mfr, mpn, lcsc = BUY.get(value, ("", "", ""))
     return dict(ref=ref, key=key, value=value, fp=fp, pins=pins, note=note, mfr=mfr, mpn=mpn, lcsc=lcsc)
 
-def gsr_core(adc_ready=None):
+def gsr_core(adc_ready=None, tantalum_bias=False):
     """The validated GSR circuit (docs/wiring_guide.md), shared by both boards.
-    adc_ready names the net on the ADC's ALERT/RDY pin (None: not connected)."""
+    adc_ready names the net on the ADC's ALERT/RDY pin (None: not connected).
+    tantalum_bias: C9 is a tantalum part instead of a ceramic one. A ceramic
+    capacitor turns knocks into small voltages, and anything added to the
+    0.5 V shows in the GSR; the Cardputer's C9 sits behind its keyboard and
+    speaker."""
+    bias_cap = (part("C9", "CP", "10uF tantalum", "Capacitor_Tantalum_SMD:CP_EIA-2012-15_AVX-P",
+                     {"1": "BIAS_DIV", "2": "GND"},
+                     "Smooths the 0.5 V bias: noise on 3.3 V would otherwise change the GSR gain. "
+                     "Tantalum, + (pad 1) to the 0.5 V: a ceramic one turns knocks into small voltages")
+                if tantalum_bias else
+                part("C9", "C", "10uF", FP_C, {"1": "BIAS_DIV", "2": "GND"},
+                     "Smooths the 0.5 V bias: noise on 3.3 V would otherwise change the GSR gain"))
     return [
         part("J2", "Conn_1x02", "Grove GSR finger cuffs", "Connector_JST:JST_PH_S2B-PH-SM4-TB_1x02-1MP_P2.00mm_Horizontal",
              {"1": "ELECTRODE_1", "2": "ELECTRODE_2"},
@@ -244,8 +258,7 @@ def gsr_core(adc_ready=None):
         part("C2", "C", "100nF C0G", "Capacitor_SMD:C_1206_3216Metric", {"1": "TIA_IN", "2": "GSR_SIGNAL"}, "TIA filter (~34 Hz). C0G/NP0 only. 1206 size: 100 nF C0G is hard to find in 0805"),
         part("R1", "R", "56k 0.1%", FP_R, {"1": "+3V3", "2": "BIAS_DIV"}, "0.5 V bias. " + PREC),
         part("R2", "R", "10k 0.1%", FP_R, {"1": "BIAS_DIV", "2": "GND"}, "0.5 V bias. " + PREC),
-        part("C9", "C", "10uF", FP_C, {"1": "BIAS_DIV", "2": "GND"},
-             "Smooths the 0.5 V bias: noise on 3.3 V would otherwise change the GSR gain"),
+        bias_cap,
         part("C1", "C", "100nF", FP_C, {"1": "+3V3", "2": "GND"}, "Op-amp decoupling: against U1 pins 8 and 4"),
         part("U2", "ADS1115", "ADS1115IDGSR", "Package_SO:MSOP-10_3x3mm_P0.5mm",
              {"4": "GSR_SIGNAL", "5": "REF_0V5", "6": None, "7": None, "3": "GND",
@@ -320,7 +333,7 @@ CABLE_NETS = {"1": "GPS_TX_TO_HOST", "2": "HOST_TX_TO_GPS", "3": "GND", "4": "+5
               "5": "I2C_SDA", "6": "I2C_SCL", "7": "GND", "8": "ADC_READY"}
 CABLE_LEGS = {"1": "G15", "2": "G13", "3": "GND", "4": "5VO", "5": "G5", "6": "G3", "7": "GND", "8": "G4"}
 
-CARDPUTER = gsr_core(adc_ready="ADC_READY") + gps_block(backup_cap="1uF") + [
+CARDPUTER = gsr_core(adc_ready="ADC_READY", tantalum_bias=True) + gps_block(backup_cap="1uF") + [
     part("J1", "Conn_1x08", "JST GH 8-pin socket", "Connector_JST:JST_GH_SM08B-GHS-TB_1x08-1MP_P1.25mm_Horizontal",
          CABLE_NETS,
          "Cable socket on the INNER face (towards the Cardputer), soldered by hand. Latching, side entry, "
@@ -339,7 +352,7 @@ CARDPUTER = gsr_core(adc_ready="ADC_READY") + gps_block(backup_cap="1uF") + [
     *[part(ref, "MH", "M2", "MountingHole:MountingHole_2.2mm_M2", {},
            "M2 x 5 mm screw from the inner face into a post of the printed case: holds the board in the case")
       for ref in ("H1", "H2")],
-    *[part(ref, "MH", "4.5 mm", "MountingHole:MountingHole_4.5mm", {},
+    *[part(ref, "MH", "4.8 mm", "BioMap:MountingHole_4.8mm", {},
            "One of the case's two long screw posts (4 mm) passes through here; the board rests on its ledge")
       for ref in ("H3", "H4")],
 ]
@@ -475,8 +488,9 @@ class Sheet:
         self.gfx.append(f'(rectangle (start {x1} {y1}) (end {x2} {y2}) (stroke (width 0.25) (type dash) '
                         f'(color 120 120 120 1)) (fill (type none)) (uuid "{U()}"))')
         self.text(r3(x1 + 2.54), r3(y1 + 6.35), title, 2.0, bold=True)
-        if note:
-            self.text(r3(x1 + 2.54), r3(y2 - 2.54), note)
+        lines = [note] if isinstance(note, str) else note
+        for i, line in enumerate(reversed([l for l in lines if l])):
+            self.text(r3(x1 + 2.54), r3(y2 - 2.54 - 2.54 * i), line)
 
     def text(self, x, y, s, size=1.27, bold=False):
         b = " bold" if bold else ""
@@ -576,7 +590,7 @@ class Sheet:
         if it.get("txt"):
             dx, dy, just = it["txt"]
             return x + dx, y + dy, just, 2.0
-        if key in ("R", "C", "FB", "BT"):
+        if key in ("R", "C", "CP", "FB", "BT"):
             if rot in (0, 180):
                 return x + 2.54, y - 1.27, "left", 2.54       # upright part: text to the right
             return x, y - 2.8, "", 5.6                         # level part: name above, value below
@@ -649,8 +663,8 @@ def draw_ref(s, x0, y0):
     s.power("R2.2", "GND")
     s.wire("R1.2", "R2.1")
     s.wire((rx, plus[1]), "U1.5")
-    # C9 across R2 smooths the bias
-    cx = rx - g(5)
+    # C9 across R2 smooths the bias (further out when tantalum, for its longer value)
+    cx = rx - (g(7.5) if s.parts["C9"]["key"] == "CP" else g(5))
     s.put("C9", cx, plus[1] + g(4) + 1.27)
     s.wire((rx, plus[1]), (cx, plus[1]), "C9.1")
     s.power("C9.2", "GND")
@@ -790,12 +804,12 @@ def tail_pads(s, ref, x, y, nets=TAIL_NETS):
 
 def draw_cardputer_conn(s, x0, y0):
     s.frame(x0, y0, g(38), H1, "4  Cable to the EXT header's legs",
-            "Wires to EXT legs: " + " ".join(f"{k} {v}" for k, v in CABLE_LEGS.items())
-            + ". R6/R7: the Cardputer has no pull-ups on G3/G5.")
+            ["Wires to EXT legs: " + " ".join(f"{k} {v}" for k, v in CABLE_LEGS.items()) + ".",
+             "R6/R7: the Cardputer has no pull-ups on G3/G5."])
     tail_pads(s, "J1", x0 + g(6), y0 + g(14), CABLE_NETS)
     s.flag((s.pins["J1.3"][0] + G, s.pins["J1.3"][1]))
     for i, ref in enumerate(("H1", "H2", "H3", "H4")):
-        s.put(ref, x0 + g(6) + g(4) * (i % 2), y0 + g(33) + g(4) * (i // 2))
+        s.put(ref, x0 + g(6) + g(6) * (i % 2), y0 + g(31) + g(4) * (i // 2))
     draw_pullups(s, x0 + g(26), y0 + g(29))
 
 def draw_regulator(s, x0, y0):

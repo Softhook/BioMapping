@@ -8,7 +8,9 @@
    rim, every part, the cable plug, the cuff plug and the board's screw heads
    must not touch the case anywhere. OpenSCAD works out the overlap; it must
    come out empty.
-4. Checks the GPS's distance to the screws (u-blox: 10 mm from metal).
+4. Checks the GPS's distance to the metal in each screw hole (u-blox: 10 mm
+   from metal): the long screws' heads, and the heat-set inserts in the
+   board's two posts. Both sit at the same height as the GPS module.
 
 Needs KiCad's Python (pcbnew) and OpenSCAD (a 2025 or later build: set
 OPENSCAD to its program if it is somewhere unusual)."""
@@ -39,7 +41,10 @@ HEIGHT = {"U4": 6.8,     # SAM-M10Q: 6.3 typical, 6.8 at most (u-blox datasheet)
 SMALL = 2.0
 PAD = 0.1                # bare test pads
 MODULE = 15.5            # SAM-M10Q body, square
-SCREW_R = 1.0            # M2 screw
+# The widest metal at the GPS's height in each hole, as a radius: an M2 screw
+# head (4 mm) for the long screws, an M2 heat-set insert (3.6 mm) in the
+# board's posts
+METAL_R = {"H1": 1.8, "H2": 1.8, "H3": 2.0, "H4": 2.0}
 GPS_METAL_MM = 10.0      # u-blox: keep metal 10 mm from the module
 
 
@@ -121,12 +126,12 @@ def echoes(text):
 
 
 def gps_distances(n):
-    """Nearest distance from the GPS module's body to each screw's metal."""
+    """Nearest distance from the GPS module's body to the metal in each hole."""
     gx, gy = n["gps"]
     out = {}
     for ref, (x, y, _) in n["holes"].items():
         dx, dy = max(abs(x - gx) - MODULE / 2, 0), max(abs(y - gy) - MODULE / 2, 0)
-        out[ref] = round(math.hypot(dx, dy) - SCREW_R, 1)
+        out[ref] = round(math.hypot(dx, dy) - METAL_R[ref], 1)
     return out
 
 
@@ -161,7 +166,7 @@ def make(picture=True):
             problems += 1
             print(f"  FIT: OpenSCAD could not run the fit check:\n{msg}")
     for ref, d in sorted(gps_distances(n).items()):
-        metal = "screw" if ref in ("H1", "H2") else "long screw"
+        metal = "insert" if ref in ("H1", "H2") else "long screw's head"
         flag = "" if d >= GPS_METAL_MM else f"  <- under {GPS_METAL_MM:g} mm"
         problems += d < GPS_METAL_MM
         print(f"  GPS to the {metal} in {ref}: {d} mm{flag}")

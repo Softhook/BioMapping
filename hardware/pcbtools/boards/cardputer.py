@@ -22,11 +22,11 @@ from ..rules import SIG, PWR, TEXT
 # The board lives inside a printed back case (hardware/case/), where the
 # floor of M5Stack's own back used to be. Coordinates are the Cardputer's
 # own: x 0..84 along its length, y 0 at the EXT socket edge, as seen from the
-# Cardputer's side. The board is the space inside the case wall, less 0.3 mm
-# all round: x 2.1..81.9, y 2.1..51.9, with the case's big rounded corners at
-# the EXT edge. F = inner face, against the Cardputer's battery (bare except
-# the cable socket J1); B = outer face, towards the case floor, with
-# everything else on it.
+# Cardputer's side. The board spans x 2.1..81.9, y 2.1..51.9, with the
+# case's big rounded corners at the EXT edge; the case wall stands 0.5 mm
+# clear of its edge all round. F = inner face, against the Cardputer's
+# battery (bare except the cable socket J1); B = outer face, towards the case
+# floor, with everything else on it.
 #
 # Four holes, all fixed by the Cardputer: H3 and H4 take the case's two long
 # screw posts, which stand where M5Stack's back screws in (x 13 and 54.5,
@@ -65,19 +65,19 @@ PLACE = {
     # GPS, turned so its serial pins (13, 14) face up towards the cable, its VCC pin
     # (17) faces the regulator on the right, and its V_IO and backup pins (2, 3) face
     # the free space below. Each capacitor bridges its pin and the GND pad beside it
-    "U4": (30.0, 32.5, 90, "B"),
-    "C7": (39.1, 29.65, 90, "B"),                  # beside VCC pad 17 and GND pad 16
-    "C6": (32.85, 41.6, 0, "B"),                   # under V_IO pad 2 and GND pad 1
-    "C8": (29.05, 41.6, 180, "B"),                 # under V_BCKP pad 3 and GND pad 4
-    "TP2": (39.4, 32.8, 0, "B"), "TP1": (20.6, 32.5, 0, "B"),   # beside RESET pad 18 and SAFEBOOT pad 8
+    "U4": (30.5, 33.0, 90, "B"),
+    "C7": (39.6, 30.15, 90, "B"),                  # beside VCC pad 17 and GND pad 16
+    "C6": (33.35, 42.1, 0, "B"),                   # under V_IO pad 2 and GND pad 1
+    "C8": (29.55, 42.1, 180, "B"),                 # under V_BCKP pad 3 and GND pad 4
+    "TP2": (39.9, 33.3, 0, "B"), "TP1": (21.1, 33.0, 0, "B"),   # beside RESET pad 18 and SAFEBOOT pad 8
     # a ground pad under each, 1.2 mm apart: tweezers across the pair, or a scope's ground
-    "TP7": (39.4, 35.5, 0, "B"), "TP6": (20.6, 35.2, 0, "B"),
+    "TP7": (39.9, 36.0, 0, "B"), "TP6": (21.1, 35.7, 0, "B"),
     # each serial resistor sits at the end that drives its wire: TX just above the GPS's TX
     # pin, RX just after the cable socket
-    "R10": (30.0, 22.1, 90, "B"), "R9": (55.0, 6.55, 0, "B"),
+    "R10": (30.5, 22.6, 90, "B"), "R9": (55.0, 6.55, 0, "B"),
     # backup cell charger in a row below the module, the cell itself to its left
-    "D1": (35.5, 46.5, 0, "B"), "R8": (31.9, 46.5, 180, "B"),
-    "BT1": (26.0, 46.5, 0, "B"),
+    "D1": (36.0, 47.0, 0, "B"), "R8": (32.4, 47.0, 180, "B"),
+    "BT1": (26.5, 47.0, 0, "B"),
     # GSR circuit, right to left along the signal: cuffs (right edge) -> R4 -> C2/R5 -> op-amp
     # U1 -> ADC U2 just above it. The cuff socket's opening is 0.75 mm inside the
     # right edge, behind a window in the case wall; its tabs keep the 0.5 mm copper-edge gap
@@ -122,24 +122,24 @@ TRACKS = [
     ("B", PWR, ["C5.2", (48.3, 17.0)]),
     # ── GPS: 3.3 V down from the regulator's output pin, across at 45 degrees and down
     # to VCC (pin 17) through C7 ──
-    ("B", PWR, ["U3.5", (46.14, 17.6), (41.0, 22.74), (41.0, 30.6), "C7.1", "U4.17"]),
+    ("B", PWR, ["U3.5", (46.14, 17.6), (41.5, 22.24), (41.5, 31.1), "C7.1", "U4.17"]),
     ("B", PWR, ["C7.2", "U4.16"]),
     # V_IO (pin 2): on down round the module's bottom-right corner, through C6
-    ("B", PWR, [(41.0, 30.6), (41.0, 43.5), (31.9, 43.5), "C6.1", "U4.2"]),
+    ("B", PWR, [(41.5, 31.1), (41.5, 44.0), (32.4, 44.0), "C6.1", "U4.2"]),
     ("B", PWR, ["C6.2", "U4.1"]),
     # backup cell: charged from the V_IO wire through D1 and R8
-    ("B", SIG, [(36.55, 43.5), "D1.2"]),
+    ("B", SIG, [(37.05, 44.0), "D1.2"]),
     ("B", SIG, ["D1.1", "R8.1"]),
-    ("B", SIG, ["U4.3", "C8.1", (30.0, 48.53), "BT1.1"]),
-    ("B", SIG, ["R8.2", (30.0, 46.5)]),
+    ("B", SIG, ["U4.3", "C8.1", (30.5, 49.03), "BT1.1"]),
+    ("B", SIG, ["R8.2", (30.5, 47.0)]),
     ("B", PWR, ["C8.2", "U4.4"]),
-    ("B", SIG, ["U4.18", (39.4, 32.5)]),                  # straight into TP2 (which sits 0.3 lower, clear of C7)
+    ("B", SIG, ["U4.18", (39.9, 33.0)]),                  # straight into TP2 (which sits 0.3 lower, clear of C7)
     ("B", SIG, ["U4.8", "TP1.1"]),
     # serial: from the cable's two left-hand vias along the top edge, then two parallel
     # 45-degree runs down to the top of the module, TX outside RX
     ("B", SIG, ["U4.13", "R10.1"]),
-    ("B", SIG, ["R10.2", (30.0, 13.0), (37.85, 5.15), (58.225, 5.15)]),
-    ("B", SIG, ["U4.14", (31.9, 14.9), (40.25, 6.55), "R9.1"]),
+    ("B", SIG, ["R10.2", (30.5, 13.0), (38.35, 5.15), (58.225, 5.15)]),
+    ("B", SIG, ["U4.14", (32.4, 14.9), (40.75, 6.55), "R9.1"]),
     ("B", SIG, ["R9.2", (59.475, 6.55), (59.475, 5.15)]),
     # ── I2C: straight down right of the screw post, left along the channel above the ADC,
     # then down its left side. SDA above SCL along the channel and outside it on the way
@@ -193,12 +193,12 @@ VIAS = [
     ("GND", 62.18, 40.0), ("GND", 70.5, 31.2), ("GND", 64.7, 30.6),
     # down the middle of the strip between the two serial wires: the stitching grid misses
     # it, and without a via its ground copper would be dropped as a loose piece
-    ("GND", 38.4, 6.5), ("GND", 35.4, 9.5), ("GND", 32.4, 12.5), ("GND", 30.95, 18.0),
+    ("GND", 38.9, 6.5), ("GND", 35.9, 9.5), ("GND", 32.9, 12.5), ("GND", 31.45, 18.0),
 ]
 BEVEL = 0.8
 
 # GPS keep-clear: no tracks on the inner layer near the module, none under it on the outer face
-KEEPOUT = [("F", (12.5, 15.0, 47.5, 50.0)), ("B", (24.7, 27.2, 35.3, 37.8))]
+KEEPOUT = [("F", (13.0, 15.5, 48.0, 50.5)), ("B", (25.2, 27.7, 35.8, 38.3))]
 
 # 0.5 V guard: around R4, C2, R5, the input pin U1.2 and the cuff-2 wire and pin,
 # including the strip between the two cuff pins. It joins the reference at U1
@@ -213,7 +213,7 @@ GUARD = ("B", [(77.4, 43.5), (62.6, 43.5), (62.6, 35.8), (69.9, 35.8), (69.9, 36
 MASK_MARGIN = {"U4": 0.05}
 
 # a closer grid under the GPS module (u-blox: fill the ground under it with vias)
-STITCH = [((26.0, 28.5, 34.0, 36.5), 2.0), ((3.0, 3.0, 49.5, 51.0), 3.0), ((52.5, 1.75, 81.0, 51.0), 5.0)]
+STITCH = [((26.5, 29.0, 34.5, 37.0), 2.0), ((3.0, 3.0, 49.5, 51.0), 3.0), ((52.5, 1.75, 81.0, 51.0), 5.0)]
 
 # The title sits in the free space under the GSR circuit, its lines between the
 # rows of ground vias (y 41.75, 46.75). The inner face carries the cable's
@@ -224,14 +224,14 @@ LABELS = {"B": [("Bio Mapping 2", 66.0, 44.25, 1.8), ("Christian Nold, 2004 - 20
                 # each GPS pad's name beside it, on the side away from the module, 0.3 mm
                 # clear of its printed outline. RESET stands further off: TP2's own name
                 # goes between, as C7, TP7 and the module leave it no other room
-                ("SAFEBOOT/PPS", 13.45, 32.5, TEXT), ("GND", 17.6, 35.2, TEXT),
-                ("RESET", 46.7, 32.8, TEXT), ("GND", 42.4, 35.5, TEXT),
+                ("SAFEBOOT/PPS", 13.95, 33.0, TEXT), ("GND", 18.1, 35.7, TEXT),
+                ("RESET", 47.2, 33.3, TEXT), ("GND", 42.9, 36.0, TEXT),
                 ("RDY", 69.6, 24.0, TEXT), ("5V to 3.3V", 37.0, 18.6, TEXT)],
           "F": [("CABLE TO EXT LEGS", 62.6, 9.25, TEXT),
-                ("1 G15  2 G13  3 GND  4 5VO", 62.6, 13.4, TEXT),
-                ("5 G5  6 G3  7 GND  8 G4", 62.6, 15.1, TEXT)]}
+                ("1 G15  2 G13  3 GND  4 5VO", 62.6, 12.9, TEXT),
+                ("5 G5  6 G3  7 GND  8 G4", 62.6, 14.6, TEXT)]}
 
-# The board's edge: the case wall's inner face less 0.3 mm (hardware/case/).
+# The board's edge (the case draws its wall 0.5 mm outside it: hardware/case/).
 # The corner at the keyboard edge, headphone end, is notched round the case's
 # strap corner: there M5Stack's back has a curved wall cutting the corner off,
 # with a pin for a strap behind it, and the board must pass it on its way in.
