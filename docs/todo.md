@@ -150,10 +150,9 @@ correctness / structure concerns. Promote to its own doc if picked up.
   either field, confirmed against the u-blox M10 SPG 5.10 Interface
   Description. With those, the velocity measurement could use the chip's
   own per-fix noise instead of the constants. Two real costs: (1) enabling it
-  needs `CFG-MSGOUT-UBX_NAV_PVT_UART1` (key `0x20910007`) turned on *and*
-  the UART1 output protocol mask flipped from NMEA-only (currently `0002`
-  at [gps_uart.c](../firmware/core/gps_uart.c) — see the "outProto"
-  comment) to mixed NMEA+UBX; (2) the live RX path
+  needs `CFG-MSGOUT-UBX_NAV_PVT_UART1` (key `0x20910007`) turned on (UART1
+  output protocol mask in [gps_uart.c](../firmware/core/gps_uart.c) already
+  leaves mixed NMEA+UBX `0003` enabled for boot `UBX-NAV-TIMEUTC` polls); (2) the live RX path
   ([gps_uart_flipper.c](../firmware/flipper/gps_uart_flipper.c)) is a single-byte-per-IRQ
   NMEA line accumulator with no binary-frame awareness outside the
   one-shot startup ACK/UNIQID reads — continuous NAV-PVT would need a real

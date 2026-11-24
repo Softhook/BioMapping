@@ -30,6 +30,7 @@ static void rf_cal_wizard_abort(BioMapApp* app, ViewPort* vp, FuriMutex* mutex) 
 }
 
 void run_rf_calibration_wizard(BioMapApp* app) {
+    gps_uart_sleep();
     RfCalWizardState w = {0};
     // Guards every field below against the GUI thread's render callbacks
     // (biomap_render.c's rf_calibration_wizard_*_render), which run

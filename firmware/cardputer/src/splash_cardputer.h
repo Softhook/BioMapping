@@ -6,9 +6,9 @@
 // and grows into the title. A short bell melody plays with it (only when
 // Options > Sound is on).
 //
-// It plays while the GPS module is put to sleep at power-up. Any key or G0
-// skips it; a press before the GPS is asleep takes effect once it is.
-// Nothing stays in RAM once it returns.
+// It plays while the GPS module is woken and its backup RTC is polled at
+// power-up. Any key or G0 skips it; a press before GPS start-up finishes
+// takes effect once it is done. Nothing stays in RAM once it returns.
 
 #include <M5Cardputer.h>
 

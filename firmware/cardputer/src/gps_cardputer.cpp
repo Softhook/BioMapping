@@ -83,7 +83,9 @@ static void on_rx_error(hardwareSerial_error_t err) {
     }
 }
 
-static bool g_port_open = false;
+static bool     g_port_open = false;
+static bool     g_gps_asleep = false;
+static uint32_t g_garbled_at_awake = 0;
 
 // ── State while receiving ───────────────────────────────────────────────
 // The ESP32's driver always receives into its buffer. "Not receiving"
@@ -108,7 +110,10 @@ static uint32_t  g_garbled_at_wake_start = 0;
 
 static void drain_rx(void) {
     uart_flush_input(GPS_UART_NUM);
-    while(port.available() > 0) port.read();
+    uint8_t discard[64];
+    while(port.available() > 0) {
+        if(port.read(discard, sizeof(discard)) <= 0) break;
+    }
 }
 
 static void wake_watch_poll(void) {
@@ -141,6 +146,7 @@ static int g_read_floor = -1;
 static void plat_set_baud(void* ctx, uint32_t baud) {
     (void)ctx;
     g_read_floor = -1;
+    if(g_baud == baud) return;
     port.updateBaudRate(baud);
     g_baud = baud;
 }
@@ -333,34 +339,61 @@ bool gps_cardputer_port_open(GpsUtcTime* boot_utc) {
     }
     g_port_open = true;
 
-    // The boot poll + sleep sequence doesn't use the lock; a bare context
-    // with no session is enough.
+    // The boot wake + UTC poll sequence doesn't use the lock; a bare context
+    // with no session is enough. Leaves the module awake at 115200.
     GpsCardputer bare;
     GpsPlatform p = platform_for(&bare);
-    bool got_time = gps_uart_sleep_from_unknown_state(&p, boot_utc);
-    idle_watch_start();
+    bool got_time = gps_uart_wake_to_fast(&p, boot_utc);
+    g_gps_asleep = false;
+    g_garbled_at_awake = g_garbled;
     return got_time;
+}
+
+void gps_cardputer_sleep(void) {
+    if(!g_port_open || g_gps_asleep) return;
+    GpsCardputer bare;
+    GpsPlatform p = platform_for(&bare);
+    gps_uart_standby(&p);
+    g_gps_asleep = true;
+    idle_watch_start();
 }
 
 GpsUart* gps_cardputer_start(GpsNavModel nav_model, bool super_s) {
     auto* g = new GpsCardputer();
     g->mutex = xSemaphoreCreateMutex();
     CORE_CHECK(g->mutex, "GpsUart: mutex alloc failed");
-    g->overflows_at_start = g_overflows;
-    g->buffer_full_at_start = g_buffer_full;
+    bool already_awake = false;
     if(g_port_open) {
-        idle_watch_stop();
+        if(g_gps_asleep) {
+            idle_watch_stop();
+        } else if(g_garbled - g_garbled_at_awake >= 8) {
+            // Framing errors arrived while idling at 115200 (e.g. the module
+            // browned out or was connected at 9600 after boot): run the full
+            // 9600 -> 115200 switch immediately rather than timing out UBX
+            // packets at 115200.
+            Serial.println("[GPS] warning: garbled bytes while idle at 115200; re-syncing from 9600");
+        } else {
+            drain_rx();
+            already_awake = true;
+        }
     } else {
         Serial.println("[GPS] error: port not open (see gps_cardputer_port_open())");
     }
+    g->overflows_at_start = g_overflows;
+    g->buffer_full_at_start = g_buffer_full;
     GpsPlatform p = platform_for(g);
-    return gps_uart_create(&p, g_port_open, nav_model, super_s);
+    GpsUart* gps = gps_uart_create(&p, g_port_open, already_awake, nav_model, super_s);
+    if(g_port_open) {
+        g_gps_asleep = false;
+        g_garbled_at_awake = g_garbled;
+    }
+    return gps;
 }
 
 void gps_cardputer_stop(GpsUart* gps) {
     auto* g = static_cast<GpsCardputer*>(gps_uart_platform_ctx(gps));  // stops on NULL
-    gps_uart_destroy(gps);  // standby command, receiving off
-    if(g_port_open) idle_watch_start();
+    gps_uart_destroy(gps);  // receiving off; module stays awake at 115200
+    g_garbled_at_awake = g_garbled;
     vSemaphoreDelete(g->mutex);
     delete g;
 }
@@ -373,12 +406,21 @@ bool gps_cardputer_cold_reset(GpsNavModel nav_model, bool super_s) {
         delay(300);
     }
     if(gps) gps_cardputer_stop(gps);
+    if(ok) gps_cardputer_sleep();
     return ok;
 }
 
 void gps_cardputer_poll(GpsUart* gps) {
     if(!gps) {
-        idle_watch_poll();
+        if(g_idle_watching) {
+            idle_watch_poll();
+        } else if(g_port_open) {
+            // Module is awake on the menu: keep the 8 KB RX buffer empty.
+            uint8_t discard[64];
+            for(int pass = 0; pass < 8 && port.available() > 0; pass++) {
+                if(port.read(discard, sizeof(discard)) <= 0) break;
+            }
+        }
         return;
     }
     if(!gps_uart_is_ready(gps)) return;

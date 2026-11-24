@@ -64,6 +64,11 @@ int furi_hal_mock_acquire_count(void);
 int  furi_hal_mock_tx_count(void);
 void furi_hal_mock_reset_tx_count(void);
 
+// Test-observable: number of furi_hal_serial_deinit() calls since the last
+// reset (each deinit floats USART1 TX to analog on real Flipper hardware).
+int  furi_hal_mock_deinit_count(void);
+void furi_hal_mock_reset_deinit_count(void);
+
 // Test-observable TX log: the bytes of each furi_hal_serial_tx() call since
 // the last reset, plus the baud from the most recent furi_hal_serial_init()
 // at the time of the call. Up to 64 calls, 64 bytes each (longer calls are

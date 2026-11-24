@@ -288,9 +288,12 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     view_port_enabled_set(s->vp, true);
     view_port_update(s->vp);
 
-    GpsUart* gps = session_mode_needs_gps(mode)
-        ? gps_uart_alloc(app->event_queue, app->nav_model, app->super_s)
-        : NULL;  // otherwise the module stays asleep (gps_uart_port_open())
+    GpsUart* gps = NULL;
+    if(session_mode_needs_gps(mode)) {
+        gps = gps_uart_alloc(app->event_queue, app->nav_model, app->super_s);
+    } else {
+        gps_uart_sleep(); // GSR Only / Diagnostics: put GPS to sleep
+    }
     // The radio scan borrows the GSR worker thread (em_scan_sampler.h).
     EmScanSampler* em = has_rf(mode) ? em_scan_sampler_alloc() : NULL;
     GsrSensor* gsr = session_mode_needs_gsr(mode)

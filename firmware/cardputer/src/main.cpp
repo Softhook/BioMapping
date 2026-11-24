@@ -137,25 +137,26 @@ static bool serial_keys_poll(void) {
     return redraw;
 }
 
-// Putting the GPS to sleep at power-up (up to about 2 s) runs on its own
-// task while the start-up animation plays; the animation doesn't end until
-// it is done. The task runs on this core, as the code did before, because
-// the serial driver sets up its interrupt on the core that opens the port,
-// and the other core carries Bluetooth and Wi-Fi. One priority above the
-// animation, so its short waits keep their timing; same stack as setup().
-static std::atomic<bool> g_gps_asleep{false};
+// Bringing up the GPS at power-up (and polling its backup RTC) runs on its
+// own task while the start-up animation plays; the animation doesn't end
+// until it is done. The task runs on this core, as the code did before,
+// because the serial driver sets up its interrupt on the core that opens
+// the port, and the other core carries Bluetooth and Wi-Fi. One priority
+// above the animation, so its short waits keep their timing; same stack as
+// setup().
+static std::atomic<bool> g_gps_boot_done{false};
 static bool              g_boot_utc_ok = false;
 static GpsUtcTime        g_boot_utc = {};
 
-static void gps_sleep_task(void* arg) {
+static void gps_boot_task(void* arg) {
     (void)arg;
     g_boot_utc_ok = gps_cardputer_port_open(&g_boot_utc);
-    g_gps_asleep.store(true, std::memory_order_release);
+    g_gps_boot_done.store(true, std::memory_order_release);
     vTaskDelete(nullptr);
 }
 
-static bool gps_is_asleep(void) {
-    return g_gps_asleep.load(std::memory_order_acquire);
+static bool gps_boot_done(void) {
+    return g_gps_boot_done.load(std::memory_order_acquire);
 }
 
 void setup() {
@@ -175,12 +176,12 @@ void setup() {
     settings_cardputer_load();
     menu_cardputer_begin();
 
-    // The GPS port is opened once and held until power-off; opening it polls
-    // the module's battery-backed RTC and puts it to sleep while the start-up
-    // animation plays.
-    if(xTaskCreatePinnedToCore(gps_sleep_task, "gps_sleep", 8192, nullptr,
+    // The GPS port is opened once and held until power-off; opening it brings
+    // the module up at 115200, polls its battery-backed RTC, and leaves it
+    // awake acquiring satellites while the start-up animation plays.
+    if(xTaskCreatePinnedToCore(gps_boot_task, "gps_boot", 8192, nullptr,
                                uxTaskPriorityGet(nullptr) + 1, nullptr, xPortGetCoreID()) == pdPASS) {
-        splash_cardputer_play(canvas, gps_is_asleep, g_settings.sound_enabled);
+        splash_cardputer_play(canvas, gps_boot_done, g_settings.sound_enabled);
     } else {
         g_boot_utc_ok = gps_cardputer_port_open(&g_boot_utc);
         splash_cardputer_play(canvas, nullptr, g_settings.sound_enabled);

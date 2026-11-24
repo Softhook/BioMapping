@@ -5,37 +5,49 @@
 // and the serial, clock, wait and lock functions the shared code in
 // core/gps_uart.c works through.
 //
-// Everything here runs on the main loop.
+// gps_cardputer_port_open() runs once during setup() (on the boot task while
+// the splash animation plays); everything else runs on the main loop.
 
 #include "gps_uart.h"
 
-// Opens the port, polls UBX-NAV-TIMEUTC once for the module's battery-backed
-// clock (if `boot_utc` is non-NULL), and puts the module to sleep, whatever
-// state it is in (core: gps_uart_sleep_from_unknown_state()). Call once,
-// from setup(). Takes up to about 2 s. Returns true and fills *boot_utc
-// (including its millis() read_at_ms) when the module had a valid UTC time.
-// The port then stays open until power-off: a released port would let the
-// module's receive wire float, and a sleeping M10Q wakes on any signal there.
+// Opens the port, brings the module to 115200 awake (core:
+// gps_uart_wake_to_fast()), and polls UBX-NAV-TIMEUTC once for the module's
+// battery-backed clock (if `boot_utc` is non-NULL). Call once, from setup().
+// Leaves the module awake at 115200 so it begins acquiring satellites
+// immediately; non-GPS modes call gps_cardputer_sleep(). Returns true and
+// fills *boot_utc (including its millis() read_at_ms) when the module had a
+// valid UTC time. The port stays open until power-off: a released port would
+// let the module's receive wire float, and a sleeping M10Q wakes on any
+// signal there.
 bool gps_cardputer_port_open(GpsUtcTime* boot_utc = nullptr);
 
-// Starts a GPS session: wakes the module and sets it up (core:
-// gps_uart_create()). Takes a few hundred ms. Always returns a GpsUart;
-// gps_uart_is_ready() is false only if the port isn't open.
+// Puts the module into software standby (100 ms; no-op if already asleep or
+// port closed) and starts counting stray bytes until the next start(). Call
+// when entering non-GPS modes (GSR Only, Diagnostics, Calibration, Wi-Fi
+// Files) or after a cold reset.
+void gps_cardputer_sleep(void);
+
+// Starts a GPS session: reuses the awake module at 115200 (or wakes it from
+// standby if asleep) and applies configuration (core: gps_uart_create()).
+// Always returns a GpsUart; gps_uart_is_ready() is false only if the port
+// isn't open.
 GpsUart* gps_cardputer_start(GpsNavModel nav_model, bool super_s);
 
-// Ends the session: the module goes back to sleep, then the GpsUart is
-// freed.
+// Ends the session: stops receiving and frees the GpsUart, leaving the
+// module awake at 115200 so the next GPS session starts without re-acquiring.
 void gps_cardputer_stop(GpsUart* gps);
 
-// Options > Cold Reset GPS: wakes the module, sends a cold-start reset to
-// wipe what its backup RAM remembers, waits 300 ms, and puts it back to
-// sleep. Returns true if the module was reached.
+// Options > Cold Reset GPS: wakes the module (if asleep), sends a cold-start
+// reset to wipe what its backup RAM remembers, waits 300 ms, and puts it to
+// sleep so the wipe sticks. Returns true if the serial port was open and the
+// reset sequence was sent.
 bool gps_cardputer_cold_reset(GpsNavModel nav_model, bool super_s);
 
 // Call every pass of the main loop, with or without a session (`gps` may
 // be NULL). With a session it parses the bytes that have arrived; the
 // session lock must NOT be held (a reconfigure inside waits for seconds).
-// Without one it counts stray bytes, to check the module stayed asleep.
+// Without one it either counts stray bytes while asleep (idle watch) or
+// drains NMEA while the module stays awake on the menu.
 void gps_cardputer_poll(GpsUart* gps);
 
 // True when the main loop is behind with the GPS bytes (a backlog waits to

@@ -228,9 +228,14 @@ void session_cardputer_begin(BioMapMode mode) {
 
     // Mounted at the first recording session; does nothing once it is.
     if(session_mode_records(mode)) sd_card_mount();
-    // Takes a few hundred ms while the module wakes and is set up.
-    GpsUart* gps = session_mode_needs_gps(mode)
-        ? gps_cardputer_start(g_settings.nav_model, g_settings.super_s) : nullptr;
+    // GPS modes reuse the awake module (or wake it if asleep); non-GPS modes
+    // (GSR Only, Diagnostics) put the GPS to sleep.
+    GpsUart* gps = nullptr;
+    if(session_mode_needs_gps(mode)) {
+        gps = gps_cardputer_start(g_settings.nav_model, g_settings.super_s);
+    } else {
+        gps_cardputer_sleep();
+    }
     GsrSensor* gsr = session_mode_needs_gsr(mode) ? gsr_cardputer_start() : nullptr;
     if(gsr) gsr_sensor_set_calibration(gsr, cfg.cal_active, cfg.cal_gain, cfg.cal_zero_counts);
     SdLogger* logger = session_mode_records(mode) ? sd_cardputer_alloc() : nullptr;
@@ -271,7 +276,7 @@ bool session_cardputer_poll(void) {
     }
     // After a pause, the GPS bytes that came in during it are parsed a
     // slice at a time between the caught-up ticks (tick_schedule.h).
-    int waiting = due > 1 ? gps_cardputer_waiting_bytes() : 0;
+    int waiting = (gps && due > 1) ? gps_cardputer_waiting_bytes() : 0;
     for(uint32_t k = 1; k <= due; k++) {
         if(due > 1) gps_cardputer_parse_down_to(gps, tick_schedule_gps_bytes_left(waiting, due, k));
         uint32_t prev_ticks = g_session.core.pipeline.graph.ticks;
@@ -334,5 +339,5 @@ void session_cardputer_end(void) {
     if(bt_active) bt_cardputer_stop();
     if(logger) sd_cardputer_free(logger);
     if(gsr) gsr_cardputer_stop(gsr);
-    if(gps) gps_cardputer_stop(gps);  // the module goes back to sleep
+    if(gps) gps_cardputer_stop(gps);  // module stays awake at 115200
 }

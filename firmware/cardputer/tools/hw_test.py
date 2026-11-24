@@ -227,13 +227,13 @@ def set_debug_fields(dev, on):
 # ---- tests ----
 
 def test_boot(dev):
-    """Starts cleanly: banner, settings loaded, GPS put to sleep, status every second."""
+    """Starts cleanly: banner, settings loaded, GPS brought up, status every second."""
     dev.restart()
     dev.pump(4)
     lines = dev.since(0)
     read_settings_line(dev)
-    check(any(l.startswith("[GPS] Wake: first byte") for l in lines),
-          "GPS did not answer during the start-up sleep step")
+    check(any(l.startswith("[GPS] Wake:") for l in lines),
+          "GPS wake step did not run at start-up")
     bad = [l for l in lines if "error" in l.lower() or "warning" in l.lower()]
     check(not bad, "warnings at start-up: " + " | ".join(bad))
     ts = [r["t"] for r in dev.statuses(0)]
@@ -323,10 +323,8 @@ def test_record_60s(dev):
 
 
 def test_gps_gsr(dev):
-    """GPS + GSR: GPS streams with no lost bytes, Enter waits for GPS time, Esc sleeps the GPS.
-
-    Enter only records if the clock was set from GPS; Esc must leave the GPS
-    asleep (checked by going back in after a few seconds)."""
+    """GPS + GSR: GPS streams with no lost bytes, Enter waits for GPS time,
+    and GSR Only puts the GPS to sleep (checked when re-entering GPS + GSR)."""
     dev.restart()
     m = dev.mark()
     open_main(dev, "GPS + GSR")
@@ -351,12 +349,18 @@ def test_gps_gsr(dev):
         check(rec == 0, "recording started without GPS time")
         check(not any("Recording to" in l for l in dev.since(m2)),
               "file opened without GPS time")
-    # The "stayed asleep" check is reported when the GPS is next woken.
+    # Enter GSR Only to put the GPS to sleep, then wake it back in GPS + GSR
+    # and verify the idle watch confirmed it stayed silent.
     dev.press(BACK)
+    dev.pump(0.5)
+    dev.press(DOWN + OK)                # GSR Only sleeps the GPS
+    dev.wait_for(r"\[GSR\] I2C Probe OK", 3)
     dev.pump(4)
-    dev.press(OK)                       # main menu still on GPS + GSR
+    dev.press(BACK)
+    dev.pump(0.5)
+    dev.press(UP + OK)                  # back to GPS + GSR
     idle = dev.wait_for(r"\[GPS\]( warning:)? Idle:", 6)
-    check("GPS silent" in idle, "GPS was not asleep between sessions: " + idle)
+    check("GPS silent" in idle, "GPS was not asleep during GSR Only: " + idle)
     dev.pump(2)
     dev.press(BACK)
     dev.pump(1)
@@ -371,7 +375,8 @@ KNOWN_BLE_LEAK_BYTES = 1100
 
 
 def test_gps_reset_in_session(dev):
-    """Restart in the middle of GPS + GSR: the next start-up still puts the GPS to sleep."""
+    """Restart in the middle of GPS + GSR: start-up recovers cleanly at 115200,
+    and GSR Only puts it to sleep so the next restart wakes it at 9600."""
     dev.restart()
     open_main(dev, "GPS + GSR")
     dev.wait_for(r"M10Q running at 115200", 10)
@@ -379,14 +384,17 @@ def test_gps_reset_in_session(dev):
     dev.restart()                       # GPS left awake at 115200, 10 Hz
     dev.pump(1)
     lines = dev.since(0)
-    check(any(l.startswith("[GPS] Sleep: no reply") for l in lines),
-          "start-up didn't notice the GPS was left awake")
+    check(any(l.startswith("[GPS] Wake: no reply at 9600") for l in lines),
+          "start-up didn't notice the GPS was left awake at 115200")
     bad = [l for l in lines if "warning" in l.lower() or "error" in l.lower()]
     check(not bad, "warnings at start-up: " + " | ".join(bad))
-    # Asleep now: the next start-up has to wake it, and it answers at 9600.
+    # Put it to sleep via GSR Only; next start-up has to wake it at 9600.
+    open_main(dev, "GSR Only")
+    dev.wait_for(r"\[GSR\] I2C Probe OK", 3)
+    dev.pump(1)
     dev.restart()
     check(any(l.startswith("[GPS] Wake: first byte") for l in dev.since(0)),
-          "GPS was still awake: the start-up sleep didn't take")
+          "GPS was still awake: GSR Only sleep didn't take")
 
 
 def test_wifi_files_cycles(dev, cycles=5):

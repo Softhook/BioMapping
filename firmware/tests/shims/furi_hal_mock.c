@@ -110,8 +110,19 @@ void furi_hal_serial_init(FuriHalSerialHandle* handle, uint32_t baud) {
     g_baud = baud;
 }
 
+static int g_deinit_count = 0;
+
 void furi_hal_serial_deinit(FuriHalSerialHandle* handle) {
     (void)handle;
+    g_deinit_count++;
+}
+
+int furi_hal_mock_deinit_count(void) {
+    return g_deinit_count;
+}
+
+void furi_hal_mock_reset_deinit_count(void) {
+    g_deinit_count = 0;
 }
 
 void furi_hal_serial_async_rx_start(

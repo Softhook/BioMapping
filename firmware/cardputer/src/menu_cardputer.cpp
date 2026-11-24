@@ -118,6 +118,7 @@ static int scroll_window_top(int sel, int count, int max_visible) {
 // loop.
 
 static void wizard_open(void) {
+    gps_cardputer_sleep();
     GsrSensor* gsr = gsr_cardputer_start();
     if(gsr && !gsr_sensor_available(gsr)) {
         gsr_cardputer_stop(gsr);
@@ -252,6 +253,7 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
                     return true;
                 }
                 show_splash_banner(canvas, "Wi-Fi Files", "Starting hotspot...", TFT_YELLOW);
+                gps_cardputer_sleep();
                 if(wifi_files_start(canvas)) {
                     play_cue(BioMapCueConfirm);
                     g_screen = ScreenId::WifiFiles;

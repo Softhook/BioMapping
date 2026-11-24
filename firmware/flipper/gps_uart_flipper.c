@@ -15,7 +15,7 @@
 #define TAG "GpsUart"
 
 // One per GpsUart (one GPS session), except the bare one gps_uart_port_open()
-// uses for the sleep sequence, which only has `handle`.
+// and gps_uart_sleep() use for boot wake / standby, which only has `handle`.
 typedef struct {
     FuriHalSerialHandle* handle;      // the held port, or NULL when it couldn't be taken
     FuriStreamBuffer*    rx_stream;   // bytes from the interrupt (GpsRxStream)
@@ -36,20 +36,28 @@ typedef struct {
 // line floating (furi_hal_serial_deinit() sets the pin to analog, no pull)
 // and hands it to the Expansion Service — on hardware the module was awake
 // again within seconds of every release. Held, the line idles steadily
-// high, so the module stays asleep on the menu and in GSR-only mode. See
+// high, so the module stays asleep once gps_uart_sleep() puts it into
+// standby (GSR Only, Diagnostics, calibration). See
 // research/archive/gps_sleep_investigation.md.
 static FuriHalSerialHandle* g_port = NULL;
 // Whether g_port has been through furi_hal_serial_init() since it was
-// taken, so set_baud() and close only deinit a port that was initialised.
-static bool g_port_inited = false;
+// taken, and at what baud rate, so set_baud() skips redundant deinit+init
+// cycles (furi_hal_serial_deinit() momentarily floats the TX pin to analog).
+static bool     g_port_inited = false;
+static uint32_t g_port_baud   = 0;
+// Whether the module is currently in software standby (gps_uart_sleep()).
+// Starts false after port_open() leaves it awake at 115200.
+static bool g_gps_asleep = false;
 
 // ── Platform functions for core/gps_uart.c ──────────────────────────────
 
 static void gps_flipper_set_baud(void* ctx, uint32_t baud) {
     GpsFlipper* f = ctx;
+    if(g_port_inited && g_port_baud == baud) return;
     if(g_port_inited) furi_hal_serial_deinit(f->handle);
     furi_hal_serial_init(f->handle, baud);
     g_port_inited = true;
+    g_port_baud   = baud;
 }
 
 static void gps_flipper_tx(void* ctx, const uint8_t* data, size_t len) {
@@ -271,24 +279,38 @@ void gps_uart_port_open(void) {
         return;
     }
     g_port_inited = false;
+    g_port_baud   = 0;
     GpsFlipper bare = {.handle = g_port};
     GpsPlatform platform = gps_flipper_platform(&bare);
-    gps_uart_sleep_from_unknown_state(&platform, NULL);
+    gps_uart_wake_to_fast(&platform, NULL);
+    g_gps_asleep = false;
+}
+
+void gps_uart_sleep(void) {
+    if(!g_port || g_gps_asleep) return;
+    GpsFlipper bare = {.handle = g_port};
+    GpsPlatform platform = gps_flipper_platform(&bare);
+    gps_uart_standby(&platform);
+    g_gps_asleep = true;
     gps_uart_idle_watch_start();
 }
 
 void gps_uart_port_close(void) {
     if(!g_port) return;
+    gps_uart_sleep();
     gps_uart_idle_watch_stop();
     if(g_port_inited) furi_hal_serial_deinit(g_port);
     g_port_inited = false;
+    g_port_baud   = 0;
+    g_gps_asleep  = false;
     furi_hal_serial_control_release(g_port);
     g_port = NULL;
     gps_uart_set_expansion_enabled(true);
 }
 
 // ---------------------------------------------------------------------------
-// Session: alloc wakes the module, free sleeps it; the port stays open
+// Session: alloc reuses the awake module (or wakes it from sleep); free
+// leaves it awake at 115200 until gps_uart_sleep() is called
 // ---------------------------------------------------------------------------
 GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, GpsNavModel nav_model, bool super_s) {
     furi_check(furi_kernel_get_tick_frequency() == 1000, "GpsUart: tick is not 1 ms");
@@ -302,19 +324,22 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, GpsNavModel nav_model, bo
     furi_check(f->mutex, "GpsUart: status_mutex alloc failed");
     f->rx_stream = furi_stream_buffer_alloc(GPS_RX_BUF_SIZE, 1);
 
+    bool already_awake = false;
     if(f->handle) {
-        gps_uart_idle_watch_stop();
+        already_awake = !g_gps_asleep;
+        if(g_gps_asleep) gps_uart_idle_watch_stop();
     } else {
         FURI_LOG_E(TAG, "USART1 not open (see gps_uart_port_open())");
     }
     GpsPlatform platform = gps_flipper_platform(f);
-    return gps_uart_create(&platform, f->handle != NULL, nav_model, super_s);
+    GpsUart* gps = gps_uart_create(&platform, f->handle != NULL, already_awake, nav_model, super_s);
+    if(f->handle) g_gps_asleep = false;
+    return gps;
 }
 
 void gps_uart_free(GpsUart* g) {
     GpsFlipper* f = gps_uart_platform_ctx(g); // stops on NULL
-    gps_uart_destroy(g); // standby command, receiving off
-    if(f->handle) gps_uart_idle_watch_start();
+    gps_uart_destroy(g); // receiving off; module stays awake at 115200
     furi_stream_buffer_free(f->rx_stream);
     furi_mutex_free(f->mutex);
     free(f);

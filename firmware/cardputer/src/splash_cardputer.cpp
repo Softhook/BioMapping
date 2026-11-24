@@ -627,7 +627,7 @@ static void draw_title_lockup(M5Canvas& canvas, uint32_t t_ms,
         if(gps_waiting) {
             float pulse = 0.70f + 0.30f * sinf((float)t_ms * 0.007f);
             canvas.setTextColor(scale565(255, 210, 63, ca * pulse));
-            canvas.drawString("Putting GPS to sleep...", SPLASH_W / 2, 102);
+            canvas.drawString("Starting GPS...", SPLASH_W / 2, 102);
         } else {
             canvas.setTextColor(scale565(198, 224, 240, ca));
             canvas.drawString("Christian Nold 2004-2026", SPLASH_W / 2, 102);

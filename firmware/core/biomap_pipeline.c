@@ -18,13 +18,14 @@ uint32_t pipeline_unix_epoch(uint16_t year, uint8_t month, uint8_t day,
     static const uint16_t days_before[12] = {
         0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334
     };
-    // Guard against uninitialised RTC: month=0 would cause days_before[-1].
+    // Guard against uninitialised RTC, impossible calendar dates (e.g. Feb 29
+    // on a non-leap year or Apr 31), and 32-bit uint32_t overflow (2106-02-07).
     // Year < 2020 catches a completely unset RTC (typically 2000-01-01).
     // Returns 0 as sentinel — cannot collide with a valid 1970 epoch
-    // because year < 2020 is rejected above.
-    if(year < 2020 || month < 1 || month > 12 ||
-       day   < 1   || day   > 31) {
-        return 0;  // sentinel: RTC not set
+    // because year < 2020 is rejected below.
+    if(year < 2020 || year > 2105 ||
+       !utc_datetime_valid(year, month, day, hour, minute, second)) {
+        return 0;  // sentinel: RTC not set or invalid date/time
     }
     // Whole days from 1970 to start of year
     uint32_t days = (year - 1970) * 365U

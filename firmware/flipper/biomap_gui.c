@@ -317,6 +317,7 @@ void run_calibration_menu(BioMapApp* app) {
 // and while cal_wizard_measuring() is true, steps cal_wizard_tick() at
 // 10 Hz while polling the event queue for Back cancellation.
 void run_calibration_wizard(BioMapApp* app) {
+    gps_uart_sleep();
     GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     if(gsr && !gsr_sensor_available(gsr)) {
         gsr_sensor_free(gsr);

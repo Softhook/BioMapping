@@ -228,3 +228,14 @@ static inline bool has_rf(int mode) {
 static inline float clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
+
+// True if (year, month, day, hour, minute, second) is a valid Gregorian UTC
+// timestamp (including leap seconds where second == 60).
+static inline bool utc_datetime_valid(uint16_t year, uint8_t month, uint8_t day,
+                                      uint8_t hour, uint8_t minute, uint8_t second) {
+    static const uint8_t month_days[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if(month < 1 || month > 12 || hour > 23 || minute > 59 || second > 60) return false;
+    bool leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+    uint8_t max_day = (month == 2 && leap) ? 29 : month_days[month - 1];
+    return day >= 1 && day <= max_day;
+}

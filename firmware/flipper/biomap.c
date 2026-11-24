@@ -11,18 +11,16 @@ uint32_t biomap_rtc_now_epoch(void) {
     return pipeline_unix_epoch(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
 }
 
-// Options > Cold Reset GPS. Every session start already restarts the module
-// (waking from standby is a restart that keeps backup RAM), so the only
-// reset worth offering is one that also wipes what the module remembers.
-// The wipe sticks: gps_uart_free() puts the module back to sleep before it
-// can relearn anything, so the next session starts from nothing (first fix
-// ~23-29 s in open sky, SAM-M10Q datasheet).
+// Options > Cold Reset GPS. Wipes backup RAM and puts the module to sleep
+// before it can relearn anything, so the next GPS session starts from nothing
+// (first fix ~23-29 s in open sky, SAM-M10Q datasheet).
 void run_gps_cold_start(BioMapApp* app) {
     GpsUart* g = gps_uart_alloc(app->event_queue, app->nav_model, app->super_s);
     bool ok = g && gps_uart_is_ready(g);
     if(ok) { gps_uart_send_cold_start(g); furi_delay_ms(300); }
     biomap_app_cue(app, ok ? BioMapCueGpsColdStartDone : BioMapCueGpsColdStartFailed);
     if(g) gps_uart_free(g);
+    if(ok) gps_uart_sleep();
 }
 
 void biomap_backlight_claim(BioMapApp* app) {
@@ -87,8 +85,8 @@ int32_t biomap_app(void* p) {
     view_port_enabled_set(app->screen_vp, false);
     gui_add_view_port(app->gui, app->screen_vp, GuiLayerFullscreen);
 
-    // Held until exit so the GPS stays asleep on the menu and in GSR-only
-    // mode. Blocks for up to ~2 s while it puts the module to sleep.
+    // Held until exit: brings the GPS up awake at 115200 so it starts
+    // acquiring satellites on the menu; non-GPS modes call gps_uart_sleep().
     gps_uart_port_open();
 
     _Static_assert(MenuOptions == MENU_COUNT - 1, "MENU_COUNT mismatch with MenuOptions enum");

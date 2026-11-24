@@ -407,7 +407,7 @@ static void start_with_modules(BioMapMode mode, SessionSettings cfg, float bias_
         .lock = p_lock, .unlock = p_unlock,
     };
     if(session_mode_needs_gps(mode)) {
-        P.gps = gps_uart_create(&pp, true, GpsNavModelPedestrian, true);
+        P.gps = gps_uart_create(&pp, true, false, GpsNavModelPedestrian, true);
         assert(gps_uart_is_ready(P.gps));
     }
     S.gsr = G.gsr;

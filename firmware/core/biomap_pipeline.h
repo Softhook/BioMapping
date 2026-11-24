@@ -32,8 +32,8 @@ typedef struct {
 // ── Time helpers ──────────────────────────────────────────────────────
 
 // Convert calendar date/time to Unix epoch seconds (UTC).
-// Returns 0 as sentinel when the RTC is unset (year < 2020, or
-// month/day out of range).
+// Returns 0 as sentinel when the RTC is unset or out of 32-bit range
+// (year < 2020 or year > 2105, or invalid calendar date/time).
 uint32_t pipeline_unix_epoch(uint16_t year, uint8_t month, uint8_t day,
                              uint8_t hour, uint8_t minute, uint8_t second);
 

@@ -200,12 +200,21 @@ void test_unix_epoch_conversion() {
     assert(pipeline_unix_epoch(2019, 12, 31, 23, 59, 59) == 0u);
     assert(pipeline_unix_epoch(2000, 1, 1, 0, 0, 0) == 0u);
 
-    // Out-of-range month/day guards (would index days_before[-1] or worse
-    // without the guard) also return the sentinel.
+    // Out-of-range month/day/time and impossible calendar dates (non-leap
+    // Feb 29, century non-leap 2100-02-29, 30-day month day=31) return 0;
+    // leap second (second=60) is accepted.
     assert(pipeline_unix_epoch(2026, 0, 15, 0, 0, 0) == 0u);
     assert(pipeline_unix_epoch(2026, 13, 15, 0, 0, 0) == 0u);
     assert(pipeline_unix_epoch(2026, 6, 0, 0, 0, 0) == 0u);
     assert(pipeline_unix_epoch(2026, 6, 32, 0, 0, 0) == 0u);
+    assert(pipeline_unix_epoch(2026, 2, 29, 0, 0, 0) == 0u);
+    assert(pipeline_unix_epoch(2100, 2, 29, 0, 0, 0) == 0u);
+    assert(pipeline_unix_epoch(2026, 4, 31, 0, 0, 0) == 0u);
+    assert(pipeline_unix_epoch(2026, 6, 15, 24, 0, 0) == 0u);
+    assert(pipeline_unix_epoch(2026, 6, 15, 12, 60, 0) == 0u);
+    assert(pipeline_unix_epoch(2026, 6, 15, 12, 0, 61) == 0u);
+    assert(pipeline_unix_epoch(2106, 3, 1, 0, 0, 0) == 0u);
+    assert(pipeline_unix_epoch(2026, 6, 30, 23, 59, 60) != 0u);
     printf("  -> Pass\n");
 }
 

@@ -7,9 +7,7 @@ bool clock_rule_utc_ms(uint16_t year, uint8_t month, uint8_t day,
                        uint8_t hour, uint8_t minute, uint8_t second,
                        int32_t nano, int64_t* out) {
     if(!out) return false;
-    if(year < 2025 || year > 2099 || month < 1 || month > 12 || day < 1 || day > 31 ||
-       hour > 23 || minute > 59 || second > 60 ||
-       nano < -1000000000 || nano > 1000000000) {
+    if(year < 2025 || year > 2099 || nano < -1000000000 || nano > 1000000000) {
         return false;
     }
     uint32_t utc = pipeline_unix_epoch(year, month, day, hour, minute, second);

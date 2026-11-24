@@ -9,9 +9,9 @@
 // app-lifetime port handling, are in flipper/gps_uart_flipper.c.
 //
 // Everything here runs on one thread (the device's main loop): create(),
-// destroy(), gps_uart_handle_rx(), gps_uart_send_cold_start() and
-// gps_uart_sleep_from_unknown_state(). Two read-outs may be called from
-// another thread (on the Flipper, the screen's): gps_uart_get_status(),
+// destroy(), gps_uart_handle_rx(), gps_uart_send_cold_start(),
+// gps_uart_wake_to_fast() and gps_uart_standby(). Two read-outs may be called
+// from another thread (on the Flipper, the screen's): gps_uart_get_status(),
 // which shares the device's lock with the parser, and gps_uart_is_ready(),
 // which is set once inside create() and never changes after.
 // Do NOT hold the app's own main lock when calling gps_uart_handle_rx():
@@ -20,8 +20,8 @@
 // The waits: waking the module, the baud switch and each set-up packet's
 // reply are timed sequences confirmed on real hardware, so they are kept as
 // waits (GpsPlatform.delay_ms) rather than rewritten step by step. They
-// happen only in create(), destroy(), the sleep sequence, and the rare
-// reconfigure inside gps_uart_handle_rx().
+// happen only in gps_uart_wake_to_fast(), create(), gps_uart_standby(), and
+// the rare reconfigure inside gps_uart_handle_rx().
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -127,21 +127,23 @@ typedef struct {
     void (*log)(void* ctx, bool warning, const char* line);
 } GpsPlatform;
 
-// Starts a GPS session: wakes the module from standby, waits until it is
-// listening, switches it to 115200 and sends its configuration. Blocks for
-// a few hundred ms (longer when the module doesn't answer). `platform` is
-// copied. `have_port` false (the device couldn't open its serial port)
-// gives a GpsUart that is never ready and sends nothing. Stops
-// (core_fatal) if `platform` lacks a required function or memory runs out.
+// Starts a GPS session: if `already_awake` is false, wakes the module from
+// standby at 9600 and switches it to 115200; if true, reuses the module
+// already running at 115200 (preserving satellite lock from boot or an
+// earlier session). Then applies configuration (rate, NMEA messages, nav
+// model, Super-S, AssistNow). `platform` is copied. `have_port` false (the
+// device couldn't open its serial port) gives a GpsUart that is never ready
+// and sends nothing. Stops (core_fatal) if `platform` lacks a required
+// function or memory runs out.
 //
 // `super_s` true leaves the module's Super-S weak-signal compensation on
 // automatic (its default); false switches it off (see ubx_send_super_s()).
-GpsUart* gps_uart_create(const GpsPlatform* platform, bool have_port,
+GpsUart* gps_uart_create(const GpsPlatform* platform, bool have_port, bool already_awake,
                          GpsNavModel nav_model, bool super_s);
 
-// Ends the session: sends the standby command (the last byte sent, at the
-// session's 115200) and stops receiving, then frees the GpsUart. The
-// device keeps its port open afterwards — see gps_uart_sleep_from_unknown_state().
+// Ends the session: stops receiving and frees the GpsUart, leaving the
+// module awake at 115200 so the next GPS session starts with no wake/lock
+// delay. Call gps_uart_standby() when entering a non-GPS mode or exiting.
 void gps_uart_destroy(GpsUart* gps);
 
 // The `ctx` given in the platform, for the device's own wrappers.
@@ -204,26 +206,31 @@ typedef struct {
     uint32_t read_at_ms; // platform now_ms() when the reply arrived
 } GpsUtcTime;
 
-// Puts the module to sleep from whatever state it is in at app start:
-// asleep, awake at its 9600 default, or awake at 115200. Blocks for up to
-// ~1.9 s (most of it waiting for the module to wake first). Uses only
-// set_baud, tx, rx_start/rx_stop in GpsRxWakeWatch, rx_wake_seen, now_ms,
-// delay_ms and log; leaves the port at 115200 with receiving off.
+// Brings the module to a known awake state at 115200 from whatever state it
+// is in at app start: asleep, awake at its 9600 default, or already awake at
+// 115200. Leaves the module running at 115200 with host receiving off, so it
+// begins acquiring satellites immediately. Uses set_baud, tx,
+// rx_start/rx_stop in GpsRxWakeWatch, rx_wake_seen, now_ms, delay_ms and log.
 //
 // If `boot_utc` is non-NULL, polls UBX-NAV-TIMEUTC once (retrying once on
-// timeout) after moving to 115200 and before sending standby, to read the
-// module's battery-backed RTC (also requires rx_read and rx_clear). Returns
-// true and fills *boot_utc when the module answers with a valid UTC time
-// (validTOW + validWKN + validUTC set, year >= 2025); returns false otherwise
-// (or when `boot_utc` is NULL).
+// timeout) after moving to 115200 to read the module's battery-backed RTC
+// (also requires rx_read and rx_clear). Returns true and fills *boot_utc
+// when the module answers with a valid UTC time (validTOW + validWKN +
+// validUTC set, year >= 2025); returns false otherwise (or when `boot_utc`
+// is NULL).
+bool gps_uart_wake_to_fast(const GpsPlatform* platform, GpsUtcTime* boot_utc);
+
+// Puts a module that is already awake at 115200 (after gps_uart_wake_to_fast()
+// or gps_uart_destroy()) into software standby (UBX-RXM-PMREQ) and waits
+// 100 ms for the command to shift out and any in-flight NMEA to drain.
 //
-// Hardware rule for every device: open the serial port once at app start,
-// call this, and hold the port until the app exits. A sleeping M10Q wakes
-// on any edge on its RX pin, and a released port leaves that line floating
-// — on the Flipper the module was awake again within seconds of every
-// release. Held, the line idles steadily high, so the module stays asleep
-// between GPS sessions. See research/archive/gps_sleep_investigation.md.
-bool gps_uart_sleep_from_unknown_state(const GpsPlatform* platform, GpsUtcTime* boot_utc);
+// Hardware rule for every device: keep the serial port open after calling
+// this. A sleeping M10Q wakes on any edge on its RX pin, and a released port
+// leaves that line floating — on the Flipper the module was awake again
+// within seconds of every release. Held, the line idles steadily high, so
+// the module stays asleep in GSR-only and other non-GPS modes. See
+// research/archive/gps_sleep_investigation.md.
+void gps_uart_standby(const GpsPlatform* platform);
 
 #ifdef __cplusplus
 }

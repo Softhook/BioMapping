@@ -129,10 +129,13 @@ static void test_boot_utc_ms_and_resync(void) {
     // Negative nano (-500 ms) steps back half a second cleanly.
     assert(clock_rule_utc_ms(2026, 11, 21, 14, 0, 0, -500000000, &ms));
     assert(ms == T0 - 500);
-    // Reject ROM-default / out-of-range dates and invalid nano.
+    // Reject ROM-default / out-of-range / impossible calendar dates and invalid nano.
     assert(!clock_rule_utc_ms(2015, 1, 1, 0, 0, 0, 0, &ms));
     assert(!clock_rule_utc_ms(2024, 12, 31, 23, 59, 59, 0, &ms));
     assert(!clock_rule_utc_ms(2026, 13, 1, 0, 0, 0, 0, &ms));
+    assert(!clock_rule_utc_ms(2026, 2, 29, 0, 0, 0, 0, &ms));
+    assert(!clock_rule_utc_ms(2026, 4, 31, 0, 0, 0, 0, &ms));
+    assert(clock_rule_utc_ms(2028, 2, 29, 0, 0, 0, 0, &ms)); // 2028 is a leap year
     assert(!clock_rule_utc_ms(2026, 11, 21, 24, 0, 0, 0, &ms));
     assert(!clock_rule_utc_ms(2026, 11, 21, 14, 0, 0, 1500000000, &ms));
 

@@ -2,6 +2,7 @@
 // device: the hardware is reached only through GpsPlatform (gps_uart.h).
 
 #include "gps_uart.h"
+#include "biomap_types.h"
 #include "core_check.h"
 
 #include <limits.h>
@@ -322,7 +323,7 @@ static void ubx_tx(GpsUart* g, const uint8_t* data, size_t len) {
 // wait can take 2+ ms, so the clock bound is the real one there.
 //
 // Takes the platform (not GpsUart*) — also called at app start
-// (gps_uart_sleep_from_unknown_state()), which has no GpsUart. The port must
+// (gps_uart_wake_to_fast()), which has no GpsUart. The port must
 // be set to GPS_BAUD_RATE and not receiving: this receives in
 // GpsRxWakeWatch for the wait and stops before returning. Returns true if
 // the module answered.
@@ -481,9 +482,9 @@ static UbxAckOutcome ubx_wait_ack(GpsUart* g, uint8_t want_cls, uint8_t want_id)
 
     if(hdr[0] != 0x05 || len != 2) return UbxAckTimeout; // not an ACK/NAK frame
 
-    uint8_t ck_buf[6] = {hdr[0], hdr[1], hdr[2], hdr[3], payload[0], payload[1]};
-    uint8_t calc_a, calc_b;
-    ubx_calc_checksum(ck_buf, sizeof(ck_buf), &calc_a, &calc_b);
+    uint8_t calc_a = 0, calc_b = 0;
+    ubx_checksum_update(&calc_a, &calc_b, hdr, sizeof(hdr));
+    ubx_checksum_update(&calc_a, &calc_b, payload, sizeof(payload));
     if(calc_a != ck_a || calc_b != ck_b) return UbxAckTimeout; // corrupted frame
 
     if(payload[0] != want_cls || payload[1] != want_id) return UbxAckTimeout; // for a different message
@@ -539,6 +540,7 @@ static void ubx_send_and_confirm(GpsUart* g, const uint8_t* data, size_t len, co
 // match. Anything else (wrong frame, bad checksum, timeout) returns false.
 static bool ubx_poll_frame(const GpsPlatform* p, const uint8_t* poll, size_t poll_len,
                            uint8_t* payload, uint16_t want_len) {
+    CORE_CHECK(poll && poll_len >= 4 && (payload || want_len == 0), "GpsUart: invalid UBX poll");
     p->rx_clear(p->ctx); // drop stale bytes first — see ubx_send_and_confirm()'s doc comment
     p->tx(p->ctx, poll, poll_len);
 
@@ -776,24 +778,28 @@ static const uint8_t ubx_cfg_rst_cold[] = {
     // tests/test_gps_uart.c checks every field against the spec.
     0xB5, 0x62, 0x06, 0x04, 0x04, 0x00, 0xFF, 0xFF, 0x02, 0x00, 0x0E, 0x61
 };
-// Switch the module to 115200 (sent at 9600). outProto=0002 → NMEA only
-// (0001=UBX would disable ASCII output).
-static const char pubx_baud_115200[] = "$PUBX,41,1,0007,0002,115200,0*19\r\n";
+// Switch the module to 115200 (sent at 9600). outProto=0003 keeps both NMEA
+// (0x02) and UBX (0x01) output enabled on UART1 — matching the M10Q's ROM
+// defaults (Interface Description §2.8.1 & Table 87). Every periodic UBX
+// message rate defaults to 0 (Tables 66 & 69), so continuous output stays
+// 100% NMEA while explicit UBX polls (UBX-NAV-TIMEUTC, UBX-SEC-UNIQID) are
+// permitted (SAM-M10Q Integration Manual §2.1.4 suppresses polled UBX-NAV
+// replies if outProto disables UBX).
+static const char pubx_baud_115200[] = "$PUBX,41,1,0007,0003,115200,0*18\r\n";
 
-static void gps_uart_configure(GpsUart* g);
+static void gps_uart_configure(GpsUart* g, bool switch_baud);
 
-// Put the module to sleep from whatever state it is in at app start: asleep,
-// awake at its 9600 default, or awake at 115200 (left configured). Always
-// sleeps it from 115200 — the path that held on hardware — never from 9600
-// straight after a restart, which failed every time.
+// Bring the module to a known awake state at 115200 from whatever state it
+// is in at app start: asleep, awake at its 9600 default, or already awake at
+// 115200 (left running from before a restart).
 //
 // No clean reply at 9600 usually means the module is still awake at 115200
-// from before a restart in the middle of a session (or there is no module).
-// Such a module ignores a standby command sent within about a second of the
+// from before a restart (or there is no module). Such a module ignores a UBX
+// command (e.g. standby or TIMEUTC poll) sent within about a second of the
 // bytes it just received at the wrong speed: on the Cardputer, sent 250 ms
 // after them it was ignored 5 times in 6, and again 500 ms later; sent after
 // a further 1000 ms it worked 5 times in 5. So it waits first.
-#define GPS_SLEEP_AFTER_SILENT_WAKE_MS 1000
+#define GPS_AFTER_SILENT_WAKE_MS 1000
 
 // ── UBX-NAV-TIMEUTC (class 0x01, id 0x21) — boot backup-RTC poll ────────
 // u-blox M10 SPG 5.10 Interface Description §3.15.24: 0-length poll returns a
@@ -827,11 +833,11 @@ static UbxTimeOutcome ubx_poll_timeutc_once(const GpsPlatform* p, GpsUtcTime* ou
     uint8_t minute = payload[17];
     uint8_t second = payload[18];
 
-    // Require validTOW (0x01) + validWKN (0x02) + validUTC (0x04) and a
-    // plausible modern year (rejects ROM defaults if BT1 went flat).
+    // Require validTOW (0x01) + validWKN (0x02) + validUTC (0x04), a
+    // plausible modern year (rejects ROM defaults if BT1 went flat), and a
+    // valid calendar date/time.
     if((valid & 0x07) != 0x07 || year < 2025 || year > 2099 ||
-       month < 1 || month > 12 || day < 1 || day > 31 ||
-       hour > 23 || minute > 59 || second > 60) {
+       !utc_datetime_valid(year, month, day, hour, minute, second)) {
         return UbxTimeNotValid;
     }
 
@@ -877,7 +883,7 @@ static bool ubx_poll_boot_time(const GpsPlatform* p, GpsUtcTime* out) {
     return false;
 }
 
-bool gps_uart_sleep_from_unknown_state(const GpsPlatform* p, GpsUtcTime* boot_utc) {
+bool gps_uart_wake_to_fast(const GpsPlatform* p, GpsUtcTime* boot_utc) {
     CORE_CHECK(p && p->set_baud && p->tx && p->rx_start && p->rx_stop && p->rx_wake_seen &&
                    p->now_ms && p->delay_ms,
                "GpsUart: incomplete platform");
@@ -894,17 +900,19 @@ bool gps_uart_sleep_from_unknown_state(const GpsPlatform* p, GpsUtcTime* boot_ut
     p->delay_ms(p->ctx, 200);
     p->set_baud(p->ctx, GPS_BAUD_RATE_FAST);
     if(!answered) {
-        gps_log(p, false, "Sleep: no reply, so probably still at 115200; waiting %d ms",
-                GPS_SLEEP_AFTER_SILENT_WAKE_MS);
-        p->delay_ms(p->ctx, GPS_SLEEP_AFTER_SILENT_WAKE_MS);
+        gps_log(p, false, "Wake: no reply at 9600, so probably still at 115200; waiting %d ms",
+                GPS_AFTER_SILENT_WAKE_MS);
+        p->delay_ms(p->ctx, GPS_AFTER_SILENT_WAKE_MS);
     }
     p->delay_ms(p->ctx, 50);
 
-    bool got_time = boot_utc ? ubx_poll_boot_time(p, boot_utc) : false;
+    return boot_utc ? ubx_poll_boot_time(p, boot_utc) : false;
+}
 
+void gps_uart_standby(const GpsPlatform* p) {
+    CORE_CHECK(p && p->tx && p->delay_ms, "GpsUart: incomplete platform");
     p->tx(p->ctx, ubx_rxm_pmreq_standby, sizeof(ubx_rxm_pmreq_standby));
     p->delay_ms(p->ctx, 100); // let it finish shifting out, and any NMEA already in flight
-    return got_time;
 }
 
 // ── Serial baud-switch helper — stop/re-set/restart at a new baud,
@@ -929,12 +937,12 @@ static void gps_uart_switch_baud(GpsUart* g, uint32_t baud) {
 static void gps_uart_reinit(GpsUart* g, uint32_t baud) {
     gps_uart_switch_baud(g, baud);
     g->platform.delay_ms(g->platform.ctx, 100);
-    gps_uart_configure(g);
+    gps_uart_configure(g, true);
     g->last_valid_nmea_ms = 0;
     g->reinit_count++;
 }
 
-GpsUart* gps_uart_create(const GpsPlatform* platform, bool have_port,
+GpsUart* gps_uart_create(const GpsPlatform* platform, bool have_port, bool already_awake,
                          GpsNavModel nav_model, bool super_s) {
     CORE_CHECK(platform, "GpsUart: NULL platform");
     CORE_CHECK(platform->set_baud && platform->tx && platform->rx_start && platform->rx_stop &&
@@ -965,27 +973,34 @@ GpsUart* gps_uart_create(const GpsPlatform* platform, bool have_port,
 
     if(have_port) {
         const GpsPlatform* p = &g->platform;
-        // The port idles at 115200 after a sleep; a woken module talks at 9600.
-        p->set_baud(p->ctx, GPS_BAUD_RATE);
-        // Wake the module from software standby and wait until it is
-        // listening before gps_uart_configure() sends $PUBX,41 at 9600.
-        ubx_wake(p, true);
-        p->rx_start(p->ctx, GpsRxStream);
-        g->ready = true;
-        gps_uart_configure(g);
+        if(already_awake) {
+            // Module is already running at 115200 (from boot or an earlier
+            // GPS session): keep its satellite lock and apply config directly.
+            p->set_baud(p->ctx, GPS_BAUD_RATE_FAST);
+            p->rx_start(p->ctx, GpsRxStream);
+            g->ready = true;
+            gps_uart_configure(g, false);
+        } else {
+            // The port idles at 115200 after a sleep; a woken module talks at 9600.
+            p->set_baud(p->ctx, GPS_BAUD_RATE);
+            // Wake the module from software standby and wait until it is
+            // listening before gps_uart_configure() sends $PUBX,41 at 9600.
+            ubx_wake(p, true);
+            p->rx_start(p->ctx, GpsRxStream);
+            g->ready = true;
+            gps_uart_configure(g, true);
+        }
     }
 
     return g;
 }
 
 // ---------------------------------------------------------------------------
-// Destroy — sleep the module; the device keeps its port open
+// Destroy — stop receiving and free GpsUart; module stays awake at 115200
 // ---------------------------------------------------------------------------
 void gps_uart_destroy(GpsUart* g) {
     CORE_CHECK(g, "GpsUart: NULL in destroy()");
     if(g->ready) {
-        // Sent at the session's 115200, the last byte before the line idles.
-        ubx_tx(g, ubx_rxm_pmreq_standby, sizeof(ubx_rxm_pmreq_standby));
         g->platform.rx_stop(g->platform.ctx);
     }
     free(g);
@@ -1143,9 +1158,9 @@ void gps_uart_handle_rx(GpsUart* g) {
 }
 
 // ---------------------------------------------------------------------------
-// Send init sequence: switch to 115200 baud and apply the M10Q config.
+// Send init sequence: optionally switch to 115200 baud, then apply M10Q config.
 // ---------------------------------------------------------------------------
-static void gps_uart_configure(GpsUart* g) {
+static void gps_uart_configure(GpsUart* g, bool switch_baud) {
     CORE_CHECK(g, "GpsUart: NULL in configure()");
     if(!g->ready) return;
     const GpsPlatform* p = &g->platform;
@@ -1157,13 +1172,15 @@ static void gps_uart_configure(GpsUart* g) {
     // a few ms at 115200 baud, and a rejected packet is caught.
     gps_log(p, false, "Configuring u-blox SAM-M10Q");
 
-    gps_log(p, false, "Switching GPS to 115200 baud");
-    p->tx(p->ctx, (const uint8_t*)pubx_baud_115200, strlen(pubx_baud_115200));
-    p->delay_ms(p->ctx, 200);
+    if(switch_baud) {
+        gps_log(p, false, "Switching GPS to 115200 baud");
+        p->tx(p->ctx, (const uint8_t*)pubx_baud_115200, strlen(pubx_baud_115200));
+        p->delay_ms(p->ctx, 200);
 
-    // Switch host UART to match
-    gps_uart_switch_baud(g, GPS_BAUD_RATE_FAST);
-    p->delay_ms(p->ctx, 50);
+        // Switch host UART to match
+        gps_uart_switch_baud(g, GPS_BAUD_RATE_FAST);
+        p->delay_ms(p->ctx, 50);
+    }
 
     // Send configuration via CFG-VALSET, confirming each packet's ACK/NAK.
     ubx_send_rate(g);
