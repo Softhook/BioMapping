@@ -1,11 +1,13 @@
 # BioMapping circuit boards (KiCad)
 
+**The focus is the Cardputer board.** All current work goes into it. The Flipper board is not the goal right now and is not being worked on: it is kept, it still builds and passes its checks, but it is not being improved or tested, and it doesn't get the Cardputer board's improvements (for example its C9 is still ceramic, and its GPS pads have no wider solder mask).
+
 Two KiCad 10 projects. Both carry the same GSR circuit as [docs/wiring_guide.md](../docs/wiring_guide.md) and the u-blox SAM-M10Q GPS module, soldered straight onto the board (no breakout board):
 
 | Folder | Plugs into | Board | Power |
 |---|---|---|---|
-| `biomap_flipper/` | Flipper Zero GPIO | 72 × 52 mm, stands up from the Flipper's top edge | Flipper's 3.3 V (pin 9) |
-| `biomap_cardputer/` | A short cable inside the Cardputer, soldered to the EXT socket's legs | 79.8 × 49.8 mm, inside a printed back case ([case/](case/)) | Own 3.3 V regulator (TLV75533), fed from EXT 5 V out |
+| `biomap_cardputer/` (**the focus**) | A short cable inside the Cardputer, soldered to the EXT socket's legs | 79.8 × 49.8 mm, inside a printed back case ([case/](case/)) | Own 3.3 V regulator (TLV75533), fed from EXT 5 V out |
+| `biomap_flipper/` (not being worked on) | Flipper Zero GPIO | 72 × 52 mm, stands up from the Flipper's top edge | Flipper's 3.3 V (pin 9) |
 
 Both boards are placed and routed. KiCad's checks pass on both: the wiring check (ERC) and the design rules check (DRC) show 0 errors and 0 warnings, nothing is unconnected, and each board matches its schematic.
 

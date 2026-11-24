@@ -69,9 +69,9 @@ The GPS chip is the main cost, and stock is patchy: several suppliers show none,
 
 ## Suggested order
 
-1. Order the **Flipper board** first. It is closest to the working hand-soldered prototype.
-2. Build one and compare it with the prototype on a walk.
-3. Before ordering the **Cardputer board**, check a real Cardputer: which way the EXT socket faces, which socket row is which, and the screw hole positions (see "Check before ordering (Cardputer)" in [README.md](README.md)).
+1. Order the **Cardputer board**. It is the focus of all current work. Before ordering, check a real Cardputer: which way the EXT socket faces, which socket row is which, and the screw hole positions (see "Check before ordering (Cardputer)" in [README.md](README.md)), and do the measurements and tests in the [case README](case/README.md).
+2. Build one and compare it with the hand-soldered prototype on a walk.
+3. Don't order the **Flipper board** for now. It is not the goal at the moment and is not being worked on.
 
 ## Sources
 
