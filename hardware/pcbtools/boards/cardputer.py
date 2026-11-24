@@ -231,23 +231,17 @@ LABELS = {"B": [("Bio Mapping 2", 66.0, 44.25, 1.8), ("Christian Nold, 2004 - 20
                 ("1 G15  2 G13  3 GND  4 5VO", 62.6, 12.9, TEXT),
                 ("5 G5  6 G3  7 GND  8 G4", 62.6, 14.6, TEXT)]}
 
-# The board's edge (the case draws its wall 0.5 mm outside it: hardware/case/).
-# The corner at the keyboard edge, headphone end, is notched round the case's
-# strap corner: there M5Stack's back has a curved wall cutting the corner off,
-# with a pin for a strap behind it, and the board must pass it on its way in.
-EDGE = dict(x0=2.1, y0=2.1, x1=81.9, y1=51.9, r_ext=5.7, r_kbd=1.0,
-            notch_c=(81.55, 51.6), notch_r=3.1)
+# The board's edge (the case draws its wall 0.5 mm outside it: hardware/case/):
+# big rounded corners on the EXT edge (y 2.1), smaller ones on the keyboard edge,
+# following the Cardputer's own shape.
+EDGE = dict(x0=2.1, y0=2.1, x1=81.9, y1=51.9, r_ext=5.7, r_kbd=1.0)
 
 
 def outline(add_seg, add_arc):
-    """Inside the case wall: big rounded corners on the EXT edge (y 2.1), a small
-    one on the keyboard edge at the GPS end and the strap notch at the other,
-    following the Cardputer's own shape."""
+    """Inside the case wall: big rounded corners on the EXT edge (y 2.1), small
+    ones on the keyboard edge (y 51.9), following the Cardputer's own shape."""
     x0, y0, x1, y1, rt, rb = (EDGE[k] for k in ("x0", "y0", "x1", "y1", "r_ext", "r_kbd"))
-    (nx, ny), nr = EDGE["notch_c"], EDGE["notch_r"]
     add_seg((x0 + rt, y0), (x1 - rt, y0)); add_arc((x1 - rt, y0 + rt), (x1 - rt, y0), 90)
-    add_seg((x1, y0 + rt), (x1, ny - nr)); add_seg((x1, ny - nr), (nx, ny - nr))
-    add_arc((nx, ny), (nx, ny - nr), -90)
-    add_seg((nx - nr, ny), (nx - nr, y1)); add_seg((nx - nr, y1), (x0 + rb, y1))
-    add_arc((x0 + rb, y1 - rb), (x0 + rb, y1), 90)
+    add_seg((x1, y0 + rt), (x1, y1 - rb)); add_arc((x1 - rb, y1 - rb), (x1, y1 - rb), 90)
+    add_seg((x1 - rb, y1), (x0 + rb, y1)); add_arc((x0 + rb, y1 - rb), (x0 + rb, y1), 90)
     add_seg((x0, y1 - rb), (x0, y0 + rt)); add_arc((x0 + rt, y0 + rt), (x0, y0 + rt), 90)

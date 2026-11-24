@@ -13,9 +13,10 @@
 // The top 6.5 mm (the rim and battery layer) copies M5Stack's own back, as
 // measured from M5Stack's 3D model of the Cardputer ADV (MIT licence,
 // github.com/m5stack/M5_Hardware, Products/K132-Adv_Cardputer-Adv): the
-// outline, the wall faces, the two screw posts, the EXT and headphone
-// openings and the strap corner. Its walls are nowhere thicker than
-// M5Stack's, so nothing inside the Cardputer can touch them.
+// outline, the wall faces, the two screw posts, and the EXT and headphone
+// openings (the wrist-strap corner is closed off as a plain rounded corner).
+// Its walls are nowhere thicker than M5Stack's, so nothing inside the
+// Cardputer can touch them.
 //
 // Coordinates are the circuit board's (KiCad's): x along the Cardputer, y
 // from the EXT edge, seen from the Cardputer's side, in mm; z up from the
@@ -43,6 +44,8 @@ board_screw_inserts = true;
 cuff_scoop = true;
 // Text debossed into the outside of the floor (empty for a plain back)
 back_text = "Bio Mapping 2";
+// Mark the GPS antenna's position on the outside of the floor with a rounded box and "GPS"
+gps_mark = true;
 // What to make: back, rim_test (the battery layer on a 1 mm plate, to try the fit), assembly (a picture), fit_check
 part = "back"; // [back, rim_test, assembly, fit_check]
 
@@ -67,11 +70,6 @@ batt_in_low = [1.2, 1.5];          // EXT wall's inner face (y), and how far up 
 post_d = 4.0;                      // its two screw posts (with 2.2 mm holes; ours are screw_hole)
 ext_open = [32.7, 51.3, 5.1];      // the EXT socket's opening: x from, x to, depth below the rim
 phone_slot = [7.75, 13.25, 5.0];   // the headphone socket's slot: y from, y to, depth (round bottom)
-// The strap corner (keyboard edge, headphone end): a thin wall cuts the corner off;
-// beyond it the corner is open to 3.5 mm below the rim, with a pin to loop a strap round
-strap_c = [81.55, 51.6];           // centre of the open corner's rounded inside corner
-strap_r = 1.8; strap_wall = 0.7; strap_d = 3.5;
-strap_pin = [82.3, 52.3, 1.8];     // x, y, diameter
 
 // ── our parts ──
 ledge_post_d = 7;                  // the long screw posts under the board: the ledge it rests on
@@ -85,9 +83,11 @@ cuff_h = 6.0;                      // window in the end wall for the cuff plug, 
 cuff_w = cuff_socket[2] + 0.6;     // as wide as the socket, and this tall ...
 cuff_up = 0.5;                     // ... plus this much above the board's face, so a sagging top can't rub the plug
 scoop_w = 18; scoop_d = 1.8;       // the finger scoop round it: width along the wall, and depth
-text_size = 6.0; text_depth = 0.4; // back lettering: 2 layers deep on a 0.2 mm print (1.6 mm floor remains)
-text_y = 35;                       // optically centred in the open space between the screw holes (y 20.2) and the keyboard edge
+text_size = 5.5; text_depth = 0.4; // back lettering: 2 layers deep on a 0.2 mm print (1.6 mm floor remains)
+text_y = 9.0;                      // centred in the top band above the two screw holes (y 15.8)
 text_font = "Helvetica Neue:style=Bold";
+gps_box = [16.5, 16.5, 2.5, 0.8];  // rounded square over the 15.5 mm GPS module: width, height, corner radius, line width
+gps_text_size = 4.2;
 
 // ── the stack, from the floor up ──
 part_h = max([for (p = parts_B) p[4]]);        // the tallest part on the board's outer face: the GPS
@@ -133,31 +133,17 @@ module outside() {
 
 module board_shape() polygon(board_outline);
 
-// the strap corner's open part, and the same grown by its wall
-module strap_open() hull() {
-    translate(strap_c) circle(strap_r);
-    translate([strap_c[0] - strap_r, W + 2]) square([L - strap_c[0] + strap_r + 2, eps]);
-    translate([L + 2, strap_c[1] - strap_r]) square([eps, W - strap_c[1] + strap_r + 2]);
-}
-module strap_block() offset(r = strap_wall) strap_open();
-
 module hollow() {
     // battery layer: M5Stack's walls
     translate([0, 0, z_board_F]) linear_extrude(H - z_board_F + 1)
-        difference() {
-            rrect(batt_in[0], batt_in[1], batt_in[2], batt_in[3], batt_r_ext, batt_r_kbd);
-            strap_block();
-        }
+        rrect(batt_in[0], batt_in[1], batt_in[2], batt_in[3], batt_r_ext, batt_r_kbd);
     // the thinner bottom band of the EXT wall, then a 45 degree slope up to the full wall, so it
     // never overhangs. Along the slope our wall is still thinner than M5Stack's
-    translate([0, 0, z_board_F]) difference() {
-        hull() {
-            linear_extrude(batt_in_low[1])
-                rrect(batt_in[0], batt_in_low[0], batt_in[2], batt_in[3], batt_r_ext, batt_r_kbd);
-            translate([0, 0, batt_in_low[1] + batt_in[1] - batt_in_low[0]]) linear_extrude(eps)
-                rrect(batt_in[0], batt_in[1], batt_in[2], batt_in[3], batt_r_ext, batt_r_kbd);
-        }
-        translate([0, 0, -1]) linear_extrude(batt_d + 2) strap_block();
+    translate([0, 0, z_board_F]) hull() {
+        linear_extrude(batt_in_low[1])
+            rrect(batt_in[0], batt_in_low[0], batt_in[2], batt_in[3], batt_r_ext, batt_r_kbd);
+        translate([0, 0, batt_in_low[1] + batt_in[1] - batt_in_low[0]]) linear_extrude(eps)
+            rrect(batt_in[0], batt_in[1], batt_in[2], batt_in[3], batt_r_ext, batt_r_kbd);
     }
     // the board's own layer: its edge plus the gap
     translate([0, 0, z_board_B]) linear_extrude(board_t + eps) offset(delta = board_gap) board_shape();
@@ -189,18 +175,25 @@ module holes() {
     hull() for (z = [H - phone_slot[2] + (phone_slot[1] - phone_slot[0]) / 2, H + 3])
         translate([batt_in[2] - 0.5, (phone_slot[0] + phone_slot[1]) / 2, z]) rotate([0, 90, 0])
             cylinder(d = phone_slot[1] - phone_slot[0], h = L - batt_in[2] + 2);
-    // the strap corner
-    translate([0, 0, H - strap_d]) linear_extrude(strap_d + 1) strap_open();
     // window for the cuff plug, under the board
     translate([cuff_socket[0] - 2, cuff_socket[1] - cuff_w / 2, z_board_B - cuff_h])
         cube([L - cuff_socket[0] + 4, cuff_w, cuff_h + cuff_up]);
     if (cuff_scoop) scoop();
-    // debossed lettering on the outside of the floor, centred. Rotated 180 degrees here so that
-    // after the final mirror([0, 1, 0]) it reads left-to-right, right-side-up when viewing the
-    // back of the Cardputer with the EXT / screen edge at the top
+    // debossed lettering and GPS antenna mark on the outside of the floor. Rotated 180 degrees
+    // here so that after the final mirror([0, 1, 0]) they read left-to-right, right-side-up when
+    // viewing the back of the Cardputer with the EXT / screen edge at the top
     if (back_text != "")
         translate([L / 2, text_y, -eps]) rotate([0, 0, 180]) linear_extrude(text_depth + eps)
             text(back_text, size = text_size, font = text_font, halign = "center", valign = "center", $fn = 24);
+    if (gps_mark)
+        translate([gps[0], gps[1], -eps]) rotate([0, 0, 180]) linear_extrude(text_depth + eps) {
+            difference() {
+                rrect(-gps_box[0] / 2, -gps_box[1] / 2, gps_box[0] / 2, gps_box[1] / 2, gps_box[2], gps_box[2]);
+                offset(delta = -gps_box[3])
+                    rrect(-gps_box[0] / 2, -gps_box[1] / 2, gps_box[0] / 2, gps_box[1] / 2, gps_box[2], gps_box[2]);
+            }
+            text("GPS", size = gps_text_size, font = text_font, halign = "center", valign = "center", $fn = 24);
+        }
 }
 
 // A shallow dip in the end wall round the cuff window, so a finger and thumb reach the sides of
@@ -224,7 +217,6 @@ module back_raw() {
         }
         holes();
     }
-    translate([strap_pin[0], strap_pin[1], H - strap_d - eps]) cylinder(d = strap_pin[2], h = strap_d + eps);
 }
 
 // ── the board, its parts and the plugs, for the fit check and the picture ──

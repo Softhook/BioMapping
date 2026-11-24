@@ -4,7 +4,7 @@ A new back for the Cardputer ADV, printed in one piece. It replaces M5Stack's ow
 
 **Status (24 November 2026):** drawn, not yet printed or ordered. The circuit board (rev G) is laid out to fit inside the case, and its checks pass. The case's STL files are made from `cardputer_back.scad`, and two checks pass: in 3D, the board, every part and both plugs clear the case; and the top 6.5 mm, which meets the Cardputer, is nowhere thicker than M5Stack's own back. An outside review of the case and board was checked and acted on the same day ([review_2026-11-24.md](review_2026-11-24.md)). Still to do before printing: measurement 1 (it sets the long screws) and measurement 7 (the cuff plug). Before ordering the board: measurement 2 and Test 1. See "What is still open".
 
-![The case, seen from the open side: the EXT opening in the near wall, the headphone slot at the left end, the strap corner with its pin at the back left, the cuff window in the left wall, the two long screw posts with their ledges, and the two posts for the board's screws](cardputer_back.png)
+![The case, seen from the open side: the EXT opening in the near wall, the headphone slot at the left end, the cuff window in the left wall, the two long screw posts with their ledges, and the two posts for the board's screws](cardputer_back.png)
 
 ## Why replace the back instead of adding a cover
 
@@ -36,10 +36,10 @@ M5Stack publishes a 3D model of the Cardputer ADV, with its back as a separate p
 
 From the Cardputer outwards (the numbers are the drawing's settings):
 
-1. **Rim and battery layer (6.5 mm).** Copied from M5Stack's back: the outline, the wall faces, the two screw posts, the EXT opening, the headphone slot and the strap corner. Not copied: the Lego tubes, the add-on screw slots, the magnets and the battery ribs. Its walls are nowhere thicker than M5Stack's, so nothing inside the Cardputer can touch them (see "How it was checked"). In its bottom 1.5 mm the EXT wall is thinner, as M5Stack's is beside its Lego tubes. Where it gets thicker again, ours slopes back at 45° instead of stepping, so it prints without an overhang; along the slope it is still thinner than M5Stack's.
+1. **Rim and battery layer (6.5 mm).** Copied from M5Stack's back: the outline, the wall faces, the two screw posts, the EXT opening and the headphone slot. Not copied: the Lego tubes, the add-on screw slots, the magnets, the battery ribs and the wrist-strap corner (closed off as a plain rounded corner). Its walls are nowhere thicker than M5Stack's, so nothing inside the Cardputer can touch them (see "How it was checked"). In its bottom 1.5 mm the EXT wall is thinner, as M5Stack's is beside its Lego tubes. Where it gets thicker again, ours slopes back at 45° instead of stepping, so it prints without an overhang; along the slope it is still thinner than M5Stack's.
 2. **Our board (1.6 mm).** Its inner face sits exactly where the inner face of M5Stack's floor was. The battery keeps the same room it has now, and the board holds it in place, as M5Stack's floor did. A thin insulating sheet (Kapton) goes between the board and the battery. All the parts on the board face outwards, except the cable socket J1, which sits in the battery-free strip.
 3. **Parts and GPS space.** This is the tallest part (the GPS module, 6.8 mm at most) plus a gap of 5 mm over it. u-blox asks for at least 5 mm between plastic and the antenna. Test 2 below checks whether a smaller gap costs any signal; the gap is one setting (`gps_gap`).
-4. **Floor (2 mm).** Plain plastic. No screws, labels or paint containing metal over the GPS.
+4. **Floor (2 mm).** Plain plastic, with `Bio Mapping 2` and a rounded `GPS` box over the GPS antenna debossed 0.4 mm into the outside. No screws, labels or paint containing metal over the GPS.
 
 Below the battery layer the outside runs straight down, and the floor's edge is rounded as M5Stack's is. At the print bed each rounded edge turns into a 45° chamfer, so the first layers never overhang. The wall beside the board is 1.4 mm thick and stands 0.5 mm clear of the board's edge all round. That leaves room for the board's cutting tolerance (JLCPCB cuts edges to within ±0.2 mm) and for a print that comes out a little small. Below the board the wall is 1.2 mm thicker, which forms a shelf all round; the board's edge rests on 0.7 mm of it.
 
@@ -54,7 +54,7 @@ How thick the Cardputer becomes (19.6 mm today):
 - **The two long screw posts** run from the floor up to the rim, where M5Stack's posts are. Above the board they are 4 mm across, like M5Stack's, and pass through the board's 4.8 mm holes (H3, H4). The spare 0.4 mm allows for a print that shrinks a little over the 41.5 mm between the posts. Below the board they are 7 mm across, a ledge the board rests on.
 - **The shelf** round the wall carries the board's edge everywhere except at the cuff socket.
 - **Two M2 screws, 5 mm long** (H1, H2), go through the board into two posts of the case. They keep the board in when the back is off, and stop it rattling. H1 is near the corner on the GPS side; H2 is below the headphone socket, where the inner face has room for a screw head. The screws go into **M2 heat-set inserts** (two, up to 4 mm long, for a 3.2 mm hole), pressed into the posts with a soldering iron. The case will be opened often during the tests, and an insert's thread doesn't wear. Setting `board_screw_inserts = false` makes 1.7 mm holes instead, for the screws to cut their own thread. Printed, that hole comes out nearer 1.5 mm: an M2 screw forced into it can split the post along its layers, and the thread wears a little each time.
-- The board goes in from the rim side, over the two posts. It has a notch at the strap corner so it can pass the strap corner's wall.
+- The board goes in straight from the rim side, over the two posts.
 
 ## The long screws
 
