@@ -423,9 +423,10 @@ export const GSR_CONST = {
       showPeakOverlay: false,
       allowNegative: false,
     },
-    // The heartbeat ripple in the GSR (HeartRate, src/signal/heart_rate.mjs):
-    // the fast part of the signal in nS, and the pulse rate found from it.
-    // Only while sitting still; blank where no clear pulse was found.
+    // The heartbeat (or footstep) ripple in the GSR (HeartRate,
+    // src/signal/heart_rate.mjs): the fast part of the signal in nS, and the
+    // rates found from it. Steps where GPS says the walker is moving (drawn
+    // in --color-steps), pulse everywhere else; blank where neither is clear.
     heartPulse: {
       label: 'Pulse wave',
       unit: 'nS',
@@ -436,7 +437,7 @@ export const GSR_CONST = {
       allowNegative: true,
     },
     heartRate: {
-      label: 'Heart rate',
+      label: 'Pulse & steps',
       unit: '/min',
       decimals: 0,
       colorVar: '--color-heart',

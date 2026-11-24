@@ -38,6 +38,7 @@
   --color-tri-index: #6366f1; /* Tri Index vibrant indigo */
   --color-edasymp: #0e7490; /* EDASymp spectral sympathetic index deep cyan */
   --color-heart: #be123c; /* Pulse wave and heart rate, deep rose */
+  --color-steps: #2563eb; /* Step rate from the footstep ripple, bright blue */
   --color-em-fog: #a855f7; /* EM Fog Index (EMF-I) glowing purple/violet */
   --color-response-dynamics: #f97316; /* Response dynamics speed multiplier bright orange */
 
@@ -766,8 +767,8 @@ input[type="range"]:focus-visible,
   flex-shrink: 1; /* the label truncates first, before the value gets squeezed */
 }
 
-/* A value with a small amber caution icon after it (see the card's hover
-   text); kept on one line when narrow cards stack the label above. */
+/* Values with small icons before them (heart = pulse, walker = steps);
+   kept on one line when narrow cards stack the label above. */
 .stat-value-row {
   display: flex;
   align-items: center;
@@ -775,13 +776,25 @@ input[type="range"]:focus-visible,
   min-width: 0;
 }
 
-.stat-warn-icon {
-  font-size: 0.75rem;
-  color: var(--warning);
+.stat-rhythm-icon {
+  font-size: 0.7rem;
   flex-shrink: 0;
 }
 
-.stat-warn-icon[hidden] {
+.stat-heart-icon {
+  color: var(--color-heart);
+}
+
+.stat-steps-icon {
+  color: var(--color-steps);
+}
+
+/* A gap between the pulse reading and the steps that follow it. */
+.stat-value-row .stat-steps-icon {
+  margin-left: 4px;
+}
+
+.stat-value-row > [hidden] {
   display: none; /* Font Awesome's own display rule would otherwise win */
 }
 

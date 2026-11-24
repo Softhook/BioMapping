@@ -1,14 +1,15 @@
 /**
- * HeartRate — finds the heartbeat that shows up as a tiny ripple in the GSR.
+ * HeartRate — finds the heartbeat, or the footsteps, that show up as a
+ * tiny ripple in the GSR.
  *
  * With fingers in the cuffs each heartbeat nudges the reading by about
  * 1–3 nS (on a reading of thousands of nS), at the pulse rate plus an exact
- * double of it. See docs/gsr_pulse_observation_2026_11_21.md. This is only
- * usable while sitting still: when walking, the footsteps make a much
- * bigger ripple at about the same rate (95–115 a minute), so stretches
- * where the GPS says the walker is moving are left out. Without GPS speed
- * that can't be done, and the summary says how much of the found time had
- * none.
+ * double of it. See docs/gsr_pulse_observation_2026_11_21.md. When walking,
+ * the footsteps make a much bigger ripple at about the same rate (95–115 a
+ * minute), so the two are read as opposites: where the GPS says the walker
+ * is moving, the rhythm is read as steps; everywhere else (indoors with no
+ * GPS fix, or standing still) as the pulse. Without GPS speed walking can't
+ * be ruled out, and the summary says how much of the pulse time had none.
  *
  * Steps:
  *   1. Keep only the fast part of the signal: Butterworth high-pass at
@@ -23,24 +24,26 @@
  *      power by its own running median over ±0.35 Hz. A sloping background
  *      (slow sweat changes leaking through the high-pass) then reads about
  *      1 everywhere, and only a real peak stands out.
- *   4. Score each pulse rate from 45 to 132 a minute by its peak plus half
- *      its double, and follow the best path through time with a penalty
- *      for jumping (Viterbi), so the rate can't hop about from window to
- *      window.
- *   5. "Pulse found" over the ±10 s around a window needs all three: the
- *      typical peak is at least 6 times its background, at least 80 % of
- *      the windows' own strongest peak sits within 4 a minute of the path,
- *      and the path moves by no more than 10 a minute. Found stretches
- *      shorter than 15 s are dropped. On the test resistor recordings this
- *      finds nothing, except one with strong mains hum from another
- *      device's supply. Windows where the pulse wave barely moves (no
- *      skin contact) are not looked at.
- *   6. Beats: within found stretches, the highest point of the pulse wave
- *      in each beat, at least 0.6 of a beat apart, timed to a fraction of
- *      a row by fitting a parabola through the top three rows.
+ *   4. Score each rate from 45 to 132 a minute by its peak plus half its
+ *      double, and follow the best path through time with a penalty for
+ *      jumping (Viterbi), so the rate can't hop about from window to
+ *      window. This is done twice: once over the still windows (pulse) and
+ *      once over the moving ones (steps), so neither leaks into the other.
+ *   5. "Found" over the ±10 s around a window needs all three: the typical
+ *      peak is at least 6 times its background, at least 80 % of the
+ *      windows' own strongest peak sits within 4 a minute of the path, and
+ *      the path moves by no more than 10 a minute. Found stretches shorter
+ *      than 15 s are dropped. On the test resistor recordings this finds
+ *      nothing, except one with strong mains hum from another device's
+ *      supply. Windows where the pulse wave barely moves (no skin contact)
+ *      are not looked at.
+ *   6. Beats (or steps): within found stretches, the highest point of the
+ *      wave in each beat, at least 0.6 of a beat apart, timed to a fraction
+ *      of a row by fitting a parabola through the top three rows.
  *
  * The beat marks show when the fingertip reading peaks, which is some time
  * after the heart beats; only the rate is meaningful, not the exact timing.
+ * Steps faster than 132 a minute (running) are not looked for.
  *
  * Pure module — no DOM, no AppState.
  */
@@ -183,7 +186,7 @@ export const HeartRate = {
     const P = new Float64Array(half);
     const Pw = new Float64Array(half);
     const absDev = new Float64Array(W);
-    const medBuf = [];
+    const medBuf = new Float64Array(wh + 2);
     const BG_STEP = 4;
     const nBg = Math.floor((kmax - kmin) / BG_STEP) + 1;
     const bg = new Float64Array(nBg);
@@ -208,7 +211,7 @@ export const HeartRate = {
       for (let i = 0; i < W; i++) mean += x[s0 + i];
       mean /= W;
       for (let i = 0; i < W; i++) absDev[i] = Math.abs(x[s0 + i] - mean);
-      const sig = HeartRate._median(Array.from(absDev)) * 1.4826;
+      const sig = HeartRate._median(absDev) * 1.4826;
       // Too flat to hold a pulse: no skin contact (the reading sticks at one
       // value) or a disconnect bridged with a straight line. What is left is
       // rounding error, which the 1-second-tick step shapes into a false
@@ -231,11 +234,11 @@ export const HeartRate = {
       // joined by straight lines (it changes slowly, and this is the slow
       // part of the whole analysis).
       for (let k0 = kmin; k0 <= kmax; k0 += BG_STEP) {
-        medBuf.length = 0;
+        let m = 0;
         const a = Math.max(kmin, k0 - wh);
         const b = Math.min(kmax, k0 + wh);
-        for (let j = a; j <= b; j += 2) medBuf.push(P[j]);
-        bg[(k0 - kmin) / BG_STEP] = HeartRate._median(medBuf);
+        for (let j = a; j <= b; j += 2) medBuf[m++] = P[j];
+        bg[(k0 - kmin) / BG_STEP] = HeartRate._median(medBuf.subarray(0, m));
       }
       Pw.fill(0);
       for (let k = kmin; k <= kmax; k++) {
@@ -416,66 +419,28 @@ export const HeartRate = {
   },
 
   /**
-   * Whole pipeline.
-   * @param {ArrayLike<number>} vals - GSR in µS
-   * @param {ArrayLike<number>} times - seconds
-   * @param {number} fs - rows a second
-   * @param {{speedMps?: ArrayLike<number>|null}} [opts] - per-sample GPS
-   *   speed, NaN where unknown; windows whose median known speed is over
-   *   MOVING_MPS are left out.
-   * @returns {{
-   *   pulse: Float64Array, bpm: Float64Array, beats: Array<{index:number,time:number,bpm:number}>,
-   *   summary: {bpm:number, foundSec:number, totalSec:number, movingSec:number, noSpeedSec:number}
-   * }}
-   *   noSpeedSec = found time with no GPS speed to show the walker was still
+   * Per-sample rate and beats from analysed windows (steps 5 and 6).
+   * @param {Float64Array} x - pulse wave
+   * @param {ArrayLike<number>} times
+   * @param {number} fs
+   * @param {ReturnType<typeof HeartRate.analyseWindows>} win
+   * @returns {{bpm: Float64Array, beats: Array<{index:number,time:number,bpm:number}>,
+   *   found: boolean[], typical: number, foundSec: number}}
+   * @private
    */
-  analyse(vals, times, fs, opts = {}) {
+  _rhythm(x, times, fs, win) {
     const H = HeartRate;
-    const n = vals.length;
-    const empty = {
-      pulse: new Float64Array(n),
-      bpm: new Float64Array(n).fill(NaN),
-      beats: [],
-      summary: {
-        bpm: NaN,
-        foundSec: 0,
-        totalSec: n / (fs || 1),
-        movingSec: 0,
-        noSpeedSec: 0,
-      },
-    };
-    if (
-      !(fs >= H.MIN_SAMPLE_RATE) ||
-      n < Math.round((H.WINDOW_SEC + H.FOUND_MIN_RUN_SEC) * fs)
-    )
-      return empty;
-
-    const x = H.pulseWave(vals, fs);
-    const speed =
-      opts.speedMps && opts.speedMps.length === n ? opts.speedMps : null;
-    let movingCount = 0;
-    const isMoving = speed
-      ? (a, b) => {
-          const known = [];
-          for (let i = a; i < b; i++)
-            if (Number.isFinite(speed[i])) known.push(speed[i]);
-          const moving = known.length > 0 && H._median(known) > H.MOVING_MPS;
-          if (moving) movingCount++;
-          return moving;
-        }
-      : undefined;
-    const win = H.analyseWindows(x, fs, isMoving);
-    if (win.length === 0) return { ...empty, pulse: x };
+    const n = x.length;
     const found = H.foundWindows(win, fs);
 
     // Per sample: a straight line between neighbouring found windows'
     // rates; the first and last half-hop of a found stretch hold its end value.
     const bpm = new Float64Array(n).fill(NaN);
     const hop = Math.max(1, Math.round(H.HOP_SEC * fs));
-    let foundCount = 0;
+    const foundRates = [];
     for (let f = 0; f < win.length; f++) {
       if (!found[f]) continue;
-      foundCount++;
+      foundRates.push(win[f].bpm);
       const c = win[f].centre;
       const next = f + 1 < win.length && found[f + 1] ? win[f + 1] : null;
       const prevFound = f > 0 && found[f - 1];
@@ -505,15 +470,98 @@ export const HeartRate = {
       }
       return { index: i0, time: t, bpm: b };
     });
+    return {
+      bpm,
+      beats,
+      found,
+      typical: foundRates.length ? H._median(foundRates) : NaN,
+      foundSec: (foundRates.length * hop) / fs,
+    };
+  },
 
-    // Found windows with no GPS speed in them: walking can't be ruled out
+  /**
+   * Whole pipeline.
+   * @param {ArrayLike<number>} vals - GSR in µS
+   * @param {ArrayLike<number>} times - seconds
+   * @param {number} fs - rows a second
+   * @param {{speedMps?: ArrayLike<number>|null}} [opts] - per-sample GPS
+   *   speed, NaN where unknown; windows whose median known speed is over
+   *   MOVING_MPS are read as steps, all others as pulse.
+   * @returns {{
+   *   pulse: Float64Array, bpm: Float64Array, beats: Array<{index:number,time:number,bpm:number}>,
+   *   summary: {bpm:number, foundSec:number, totalSec:number, movingSec:number, noSpeedSec:number},
+   *   steps: {bpm: Float64Array, beats: Array<{index:number,time:number,bpm:number}>,
+   *     summary: {bpm:number, foundSec:number}}
+   * }}
+   *   bpm/beats/summary are the pulse; noSpeedSec = pulse time with no GPS
+   *   speed to show the walker was still. steps = the same for footsteps,
+   *   only where GPS speed says the walker is moving.
+   */
+  analyse(vals, times, fs, opts = {}) {
+    const H = HeartRate;
+    const n = vals.length;
+    const noSteps = () => ({
+      bpm: new Float64Array(n).fill(NaN),
+      beats: [],
+      summary: { bpm: NaN, foundSec: 0 },
+    });
+    const empty = {
+      pulse: new Float64Array(n),
+      bpm: new Float64Array(n).fill(NaN),
+      beats: [],
+      summary: {
+        bpm: NaN,
+        foundSec: 0,
+        totalSec: n / (fs || 1),
+        movingSec: 0,
+        noSpeedSec: 0,
+      },
+      steps: noSteps(),
+    };
+    if (
+      !(fs >= H.MIN_SAMPLE_RATE) ||
+      n < Math.round((H.WINDOW_SEC + H.FOUND_MIN_RUN_SEC) * fs)
+    )
+      return empty;
+
+    const x = H.pulseWave(vals, fs);
+    const speed =
+      opts.speedMps && opts.speedMps.length === n ? opts.speedMps : null;
+    // Whether GPS says the walker is moving over samples [a, b), worked out
+    // once per window and shared by the pulse and steps passes.
+    const movingMemo = new Map();
+    const isMoving = (a, b) => {
+      let m = movingMemo.get(a);
+      if (m === undefined) {
+        const known = [];
+        for (let i = a; i < b; i++)
+          if (Number.isFinite(speed[i])) known.push(speed[i]);
+        m = known.length > 0 && H._median(known) > H.MOVING_MPS;
+        movingMemo.set(a, m);
+      }
+      return m;
+    };
+    const win = H.analyseWindows(x, fs, speed ? isMoving : undefined);
+    if (win.length === 0) return { ...empty, pulse: x };
+    const pulse = H._rhythm(x, times, fs, win);
+    let movingCount = 0;
+    for (const m of movingMemo.values()) if (m) movingCount++;
+    const steps = movingCount
+      ? H._rhythm(
+          x,
+          times,
+          fs,
+          H.analyseWindows(x, fs, (a, b) => !isMoving(a, b)),
+        )
+      : null;
+
+    // Pulse windows with no GPS speed in them: walking can't be ruled out
     // there, and footsteps beat at about the same rate as a pulse.
+    const hop = Math.max(1, Math.round(H.HOP_SEC * fs));
     const W = Math.round(H.WINDOW_SEC * fs);
-    const foundRates = [];
     let noSpeedCount = 0;
     for (let f = 0; f < win.length; f++) {
-      if (!found[f]) continue;
-      foundRates.push(win[f].bpm);
+      if (!pulse.found[f]) continue;
       let known = false;
       if (speed) {
         const s0 = Math.round(win[f].centre - (W - 1) / 2);
@@ -525,15 +573,22 @@ export const HeartRate = {
     const hopSec = hop / fs;
     return {
       pulse: x,
-      bpm,
-      beats,
+      bpm: pulse.bpm,
+      beats: pulse.beats,
       summary: {
-        bpm: foundRates.length ? H._median(foundRates) : NaN,
-        foundSec: foundCount * hopSec,
+        bpm: pulse.typical,
+        foundSec: pulse.foundSec,
         totalSec: win.length * hopSec,
         movingSec: movingCount * hopSec,
         noSpeedSec: noSpeedCount * hopSec,
       },
+      steps: steps
+        ? {
+            bpm: steps.bpm,
+            beats: steps.beats,
+            summary: { bpm: steps.typical, foundSec: steps.foundSec },
+          }
+        : noSteps(),
     };
   },
 
@@ -550,10 +605,16 @@ export const HeartRate = {
     );
   },
 
-  /** Median of a plain array (sorts it in place). @private */
+  /**
+   * Median (sorts the array in place). A typed array sorts by number on
+   * its own, which is much faster than a plain array's sort.
+   * @param {number[]|Float64Array} a
+   * @private
+   */
   _median(a) {
     if (a.length === 0) return 0;
-    a.sort((p, q) => p - q);
+    if (ArrayBuffer.isView(a)) a.sort();
+    else a.sort((p, q) => p - q);
     const m = a.length >> 1;
     return a.length % 2 ? a[m] : 0.5 * (a[m - 1] + a[m]);
   },

@@ -90,12 +90,16 @@ export class GSRAnalyzer {
     // independent of the filter/detector sliders, and cached
     // across re-analyses keyed on raw identity + length.
     this._edasympCache = null;
-    // Heartbeat ripple in the GSR (HeartRate, heart_rate.mjs), from the raw
-    // signal and independent of the sliders; cached like EDASymp.
+    // Heartbeat (or footstep) ripple in the GSR (HeartRate, heart_rate.mjs),
+    // from the raw signal and independent of the sliders; cached like
+    // EDASymp. Steps where GPS says the walker is moving, pulse elsewhere.
     this.heartPulse = []; // { time, val } — fast part of the signal, nS
     this.heartRate = []; // { time, val } — pulse rate /min, NaN where none found
     this.heartBeats = []; // { index, time } — one per beat in found stretches
     this.heartSummary = null; // { bpm, foundSec, totalSec, movingSec, noSpeedSec }
+    this.stepRate = []; // { time, val } — steps /min, NaN where none found
+    this.stepBeats = []; // { index, time } — one per step in found stretches
+    this.stepSummary = null; // { bpm, foundSec }
     this._heartCache = null;
 
     // Deconvolution state (Benedek & Kaernbach, 2010).
@@ -2281,11 +2285,11 @@ export class GSRAnalyzer {
     };
   }
   /**
-   * Heartbeat ripple and pulse rate (HeartRate, heart_rate.mjs). Reads the
-   * same disconnect-repaired input as EDASymp, for the same reason: a
-   * dropout's step would swamp the spectrum. GPS speed, where there is a
-   * fix, leaves out the stretches spent walking, where the footsteps would
-   * read as a pulse. Cached on raw identity + length + input array.
+   * Heartbeat ripple, pulse rate and step rate (HeartRate, heart_rate.mjs).
+   * Reads the same disconnect-repaired input as EDASymp, for the same
+   * reason: a dropout's step would swamp the spectrum. Where GPS speed says
+   * the walker is moving, the ripple is read as footsteps; everywhere else
+   * as the pulse. Cached on raw identity + length + input array.
    * @private
    */
   _computeHeartRate(rawInputVals) {
@@ -2301,6 +2305,9 @@ export class GSRAnalyzer {
       this.heartRate = cache.heartRate;
       this.heartBeats = cache.heartBeats;
       this.heartSummary = cache.heartSummary;
+      this.stepRate = cache.stepRate;
+      this.stepBeats = cache.stepBeats;
+      this.stepSummary = cache.stepSummary;
       return;
     }
     const times = new Float64Array(n);
@@ -2318,14 +2325,22 @@ export class GSRAnalyzer {
     });
     const heartPulse = new Array(n);
     const heartRate = new Array(n);
+    const stepRate = new Array(n);
     for (let i = 0; i < n; i++) {
       heartPulse[i] = { time: times[i], val: r.pulse[i] * 1000 };
       heartRate[i] = { time: times[i], val: r.bpm[i] };
+      stepRate[i] = { time: times[i], val: r.steps.bpm[i] };
     }
     this.heartPulse = heartPulse;
     this.heartRate = heartRate;
     this.heartBeats = r.beats.map((b) => ({ index: b.index, time: b.time }));
     this.heartSummary = r.summary;
+    this.stepRate = stepRate;
+    this.stepBeats = r.steps.beats.map((b) => ({
+      index: b.index,
+      time: b.time,
+    }));
+    this.stepSummary = r.steps.summary;
     this._heartCache = {
       raw: this.raw,
       n,
@@ -2334,6 +2349,9 @@ export class GSRAnalyzer {
       heartRate,
       heartBeats: this.heartBeats,
       heartSummary: this.heartSummary,
+      stepRate,
+      stepBeats: this.stepBeats,
+      stepSummary: this.stepSummary,
     };
   }
 

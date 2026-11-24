@@ -11,7 +11,6 @@
 import { AppState } from '../core/app_state.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { AnalyzerTimeFormat } from '../signal/analyzer_time_format.mjs';
-import { HeartRate } from '../signal/heart_rate.mjs';
 
 export const StatsPanelUI = {
   /**
@@ -143,12 +142,11 @@ export const StatsPanelUI = {
         'meanSCL',
         'peakCount',
         'peakFreq',
-        'pulse',
       ]) {
         if (F[key]) F[key].innerText = '--';
       }
+      this.clearPulseCard();
       if (F.pulseCard) F.pulseCard.title = '';
-      if (F.pulseWarn) F.pulseWarn.hidden = true;
       this.updateSpatialDataIndicator();
       return;
     }
@@ -170,39 +168,81 @@ export const StatsPanelUI = {
     this.updateSpatialDataIndicator();
   },
 
+  /** The Pulse · Steps card back to "--" with no icons. */
+  clearPulseCard() {
+    const F = AppState.statFields;
+    if (F.pulse) {
+      F.pulse.innerText = '--';
+      F.pulse.hidden = false;
+    }
+    if (F.pulseIcon) F.pulseIcon.hidden = true;
+    if (F.steps) F.steps.hidden = true;
+    if (F.stepsIcon) F.stepsIcon.hidden = true;
+  },
+
   /**
-   * The Pulse card: the typical heart rate found in the GSR ripple, and (on
-   * hover) how much of the recording it was found in. "--" when none was
+   * The Pulse · Steps card: the typical heart rate (heart icon) and step
+   * rate (walker icon) found in the GSR ripple, and (on hover) how much of
+   * the recording each was found in. Steps are read where GPS says the
+   * walker is moving, the pulse everywhere else. "--" when neither was
    * found, with the reason in the hover text.
    */
   updatePulseCard(a) {
     const F = AppState.statFields;
     if (!F.pulse) return;
+    this.clearPulseCard();
     const s = a?.heartSummary;
+    const st = a?.stepSummary;
     const found = s && Number.isFinite(s.bpm) && s.foundSec > 0;
-    F.pulse.innerText = found ? `${Math.round(s.bpm)}/min` : '--';
-    let tip;
+    const stepsFound = st && Number.isFinite(st.bpm) && st.foundSec > 0;
+    // Both side by side don't fit a card with "/min" on each: numbers only
+    // then (the hover text says a minute).
+    const unit = found && stepsFound ? '' : '/min';
+    if (found) {
+      F.pulse.innerText = `${Math.round(s.bpm)}${unit}`;
+      if (F.pulseIcon) F.pulseIcon.hidden = false;
+    } else if (stepsFound) {
+      F.pulse.hidden = true;
+    }
+    if (stepsFound && F.steps) {
+      F.steps.innerText = `${Math.round(st.bpm)}${unit}`;
+      F.steps.hidden = false;
+      if (F.stepsIcon) F.stepsIcon.hidden = false;
+    }
     if (!s || s.totalSec <= 0) {
-      tip = 'Recording too short to look for a pulse';
-    } else if (found) {
-      const share = Math.round((100 * s.foundSec) / s.totalSec);
-      tip = `Typical heart rate from the tiny pulse ripple in the GSR. A clear pulse was found in ${share}% of the recording`;
+      if (F.pulseCard)
+        F.pulseCard.title = 'Recording too short to look for a pulse or steps.';
+      return;
+    }
+    const share = (sec) => Math.round((100 * sec) / s.totalSec);
+    const lines = [];
+    if (found) {
+      let line = `Pulse: ${Math.round(s.bpm)} a minute, the typical heart rate from the tiny pulse ripple in the GSR, found in ${share(s.foundSec)}% of the recording`;
+      if (s.noSpeedSec > 0) {
+        const where =
+          s.noSpeedSec >= s.foundSec
+            ? 'There was no GPS speed'
+            : `There was no GPS speed for ${Math.round((100 * s.noSpeedSec) / s.foundSec)}% of it`;
+        line += `. ${where}, so walking can't be ruled out: if you were walking indoors, this may be your steps`;
+      }
+      lines.push(`${line}.`);
     } else {
-      tip =
-        'No clear pulse found in the GSR. It only shows when sitting still with a steady contact';
+      lines.push(
+        'Pulse: none clear. It only shows when sitting still with a steady contact.',
+      );
     }
-    if (s?.movingSec > 0)
-      tip += `. ${Math.round(s.movingSec / 60)} min of walking was left out, as footsteps look like a pulse`;
-    const noSpeed = found && s.noSpeedSec > 0;
-    if (noSpeed) {
-      const where =
-        s.noSpeedSec >= s.foundSec
-          ? 'There was no GPS speed'
-          : `There was no GPS speed for ${Math.round((100 * s.noSpeedSec) / s.foundSec)}% of it`;
-      tip += `. ${where}, so walking can't be ruled out: if you were walking, this may be your footsteps, which beat at about the same rate`;
+    if (stepsFound) {
+      lines.push(
+        `Steps: ${Math.round(st.bpm)} a minute, the typical step rate from the footstep ripple in the GSR, found in ${share(st.foundSec)}% of the recording (only where GPS says you were moving).`,
+      );
+    } else if (s.movingSec > 0) {
+      lines.push(
+        `Steps: none clear in the ${Math.round(s.movingSec / 60)} min GPS says you were moving.`,
+      );
+    } else {
+      lines.push('Steps: no GPS speed showing you were moving.');
     }
-    if (F.pulseWarn) F.pulseWarn.hidden = !HeartRate.mayBeFootsteps(s);
-    if (F.pulseCard) F.pulseCard.title = `${tip}.`;
+    if (F.pulseCard) F.pulseCard.title = lines.join('\n');
   },
 
   /**

@@ -764,26 +764,31 @@ function _drawRefLabel(y, colorPeak, label) {
   text(label, x, ty);
 }
 
-// ── Heart views — the pulse ripple in the GSR and the rate found from it ──
-// Both come from HeartRate (src/signal/heart_rate.mjs). The rate is blank
-// (NaN) wherever no clear pulse was found, so each found stretch is drawn as
-// its own line. The pulse wave is drawn everywhere, faint where no pulse was
-// found, with a dot on each beat.
+// ── Heart views — the pulse (or footstep) ripple in the GSR and the rates ──
+// All come from HeartRate (src/signal/heart_rate.mjs): steps where GPS says
+// the walker is moving, the pulse everywhere else. Each rate is blank (NaN)
+// wherever it wasn't clearly found, so each found stretch is drawn as its
+// own line, pulse in red and steps in blue. The wave is drawn everywhere,
+// faint where neither was found, with a dot on each beat or step.
 
 /** Y range for the heart views: from found stretches in view where there are any. */
 function _heartRange(frame, mode) {
   const A = AppState.analyzer;
   const { idxStart, idxEnd } = frame;
   const rate = A.heartRate;
+  const steps = A.stepRate || [];
   const pulse = A.heartPulse;
+  const found = (i) =>
+    Number.isFinite(rate[i]?.val) || Number.isFinite(steps[i]?.val);
   if (mode === 'heartRate') {
     let lo = Infinity;
     let hi = -Infinity;
     for (let i = idxStart; i <= idxEnd; i++) {
-      const v = rate[i]?.val;
-      if (Number.isFinite(v)) {
-        if (v < lo) lo = v;
-        if (v > hi) hi = v;
+      for (const v of [rate[i]?.val, steps[i]?.val]) {
+        if (Number.isFinite(v)) {
+          if (v < lo) lo = v;
+          if (v > hi) hi = v;
+        }
       }
     }
     if (lo === Infinity) return { yMin: 40, yMax: 140 };
@@ -795,7 +800,7 @@ function _heartRange(frame, mode) {
   // 98th percentile of the whole view so one twitch can't flatten the rest.
   let m = 0;
   for (let i = idxStart; i <= idxEnd; i++) {
-    if (!Number.isFinite(rate[i]?.val)) continue;
+    if (!found(i)) continue;
     const v = Math.abs(pulse[i]?.val ?? 0);
     if (v > m) m = v;
   }
@@ -893,6 +898,7 @@ function _drawHeartView(frame) {
   const mode = frame.view;
   const cfg = GSR_CONST.LOWER_GRAPH_MODES[mode];
   const rate = A.heartRate || [];
+  const steps = A.stepRate || [];
   const pulse = A.heartPulse || [];
   const { yMin, yMax } = _easedYRange(
     `${mode}|${A._dataVersion}`,
@@ -901,8 +907,11 @@ function _drawHeartView(frame) {
   const grid = _LOWER_GRID_PRESETS[mode];
   const yOf = (val) => map(val, yMin, yMax, plotBottom, plotTop);
   const colorHeart = GSRRenderer.getThemeColor(cfg.colorVar, cfg.colorDefault);
+  const colorSteps = GSRRenderer.getThemeColor('--color-steps', '#2563eb');
   const colorMuted = GSRRenderer.getThemeColor('--color-raw', '#7c7c76');
-  const found = (i) => Number.isFinite(rate[i]?.val);
+  const pulseFound = (i) => Number.isFinite(rate[i]?.val);
+  const stepsFound = (i) => Number.isFinite(steps[i]?.val);
+  const found = (i) => pulseFound(i) || stepsFound(i);
   // Sweat peaks and hotspots aren't drawn here (they mean nothing on a
   // pulse or /min axis), so clear what the last view left: the hotspot
   // rings are page elements over the canvas, and the click targets would
@@ -952,14 +961,18 @@ function _drawHeartView(frame) {
       color(`${colorMuted}66`),
       1,
     );
-    _drawHeartLine(pulse, found, frame, yOf, colorHeart, 1.6);
-    // A dot on each beat, when they are far enough apart to see.
-    const beats = A.heartBeats || [];
+    _drawHeartLine(pulse, pulseFound, frame, yOf, colorHeart, 1.6);
+    _drawHeartLine(pulse, stepsFound, frame, yOf, colorSteps, 1.6);
+    // A dot on each beat or step, when they are far enough apart to see.
     const pxPerSec =
       (width - GSR_CONST.MARGIN.right - left) / (bodyEndTime - bodyStartTime);
-    if (pxPerSec >= 15) {
+    const marks = [
+      [A.heartBeats || [], colorHeart],
+      [A.stepBeats || [], colorSteps],
+    ];
+    for (const [beats, colorMark] of pxPerSec >= 15 ? marks : []) {
       noStroke();
-      fill(colorHeart);
+      fill(colorMark);
       for (const b of beats) {
         if (b.time < bodyStartTime || b.time > bodyEndTime) continue;
         const i = b.index;
@@ -983,31 +996,52 @@ function _drawHeartView(frame) {
       }
     }
   } else {
-    _drawHeartLine(rate, found, frame, yOf, colorHeart, 2);
+    _drawHeartLine(rate, pulseFound, frame, yOf, colorHeart, 2);
+    _drawHeartLine(steps, stepsFound, frame, yOf, colorSteps, 2);
   }
   pop();
 
-  // Typical rate (whole recording) in the top-left corner, or why there is none.
+  // Typical rates (whole recording) in the top-left corner, or why there are
+  // none: the pulse part in red, the steps part in blue.
   const s = A.heartSummary;
-  let label;
+  const st = A.stepSummary;
+  const parts = [];
   if (s && Number.isFinite(s.bpm) && s.foundSec > 0) {
     const share = Math.round((100 * s.foundSec) / s.totalSec);
-    label = `Typical pulse ${Math.round(s.bpm)}/min · found in ${share}% of the recording`;
+    let p = `Pulse ${Math.round(s.bpm)}/min · ${share}% of the recording`;
     if (HeartRate.mayBeFootsteps(s))
-      label += ' · no GPS speed: may be footsteps if walking';
-    if (!anyFound) label += ' · none here';
-  } else {
-    label = 'No clear pulse found · it only shows when sitting still';
+      p += ' · no GPS speed: may be steps if walking indoors';
+    parts.push([p, colorHeart]);
   }
+  if (st && Number.isFinite(st.bpm) && st.foundSec > 0 && s?.totalSec > 0) {
+    const share = Math.round((100 * st.foundSec) / s.totalSec);
+    parts.push([
+      `Steps ${Math.round(st.bpm)}/min · ${share}% of the recording`,
+      colorSteps,
+    ]);
+  }
+  if (parts.length && !anyFound) parts.push(['none here', colorMuted]);
+  if (!parts.length)
+    parts.push([
+      'No clear pulse or steps found · the pulse only shows when sitting still',
+      colorHeart,
+    ]);
   noStroke();
   textSize(10);
   textAlign(LEFT, TOP);
   const pad = 4;
-  const tw = textWidth(label) + pad * 2;
+  const gap = 12;
+  const widths = parts.map(([t]) => textWidth(t));
+  const tw =
+    widths.reduce((sum, w) => sum + w, 0) + gap * (parts.length - 1) + pad * 2;
   fill(color(`${GSRRenderer.getThemeColor('--bg-card', '#ffffff')}d9`));
   rect(left + 6, plotTop + 4, tw, 16, 2);
-  fill(colorHeart);
-  text(label, left + 6 + pad, plotTop + 7);
+  let tx = left + 6 + pad;
+  parts.forEach(([t, c], k) => {
+    fill(c);
+    text(t, tx, plotTop + 7);
+    tx += widths[k] + gap;
+  });
 
   _drawNoPlaceShadeAndButtons(frame);
   _drawTourPlayhead(frame);

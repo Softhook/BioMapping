@@ -296,7 +296,14 @@ export const RendererInteraction = {
       lowerMode === 'responseDynamics'
         ? AppState.analyzer.phasic
         : AppState.analyzer[lowerMode] || AppState.analyzer.phasic;
-    const dLower = lowerSeries[AppState.hoveredIndex] || dPhasic;
+    let dLower = lowerSeries[AppState.hoveredIndex] || dPhasic;
+    // Pulse & Steps view: one dot, on whichever rate is found here.
+    const dSteps = AppState.analyzer.stepRate?.[AppState.hoveredIndex];
+    const onSteps =
+      lowerMode === 'heartRate' &&
+      !Number.isFinite(dLower.val) &&
+      Number.isFinite(dSteps?.val);
+    if (onSteps) dLower = dSteps;
 
     const xScrub = map(
       dRaw.time,
@@ -311,10 +318,10 @@ export const RendererInteraction = {
       'rgba(17, 17, 17, 0.25)',
     );
     const colorFiltered = this.getThemeColor('--color-filtered', '#005bc4');
-    const colorLower = this.getThemeColor(
-      lowerCfg.colorVar,
-      lowerCfg.colorDefault,
-    );
+    const colorSteps = this.getThemeColor('--color-steps', '#2563eb');
+    const colorLower = onSteps
+      ? colorSteps
+      : this.getThemeColor(lowerCfg.colorVar, lowerCfg.colorDefault);
 
     stroke(scrubberColor);
     strokeWeight(1);
@@ -351,7 +358,7 @@ export const RendererInteraction = {
         );
       }
     } else if (Number.isFinite(dLower.val)) {
-      // Heart rate is blank where no pulse was found: no dot there.
+      // Pulse and step rates are blank where none was found: no dot there.
       stroke(colorLower);
       fill(colorLower);
       circle(xScrub, yL, 6);
@@ -381,11 +388,15 @@ export const RendererInteraction = {
     const lowerLabel =
       lowerMode === 'responseDynamics'
         ? 'Rise speed:'
-        : lowerCfg.label +
-          (lowerMode === 'phasicAUC' && AppState.analyzer.phasicAUCIsISCR
-            ? ' (ISCR)'
-            : '') +
-          ':';
+        : lowerMode === 'heartRate'
+          ? onSteps
+            ? 'Steps:'
+            : 'Heart rate:'
+          : lowerCfg.label +
+            (lowerMode === 'phasicAUC' && AppState.analyzer.phasicAUCIsISCR
+              ? ' (ISCR)'
+              : '') +
+            ':';
     const textSec = this.getThemeColor('--text-secondary', '#444444');
     let extraValStr = `${dLower.val.toFixed(lowerCfg.decimals)} ${lowerCfg.unit}`;
     let extraColor = colorLower;
@@ -397,19 +408,25 @@ export const RendererInteraction = {
       extraValStr = tip.valueStr;
       extraColor = tip.color;
     }
-    // Heart views: say so where no pulse was found, and give the rate
-    // alongside the pulse wave.
+    // Heart views: say so where neither a pulse nor steps were found, and
+    // give the rate alongside the wave.
     let heartRateRow = null;
     if (lowerMode === 'heartRate' || lowerMode === 'heartPulse') {
       const r = AppState.analyzer.heartRate?.[AppState.hoveredIndex]?.val;
-      const rateStr = Number.isFinite(r)
-        ? `${Math.round(r)}/min`
-        : 'no clear pulse';
+      const st = dSteps?.val;
+      const row = Number.isFinite(r)
+        ? { label: 'Heart rate:', color: colorLower, rate: r }
+        : Number.isFinite(st)
+          ? { label: 'Steps:', color: colorSteps, rate: st }
+          : { label: 'Heart rate:', color: colorLower, rate: NaN };
+      const rateStr = Number.isFinite(row.rate)
+        ? `${Math.round(row.rate)}/min`
+        : 'no clear pulse or steps';
       if (lowerMode === 'heartRate') extraValStr = rateStr;
       else
         heartRateRow = {
-          label: 'Heart rate:',
-          color: colorLower,
+          label: row.label,
+          color: row.color,
           valueStr: rateStr,
         };
     }

@@ -102,7 +102,9 @@ export const GSREvents = {
       peakFreq: 'statPeakFreq',
       pulse: 'statPulse',
       pulseCard: 'statPulseCard',
-      pulseWarn: 'statPulseWarn',
+      pulseIcon: 'statPulseIcon',
+      steps: 'statSteps',
+      stepsIcon: 'statStepsIcon',
       spatialData: 'statSpatialData',
       spatialDataCard: 'statSpatialDataCard',
     };

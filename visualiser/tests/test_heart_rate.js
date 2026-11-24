@@ -1,9 +1,11 @@
 /**
- * HeartRate (src/signal/heart_rate.mjs): the pulse ripple in the GSR.
+ * HeartRate (src/signal/heart_rate.mjs): the pulse (or footstep) ripple in
+ * the GSR.
  *
  * Made-up signals check the rules: a pulse buried in noise and slow sweat
- * changes is found at the right rate; plain noise, a once-a-second device
- * dip and walking are not. Real recordings in ../../tracks (gitignored, only
+ * changes is found at the right rate; plain noise and a once-a-second device
+ * dip are not; a rhythm while GPS says the walker is moving is read as steps,
+ * not pulse. Real recordings in ../../tracks (gitignored, only
  * on machines that have them) check the same on skin and the test
  * resistors; those tests skip when the files are missing.
  */
@@ -108,20 +110,53 @@ test('a once-a-second device dip is not read as a 60/min pulse', () => {
   assert.strictEqual(r.summary.foundSec, 0);
 });
 
-test('stretches where GPS says the walker is moving are left out', () => {
+test('where GPS says the walker is moving, the rhythm is read as steps', () => {
   // A footstep-like rhythm at 105/min, while walking at 1.3 m/s.
   const { vals, times } = synth({ bpm: 105, pulseNs: 5, noiseNs: 1 });
   const moving = new Float64Array(vals.length).fill(1.3);
   const r = HeartRate.analyse(vals, times, FS, { speedMps: moving });
-  assert.strictEqual(r.summary.foundSec, 0);
+  assert.strictEqual(r.summary.foundSec, 0, 'no pulse while moving');
   assert.ok(r.summary.movingSec > 0);
-  // Standing still for the second half: found there only.
+  assert.ok(
+    Math.abs(r.steps.summary.bpm - 105) < 2,
+    `typical steps ${r.steps.summary.bpm}`,
+  );
+  assert.ok(r.steps.summary.foundSec / r.summary.totalSec > 0.6);
+  const expected = (r.steps.summary.foundSec * 105) / 60;
+  assert.ok(
+    r.steps.beats.length > expected * 0.8 &&
+      r.steps.beats.length < expected * 1.2,
+    `${r.steps.beats.length} steps, expected about ${expected.toFixed(0)}`,
+  );
+  // Moving for the first half, no GPS fix (indoors) for the second: steps
+  // in the first half only, pulse in the second half only.
   const half = new Float64Array(vals.length).fill(Number.NaN);
   for (let i = 0; i < vals.length / 2; i++) half[i] = 1.3;
   const r2 = HeartRate.analyse(vals, times, FS, { speedMps: half });
   assert.ok(r2.summary.foundSec > 0);
+  assert.ok(r2.steps.summary.foundSec > 0);
+  for (let i = 0; i < vals.length; i++)
+    assert.ok(
+      !(Number.isFinite(r2.bpm[i]) && Number.isFinite(r2.steps.bpm[i])),
+      `both pulse and steps at ${i / FS} s`,
+    );
   for (let i = 0; i < vals.length / 2 - 8 * FS; i++)
-    assert.ok(!Number.isFinite(r2.bpm[i]), `rate at ${i / FS} s while moving`);
+    assert.ok(!Number.isFinite(r2.bpm[i]), `pulse at ${i / FS} s while moving`);
+  for (let i = vals.length / 2 + 8 * FS; i < vals.length; i++)
+    assert.ok(
+      !Number.isFinite(r2.steps.bpm[i]),
+      `steps at ${i / FS} s while still`,
+    );
+});
+
+test('no GPS speed (indoors): pulse only, never steps', () => {
+  const { vals, times } = synth({ bpm: 105, pulseNs: 5, noiseNs: 1 });
+  const r = HeartRate.analyse(vals, times, FS);
+  assert.ok(r.summary.foundSec > 0);
+  assert.strictEqual(r.steps.summary.foundSec, 0);
+  assert.strictEqual(r.steps.beats.length, 0);
+  assert.ok(!r.steps.bpm.some(Number.isFinite));
+  assert.strictEqual(r.steps.bpm.length, vals.length);
 });
 
 test('a reading stuck at one value (no skin contact) is not read as a pulse', () => {
@@ -170,6 +205,8 @@ test('too short or too slow a recording gives an empty result', () => {
   const r = HeartRate.analyse(short.vals, short.times, FS);
   assert.strictEqual(r.summary.foundSec, 0);
   assert.strictEqual(r.bpm.length, short.vals.length);
+  assert.strictEqual(r.steps.bpm.length, short.vals.length);
+  assert.strictEqual(r.steps.summary.foundSec, 0);
   const slow = HeartRate.analyse(short.vals, short.times, 4);
   assert.strictEqual(slow.summary.foundSec, 0);
 });
@@ -183,6 +220,7 @@ function loadCsv(file) {
   let head = null;
   const t = [];
   const v = [];
+  const sp = [];
   for (const L of lines) {
     if (!L || L[0] === '#') continue;
     if (!head) {
@@ -195,9 +233,11 @@ function loadCsv(file) {
     if (Number.isFinite(ti) && Number.isFinite(g)) {
       t.push(ti);
       v.push(g / 1000);
+      const kts = c[head.indexOf('speed_kts')];
+      sp.push(kts ? +kts * 0.514444 : Number.NaN);
     }
   }
-  return { vals: v, times: t };
+  return { vals: v, times: t, speedMps: sp };
 }
 
 const SKIN = [
@@ -248,6 +288,17 @@ test('test resistor recordings: no pulse', (t) => {
     ran++;
   }
   if (!ran) t.skip('recordings not here');
+});
+
+test('walk biomap_024.csv: steps 105–115/min while moving, no pulse', (t) => {
+  const p = path.join(TRACKS, 'biomap_024.csv');
+  if (!fs.existsSync(p)) return t.skip('recording not here');
+  const { vals, times, speedMps } = loadCsv(p);
+  const r = HeartRate.analyse(vals, times, FS, { speedMps });
+  const s = r.steps.summary;
+  assert.ok(s.bpm >= 105 && s.bpm <= 115, `typical steps ${s.bpm}`);
+  assert.ok(s.foundSec / r.summary.totalSec > 0.8);
+  assert.strictEqual(r.summary.foundSec, 0);
 });
 
 test('footsteps warning: only when enough of the found time had no GPS speed', () => {
