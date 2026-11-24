@@ -217,6 +217,7 @@ BUY = {
     "Flipper GPIO 9-18": ("XKB Connection", "X2530WR-10-PTSN", "C400348"),
     "Flipper GPIO 1-8":  ("", "", ""),
     "Cardputer ADV EXT header": ("", "", ""),
+    "JST GH 8-pin socket": ("JST", "SM08B-GHS-TB(LF)(SN)", ""),
 }
 
 def part(ref, key, value, fp, pins, note=""):
@@ -302,21 +303,28 @@ FLIPPER = gsr_core() + gps_block() + [
     part("R7", "R", "4.7k", FP_R, {"1": "+3V3", "2": "I2C_SCL"}, "I2C pull-up"),
 ]
 
-# The Cardputer board and the EXT header are joined by the flex tail: a
-# flexible strip whose solder end lies on 8 landing pads near the board's top
-# edge, soldered through its plated holes. Tail pad k sits on board pad k
-# (same number, same net). The ADS1115 has an I2C bus of its own on G6 (SCL,
-# EXT 5) and G5 (SDA, EXT 13), both in the header's far row; the tail brings
-# them out between the near row's pins, under its stiffener, into the order
-# the board wants. On the board, the I2C wires pass between FB1's pads to
-# reach the GSR side, so nothing runs on the ground face. Pad 6 is a second
-# ground, beside the GPS serial wires.
+# The flex tail's pads (the tail board only; the Cardputer board now takes a
+# cable instead, below). Tail pad k sat on the old board's landing pad k.
 TAIL_NETS = {"1": "ADC_READY", "2": "GND", "3": "+5V_EXT", "4": "I2C_SCL", "5": "I2C_SDA", "6": "GND",
              "7": "HOST_TX_TO_GPS", "8": "GPS_TX_TO_HOST"}
 
+# The board sits inside a printed back case (hardware/case/README.md) and
+# meets the Cardputer through a short cable: its wires are soldered inside the
+# Cardputer onto the EXT header's legs, and its plug latches into J1, a JST GH
+# socket on the board's inner face. The ADS1115 keeps an I2C bus of its own,
+# on G3 (SCL) and G5 (SDA), the two ends of the header's hidden row. The pin
+# order suits the board: the GPS pair leaves towards the GPS on the left,
+# then ground, 5 V, the I2C pair, a second ground and the ADC's ready line
+# (G4: no wire yet, the firmware doesn't use it). Each wire's EXT leg:
+CABLE_NETS = {"1": "GPS_TX_TO_HOST", "2": "HOST_TX_TO_GPS", "3": "GND", "4": "+5V_EXT",
+              "5": "I2C_SDA", "6": "I2C_SCL", "7": "GND", "8": "ADC_READY"}
+CABLE_LEGS = {"1": "G15", "2": "G13", "3": "GND", "4": "5VO", "5": "G5", "6": "G3", "7": "GND", "8": "G4"}
+
 CARDPUTER = gsr_core(adc_ready="ADC_READY") + gps_block(backup_cap="1uF") + [
-    part("J1", "Conn_1x08", "Flex tail landing pads", "BioMap:FlexTail_Land_1x08_P1.50mm", TAIL_NETS,
-         "Bare pads: the flex tail's solder end lies here, soldered through its holes. Pad k = tail pad k"),
+    part("J1", "Conn_1x08", "JST GH 8-pin socket", "Connector_JST:JST_GH_SM08B-GHS-TB_1x08-1MP_P1.25mm_Horizontal",
+         CABLE_NETS,
+         "Cable socket on the INNER face (towards the Cardputer), soldered by hand. Latching, side entry, "
+         "4.25 mm tall. Pin to EXT leg: " + ", ".join(f"{k} {v}" for k, v in CABLE_LEGS.items())),
     part("FB1", "FB", "600R@100MHz", "Inductor_SMD:L_0805_2012Metric", {"1": "+5V_EXT", "2": "+5V_F"},
          "Blocks the Cardputer's boost-converter switching noise"),
     part("C4", "C", "10uF", FP_C, {"1": "+5V_F", "2": "GND"}, "Regulator input capacitor"),
@@ -327,9 +335,13 @@ CARDPUTER = gsr_core(adc_ready="ADC_READY") + gps_block(backup_cap="1uF") + [
     part("R6", "R", "4.7k", FP_R, {"1": "+3V3", "2": "I2C_SDA"},
          "I2C pull-up to the board's own 3.3 V: the Cardputer has none on G5"),
     part("R7", "R", "4.7k", FP_R, {"1": "+3V3", "2": "I2C_SCL"},
-         "I2C pull-up to the board's own 3.3 V: the Cardputer has none on G6"),
-    part("H1", "MH", "M2", "MountingHole:MountingHole_2.2mm_M2", {}, "M2 x 4 mm screw into Cardputer back"),
-    part("H2", "MH", "M2", "MountingHole:MountingHole_2.2mm_M2", {}, "M2 x 4 mm screw into Cardputer back"),
+         "I2C pull-up to the board's own 3.3 V: the Cardputer has none on G3"),
+    *[part(ref, "MH", "M2", "MountingHole:MountingHole_2.2mm_M2", {},
+           "M2 x 5 mm screw from the inner face into a post of the printed case: holds the board in the case")
+      for ref in ("H1", "H2")],
+    *[part(ref, "MH", "4.5 mm", "MountingHole:MountingHole_4.5mm", {},
+           "One of the case's two long screw posts (4 mm) passes through here; the board rests on its ledge")
+      for ref in ("H3", "H4")],
 ]
 # No pull-up on ADC_READY (the ADS1115's ALERT/RDY pin is open-drain): the
 # firmware turns on the ESP32's own pull-up on G4.
@@ -765,10 +777,10 @@ def draw_flipper_conn(s, x0, y0):
     s.power("J1.8", "GND", n=2)
     draw_pullups(s, x0 + g(26), y0 + g(29))
 
-def tail_pads(s, ref, x, y):
-    """The flex tail's 8 pads: ground pins to GND symbols, the rest to labels."""
+def tail_pads(s, ref, x, y, nets=TAIL_NETS):
+    """An 8-way connector: ground pins to GND symbols, the rest to labels."""
     s.put(ref, x, y)
-    for pn, net in TAIL_NETS.items():
+    for pn, net in nets.items():
         if net is None:
             s.nc(f"{ref}.{pn}")
         elif net == "GND":
@@ -777,12 +789,13 @@ def tail_pads(s, ref, x, y):
             s.label(f"{ref}.{pn}", net, n=4)
 
 def draw_cardputer_conn(s, x0, y0):
-    s.frame(x0, y0, g(38), H1, "4  Flex tail to the EXT header",
-            "Pad k = tail pad k. R6/R7: the Cardputer has no pull-ups on G5/G6.")
-    tail_pads(s, "J1", x0 + g(6), y0 + g(14))
-    s.flag((s.pins["J1.2"][0] + G, s.pins["J1.2"][1]))
-    s.put("H1", x0 + g(6), y0 + g(33))
-    s.put("H2", x0 + g(6), y0 + g(37))
+    s.frame(x0, y0, g(38), H1, "4  Cable to the EXT header's legs",
+            "Wires to EXT legs: " + " ".join(f"{k} {v}" for k, v in CABLE_LEGS.items())
+            + ". R6/R7: the Cardputer has no pull-ups on G3/G5.")
+    tail_pads(s, "J1", x0 + g(6), y0 + g(14), CABLE_NETS)
+    s.flag((s.pins["J1.3"][0] + G, s.pins["J1.3"][1]))
+    for i, ref in enumerate(("H1", "H2", "H3", "H4")):
+        s.put(ref, x0 + g(6) + g(4) * (i % 2), y0 + g(33) + g(4) * (i // 2))
     draw_pullups(s, x0 + g(26), y0 + g(29))
 
 def draw_regulator(s, x0, y0):
@@ -878,7 +891,8 @@ def write_project(out, name, title, parts):
         for (value, fp, mpn), ps in sorted(rows.items(), key=lambda kv: refkey(min((p["ref"] for p in kv[1]), key=refkey))):
             refs = " ".join(sorted((p["ref"] for p in ps), key=refkey))
             fit = ("bare pad" if ps[0]["key"] == "TP" or "FlexTail" in fp
-                   else "through-hole" if "PinHeader" in fp else "SMD")
+                   else "through-hole" if "PinHeader" in fp
+                   else "by hand" if "JST_GH" in fp else "SMD")
             notes = {p["note"] for p in ps}
             note = notes.pop() if len(notes) == 1 else ""      # mixed roles: see the schematic
             f.write(f'"{refs}",{len(ps)},"{value}",{fp.split(":")[1]},"{ps[0]["mfr"]}","{mpn}",{ps[0]["lcsc"]},{fit},"{note}"\n')

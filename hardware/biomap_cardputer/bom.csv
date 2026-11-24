@@ -6,7 +6,7 @@ Designator,Qty,Value,Footprint,Manufacturer,MPN,LCSC,Fit,Note
 "C8",1,"1uF",C_0805_2012Metric,"Samsung","CL21B105KBFNNNE",C28323,SMD,"Backup supply decoupling"
 "D1",1,"RB751V-40",D_SOD-323,"Jiangsu Changjing","RB751V-40",C77353,SMD,"Stops the backup cell feeding the 3.3 V rail. Low-leakage type (0.5 uA max): a power Schottky leaks several uA back from the cell, on top of the GPS's own 28 uA"
 "FB1",1,"600R@100MHz",L_0805_2012Metric,"Sunlord","GZ2012D601TF",C1017,SMD,"Blocks the Cardputer's boost-converter switching noise"
-"J1",1,"Flex tail landing pads",FlexTail_Land_1x08_P1.50mm,"","",,bare pad,"Bare pads: the flex tail's solder end lies here, soldered through its holes. Pad k = tail pad k"
+"J1",1,"JST GH 8-pin socket",JST_GH_SM08B-GHS-TB_1x08-1MP_P1.25mm_Horizontal,"JST","SM08B-GHS-TB(LF)(SN)",,by hand,"Cable socket on the INNER face (towards the Cardputer), soldered by hand. Latching, side entry, 4.25 mm tall. Pin to EXT leg: 1 G15, 2 G13, 3 GND, 4 5VO, 5 G5, 6 G3, 7 GND, 8 G4"
 "J2",1,"Grove GSR finger cuffs",JST_PH_S2B-PH-SM4-TB_1x02-1MP_P2.00mm_Horizontal,"JST","S2B-PH-SM4-TB(LF)(SN)",C295747,SMD,"JST PH 2.0 mm side-entry socket for the Grove GSR finger-cuff plug. Surface-mount; the two side tabs only hold it down"
 "R1",1,"56k 0.1%",R_0805_2012Metric,"RESI","PTFR0805B56K0P9",C2849276,SMD,"0.5 V bias. Sets the GSR scale. Use 0.1% parts"
 "R2",1,"10k 0.1%",R_0805_2012Metric,"RESI","PTFR0805B10K0P9",C478887,SMD,"0.5 V bias. Sets the GSR scale. Use 0.1% parts"

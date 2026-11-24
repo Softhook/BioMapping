@@ -55,9 +55,10 @@ BOARDS = {
         "Surface finish: ENIG suggested. Its pads are flat, which suits the GPS's pads underneath",
         "it and the ADC's 0.5 mm pins.",
         "Copper: 1 oz (35 um), as ./pcb ground assumes.",
-        "Assembly: every part is on the BOTTOM face. Choose 'Bottom' as the assembly side.",
-        "J1 (where the flex tail lands) and the test pads have no part. J1 gets solder paste,",
-        "so it comes back tinned, ready for the tail.",
+        "Assembly: every machine-fitted part is on the BOTTOM face. Choose 'Bottom' as the",
+        "assembly side.",
+        "J1, the cable socket (JST SM08B-GHS-TB), is on the TOP face and is left out of the parts",
+        "list: solder it by hand (hardware/case/README.md). The test pads have no part.",
         *CONSIGNED, *OVEN]),
     "biomap_flipper": dict(layers=RIGID, assembled=True, notes=[
         "Surface finish: ENIG suggested (flat pads for the GPS and the ADC's 0.5 mm pins).",
@@ -71,7 +72,7 @@ BOARDS = {
         "(*-User_Drawings.gbr in the zip): tell the factory that file is the stiffener drawing.",
         "Surface finish: ENIG.",
         "No assembly: the 2 x 7 header is soldered by hand (hardware/README.md, 'Soldering it on').",
-        "Check the tail's length on a real Cardputer first (./pcb print).",
+        "Not used by the Cardputer board since rev G (a cable inside the printed case instead).",
     ]),
 }
 
@@ -92,9 +93,9 @@ def gerbers(name, pcb, folder, layers):
 
 def bom_rows(name):
     """The board's parts list (bom.csv, written by ./pcb build), minus the bare
-    pads, which have no part to fit."""
+    pads, which have no part to fit, and the parts soldered by hand."""
     with open(os.path.join(HARDWARE, name, "bom.csv"), newline="") as f:
-        return [r for r in csv.DictReader(f) if r["Fit"] != "bare pad"]
+        return [r for r in csv.DictReader(f) if r["Fit"] not in ("bare pad", "by hand")]
 
 
 def write_bom(rows, path):

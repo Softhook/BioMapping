@@ -10,11 +10,11 @@ reading. This works out how much.
 
 Both copper faces are cut into 0.1 mm squares. Neighbouring squares of
 ground copper on one face are joined by the copper's resistance, and each
-ground via joins the two faces. The landing pads lead through the flex
-tail's ground wires (their resistance worked out from the tail board) and
-the EXT header pin to the Cardputer's ground, which is 0 V. A current goes
-in at some pads, flows out through the tail, and the voltage of every square
-is solved.
+ground via joins the two faces. The cable socket's two ground pins lead
+through the cable's two ground wires to the EXT header's one ground leg,
+where they are soldered inside the Cardputer: that leg is the Cardputer's
+ground, 0 V. A current goes in at some pads, flows out through the cable,
+and the voltage of every square is solved.
 
 Before the board, the same model solves a plain copper strip whose
 resistance can be summed by hand, so a fault in the model shows up at once.
@@ -37,29 +37,30 @@ except ImportError:
 
 STEP = 0.1                  # mm: size of one square
 RS_BOARD = 0.49e-3          # ohms per square of 35 um (1 oz) copper, the usual rigid-board default
-RS_FLEX = 0.96e-3           # ohms per square of 18 um copper, the usual flex default
 R_VIA = 1.5e-3              # one via: 0.35 mm drill, about 18 um plating, 1.6 mm board
-R_JOINT = 0.5e-3            # a tail pad soldered over its landing pad
-R_PIN = 0.015               # the EXT header pin in its socket (header makers give 20 mOhm at most)
+R_JOINT = 0.5e-3            # a socket pin soldered to its pad
+R_WIRE = 0.213 * 0.06       # one cable wire: 6 cm of 28 AWG copper (0.213 ohms per metre)
+R_CONTACT = 0.020           # the plug's contact in the JST GH socket (JST: 20 mOhm at most)
+R_PIN = 0.004               # the EXT header's ground leg, both wires soldered to it: about 10 mm of
+                            # 0.64 mm square brass pin, and its joint to the Cardputer's board
 GPS_A = 0.010               # SAM-M10Q datasheet table 14: 10 mA tracking, 13 mA searching
 ADC_NOISE_UV = 7.0          # the ADC's noise per reading, docs/cardputer_gsr_noise_investigation.md
 BIAS_V = 0.5                # across skin + R3 + R4
 
-# Per board: which landing pad takes which tail pad, the tail's ground pin,
-# and how far up the landing pads the tail's tip reaches (the solder joint).
-# breaks: deliberately worse boards for --break-test. "exits_at" moves the
-# tail's ground to these outer-face boxes; "cut" removes a strip of ground
-# copper from both faces; "no_face" removes a whole face.
+# Per board: the cable socket's ground pins, each the start of one cable
+# ground wire. breaks: deliberately worse boards for --break-test. "exits_at"
+# moves the cable's ground to these outer-face boxes; "cut" removes a strip of
+# ground copper from both faces; "no_face" removes a whole face, except the
+# box "keep" (the socket's own pins and vias, without which nothing connects).
 SETUP = {
     "biomap_cardputer": {
-        "tail": "biomap_cardputer_tail", "exits": {"J1.2": "J2.2", "J1.6": "J2.6"}, "pin": "J1.4",
-        "tip_y": 6.2,
+        "exits": ("J1.3", "J1.7"),
         "breaks": [
-            ("the Cardputer's ground joined at the cuff end (x 75-77) instead of the middle",
-             {"exits_at": [(75.05, 2.0, 75.95, 6.0), (76.55, 2.0, 77.45, 6.0)]}),
-            ("both faces cut along y 12 from the left edge to x 50, so the GPS current has to "
-             "go round past the GSR circuit", {"cut": (0.0, 11.85, 50.0, 12.15)}),
-            ("no inner face at all", {"no_face": "F"}),
+            ("the cable's ground joined at the right edge beside the cuffs, so the GPS current "
+             "crosses the GSR circuit", {"exits_at": [(79.2, 24.0, 80.2, 26.0), (79.2, 27.5, 80.2, 29.5)]}),
+            ("both faces cut along x 47 from the top edge down to y 44, so the GPS current has to "
+             "go round under the GSR circuit", {"cut": (46.85, 0.0, 47.15, 44.0)}),
+            ("no inner face, except round the cable socket's pins", {"no_face": "F", "keep": (57.5, 2.0, 68.0, 6.0)}),
         ],
     },
 }
@@ -255,29 +256,12 @@ def strip_check():
     return v[col(199)].mean(), 99 * RS_BOARD / 10 + R_JOINT + wire + R_PIN
 
 
-# ── the flex tail's ground wires ──
+# ── the cable's ground wires ──
 
-def tail_wires(setup):
-    """Resistance of each tail ground wire, from its tail pad to the header's
-    ground pin, following the tail board's tracks. Returns {landing pad: ohms}."""
-    b = pcbnew.LoadBoard(board_file(setup["tail"], ".kicad_pcb"))
-    pads = {f"{fp.GetReference()}.{p.GetNumber()}": p for fp in b.GetFootprints() for p in fp.Pads()}
-    end = pads[setup["pin"]].GetPosition()
-    end = (end.x, end.y)
-    tracks = [((t.GetStart().x, t.GetStart().y), (t.GetEnd().x, t.GetEnd().y), mm(t.GetLength()) / mm(t.GetWidth()))
-              for t in b.GetTracks() if t.GetClass() == "PCB_TRACK" and t.GetNetname() == "GND"]
-    out = {}
-    for land, tail_pad in setup["exits"].items():
-        at = pads[tail_pad].GetPosition(); at = (at.x, at.y)
-        used, squares = set(), 0.0
-        while at != end:
-            k = next((k for k, (s, e, _) in enumerate(tracks) if k not in used and at in (s, e)), None)
-            if k is None:
-                sys.exit(f"ground model: can't follow the tail's ground wire from {tail_pad} to {setup['pin']}")
-            s, e, sq = tracks[k]
-            used.add(k); squares += sq; at = e if at == s else s
-        out[land] = squares * RS_FLEX
-    return out
+def cable_wires(setup):
+    """Resistance of each ground path from the socket's pin to the EXT ground
+    leg: the plug's contact and one wire. Returns {socket pin: ohms}."""
+    return {pin: R_CONTACT + R_WIRE for pin in setup["exits"]}
 
 
 # ── the check ──
@@ -296,12 +280,7 @@ class Case:
             X, Y = np.meshgrid(g.xc, g.yc)
             return [(g.n + np.flatnonzero((faces[1] & (X > x1) & (X < x2) & (Y > y1) & (Y < y2)).ravel()),
                      r) for (x1, y1, x2, y2), r in zip(boxes, self.wires.values())]
-        out = []
-        for land, r in self.wires.items():
-            cells = self.c.pads[land]
-            ys = g.yc[(cells % g.n) // g.nx]
-            out.append((cells[ys <= self.setup["tip_y"]], r))
-        return out
+        return [(self.c.pads[pin], r) for pin, r in self.wires.items()]
 
     def run(self, sources, faces=None, boxes=None):
         """sources: [(pads, amps)], each current shared equally between its pads.
@@ -412,7 +391,7 @@ def check(name, pictures=False, breaks=False):
     g = c.grid
     describe_copper(c)
 
-    wires = tail_wires(setup)
+    wires = cable_wires(setup)
     case = Case(c, setup, wires)
     gps = [p for p in c.pads if p.startswith("U4.")]
     adc_amps = 3.3 / c.value("R6")
@@ -425,7 +404,7 @@ def check(name, pictures=False, breaks=False):
     if base is not None:
         r = " and ".join(f"{1e3 * x:.0f}" for x in wires.values())
         print(f"    the whole board sits {1e3 * at['R3.2']:.2f} mV above the Cardputer's ground: "
-              f"tail ground wires {r} mOhm, header pin {1e3 * R_PIN:.0f} mOhm")
+              f"cable ground paths {r} mOhm (contact and wire), EXT ground leg {1e3 * R_PIN:.0f} mOhm")
     if pictures:
         os.makedirs(OUT, exist_ok=True)
         picture(os.path.join(OUT, f"{name}_ground.png"), c, v, f"GPS drawing {1e3 * GPS_A:.0f} mA")
@@ -443,7 +422,13 @@ def check(name, pictures=False, breaks=False):
                 X, Y = np.meshgrid(g.xc, g.yc)
                 faces[:, (X > x1) & (X < x2) & (Y > y1) & (Y < y2)] = False
             if "no_face" in change:
-                faces[{"F": 0, "B": 1}[change["no_face"]]] = False
+                li = {"F": 0, "B": 1}[change["no_face"]]
+                faces[li] = False
+                if "keep" in change:
+                    x1, y1, x2, y2 = change["keep"]
+                    X, Y = np.meshgrid(g.xc, g.yc)
+                    box = (X > x1) & (X < x2) & (Y > y1) & (Y < y2)
+                    faces[li][box] = c.faces[li][box]
             print(f"   {label}:")
             _, at = case.run([(gps, GPS_A)], faces, change.get("exits_at"))
             worst = case.describe(at)

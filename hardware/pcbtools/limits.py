@@ -37,9 +37,9 @@ RULES = [
      "the guard round the amplifier input must stay one solid piece (about 80 mm2 on the Flipper, "
      "86 mm2 on the Cardputer): a layout change that breaks it up shrinks it"),
     # ── the ground-plane face: every track on it cuts the ground the other face's wires return through ──
-    ("ground-face tracks", "max", {"biomap_flipper": 146, "biomap_cardputer": 0}, None,
-     "tracks on the face without parts (Cardputer: none, the tail delivers the wires in the order "
-     "the board uses them); no worse than today"),
+    ("ground-face tracks", "max", {"biomap_flipper": 146, "biomap_cardputer": 13.5}, None,
+     "tracks on the face without parts (Cardputer: only the cable socket's eight pins, each a "
+     "1.6 mm step to its via); no worse than today"),
     # ── GPS ground plane (u-blox SAM-M10Q integration manual) ──
     ("GPS plane ground vias", "min", 100, None, "ground stitched across the 50 x 50 mm plane; "
                                                 "SparkFun's 40 mm board has about 100"),

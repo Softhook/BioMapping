@@ -82,6 +82,11 @@ def cmd_print(args):
     return fitprint.make(args.out or fitprint.PDF)
 
 
+def cmd_case(args):
+    from . import case
+    return case.make(picture=not args.no_picture)
+
+
 def cmd_footprint(args):
     from . import footprint
     side, pads = "F", args.pads
@@ -156,6 +161,11 @@ def main(argv=None):
             "A full-size PDF of the Cardputer board and its flex tail, seen from outside, to print at 100%%, "
             "cut out and hold against a real Cardputer. With two 100 mm rulers to check the printer's scale.")
     p.add_argument("--out", help="PDF to write (default: hardware/out/biomap_cardputer_print.pdf)")
+    p = add("case", cmd_case,
+            "The Cardputer's printed back case (hardware/case/): write board.scad from the saved board, "
+            "build the STL files with OpenSCAD, and check in 3D that the board, its parts and the plugs "
+            "clear the case and that the GPS is 10 mm from the screws.")
+    p.add_argument("--no-picture", action="store_true", help="skip the picture (case/cardputer_back.png)")
     p = add("footprint", cmd_footprint, "Where a footprint's pads land at each rotation, on either face. "
                                         "Back-face parts come out mirrored: use this to choose a rotation.")
     p.add_argument("library", help="e.g. RF_GPS, or BioMap for our own footprints")

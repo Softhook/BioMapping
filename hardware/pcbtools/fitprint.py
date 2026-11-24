@@ -1,20 +1,19 @@
-"""A full-size paper copy of the Cardputer board and its flex tail, to cut
-out and hold against a real Cardputer before ordering: do the screw holes
-sit over the screw inserts, does the tail reach the EXT socket, does the
-board cover anything it shouldn't?
+"""A full-size paper copy of the Cardputer board, to cut out and lay on
+the opened Cardputer before ordering: do the two big holes sit over the
+Cardputer's screw inserts, and does the cable socket (J1, on the board's
+inner face) sit over flat board, clear of the EXT socket, the headphone
+socket and the battery plug?
 
-Everything is drawn as seen from outside, the way you see the board on the
-back of the Cardputer: the parts' face, with its printing readable. One A4
-page holds:
-  * the board with the tail laid out flat where it really lies (turned
-    180 degrees, tail pad k on board pad k), to cut out as one piece and
-    fold round the bottom edge
-  * the tail again on its own
-  * a 100 mm ruler in each direction, to prove the printer didn't scale it
+The board is drawn as seen from outside (the parts' face, printing readable),
+the way you see it when it lies on the opened Cardputer. Around it is the
+Cardputer's own outline, the line to cut along: the board sits 2.1 mm inside
+it, in the printed case. J1 and its pads are on the hidden face, so they are
+drawn as seen through the paper. One A4 page, with a 100 mm ruler in each
+direction to prove the printer didn't scale it.
 
-KiCad itself draws the page, from a copy of the two boards with the tracks
-and copper fill left out (they would only be ink): every pad, hole, part
-outline and printed label stays, at exactly 1:1."""
+KiCad itself draws the page, from a copy of the board with the tracks and
+copper fill left out (they would only be ink): every pad, hole, part outline
+and printed label stays, at exactly 1:1."""
 import os
 import sys
 import tempfile
@@ -24,14 +23,16 @@ import pcbnew
 from .kicad import OUT, board_file, cli
 
 PDF = os.path.join(OUT, "biomap_cardputer_print.pdf")
-LAYERS = "F.Cu,F.SilkS,F.Fab,Edge.Cuts,Dwgs.User,Cmts.User"
+LAYERS = "F.Cu,F.SilkS,F.Fab,B.Cu,B.Fab,Edge.Cuts,Dwgs.User,Cmts.User"   # B: the hidden face's J1
 NOTES = pcbnew.Cmts_User          # our own words, ruler and screw marks
 
 # Where things go on the page (A4 landscape, 297 x 210 mm, y down), in mm:
-# the board's top-left corner, the lone tail's top-left corner, the ruler's corner.
-BOARD_AT = (20, 58)
-TAIL_AT = (128, 62)
+# the Cardputer outline's top-left corner and the ruler's corner.
+BOARD_AT = (25, 62)
 RULER_AT = (180, 190)
+# The Cardputer's outline (M5Stack's back at its rim; see hardware/case/), in the
+# board's coordinates: 84 x 54 mm, corners 7.7 mm on the EXT edge, 3 mm on the other
+DEVICE = (0.0, 0.0, 84.0, 54.0, 7.7, 3.0)
 
 MM = pcbnew.FromMM
 
@@ -61,30 +62,30 @@ def copy_in(dst, src):
     return out
 
 
-def pad_centres(board, ref):
-    fp = board.FindFootprintByReference(ref)
-    return {p.GetNumber(): xy(p.GetPosition()) for p in fp.Pads()}
+def device_outline(board):
+    """The Cardputer's own outline, as lines on the notes layer: the cutting line."""
+    x0, y0, x1, y1, rt, rb = DEVICE
+    out = []
+    def seg(a, b):
+        sh = pcbnew.PCB_SHAPE(board); sh.SetShape(pcbnew.SHAPE_T_SEGMENT)
+        sh.SetStart(V(*a)); sh.SetEnd(V(*b)); sh.SetLayer(NOTES); sh.SetWidth(MM(0.25))
+        board.Add(sh); out.append(sh)
+    def arc(c, start, ang):
+        sh = pcbnew.PCB_SHAPE(board); sh.SetShape(pcbnew.SHAPE_T_ARC)
+        sh.SetCenter(V(*c)); sh.SetStart(V(*start)); sh.SetArcAngleAndEnd(pcbnew.EDA_ANGLE(ang, pcbnew.DEGREES_T), True)
+        sh.SetLayer(NOTES); sh.SetWidth(MM(0.25)); board.Add(sh); out.append(sh)
+    seg((x0 + rt, y0), (x1 - rt, y0)); arc((x1 - rt, y0 + rt), (x1 - rt, y0), 90)
+    seg((x1, y0 + rt), (x1, y1 - rb)); arc((x1 - rb, y1 - rb), (x1, y1 - rb), 90)
+    seg((x1 - rb, y1), (x0 + rb, y1)); arc((x0 + rb, y1 - rb), (x0 + rb, y1), 90)
+    seg((x0, y1 - rb), (x0, y0 + rt)); arc((x0 + rt, y0 + rt), (x0, y0 + rt), 90)
+    return out
 
 
-def tail_turn_centre(board, tail):
-    """The point to turn the tail 180 degrees about so that each of its solder
-    pads (J2) lands on the board's landing pad (J1) with the same number.
-    Stops if any pad misses by more than 0.01 mm."""
-    land, solder = pad_centres(board, "J1"), pad_centres(tail, "J2")
-    (bx, by), (tx, ty) = land["1"], solder["1"]
-    cx, cy = (bx + tx) / 2, (by + ty) / 2
-    for k, (sx, sy) in solder.items():
-        lx, ly = land[k]
-        if abs(2 * cx - sx - lx) > 0.01 or abs(2 * cy - sy - ly) > 0.01:
-            sys.exit(f"tail pad {k} doesn't land on board pad {k}: check J2 in cardputer_tail.py")
-    return cx, cy
-
-
-def outline_box(items):
-    """(x1, y1, x2, y2) of the board-edge lines among items."""
+def outline_box(items, layer=pcbnew.Edge_Cuts):
+    """(x1, y1, x2, y2) of the outline lines (board edge, or another layer) among items."""
     box = None
     for it in items:
-        if isinstance(it, pcbnew.PCB_SHAPE) and it.GetLayer() == pcbnew.Edge_Cuts:
+        if isinstance(it, pcbnew.PCB_SHAPE) and it.GetLayer() == layer:
             if box is None:
                 box = it.GetBoundingBox()
             else:
@@ -100,8 +101,8 @@ def seen_from_outside(items, x):
 
 
 def move_to(items, at):
-    """Shift items so their board outline's top-left corner sits at `at`."""
-    x1, y1, _, _ = outline_box(items)
+    """Shift items so the Cardputer outline's top-left corner sits at `at`."""
+    x1, y1, _, _ = outline_box(items, NOTES)
     for it in items:
         it.Move(V(at[0] - x1, at[1] - y1))
 
@@ -162,46 +163,29 @@ def ruler(board, at, length=100):
 
 def make(out=PDF):
     board = pcbnew.LoadBoard(board_file("biomap_cardputer", ".kicad_pcb"))
-    tail = pcbnew.LoadBoard(board_file("biomap_cardputer_tail", ".kicad_pcb"))
     for t in list(board.GetTracks()):        # tracks and vias
         board.Delete(t)
     for z in list(board.Zones()):            # copper fill, guard and keep-out areas
         board.Delete(z)
-    own = [*board.GetFootprints(), *board.GetDrawings()]
-    x1, _, x2, _ = outline_box(own)
-
-    # the board, with the tail lying where it really goes
-    cx, cy = tail_turn_centre(board, tail)
-    laid = copy_in(board, tail)
-    for it in laid:
-        it.Rotate(V(cx, cy), pcbnew.EDA_ANGLE(180, pcbnew.DEGREES_T))
-    seen_from_outside(own + laid, (x1 + x2) / 2)
-    move_to(own + laid, BOARD_AT)
-
-    # the tail on its own, solder end at the top
-    alone = copy_in(board, tail)
-    tx1, _, tx2, _ = outline_box(alone)
-    seen_from_outside(alone, (tx1 + tx2) / 2)
-    move_to(alone, TAIL_AT)
+    own = [*board.GetFootprints(), *board.GetDrawings()] + device_outline(board)
+    seen_from_outside(own, DEVICE[2] / 2)
+    move_to(own, BOARD_AT)
 
     hide_fab_words(board)
     screw_marks(board)
     ruler(board, RULER_AT)
-    bx1, by1, bx2, by2 = outline_box(own + laid)
-    lx1, ly1, lx2, ly2 = outline_box(alone)
-    words(board, 15, 15, "Bio Mapping 2: Cardputer board and flex tail, full size", 4)
+    bx1, by1, bx2, by2 = outline_box(own, NOTES)
+    words(board, 15, 15, "Bio Mapping 2: Cardputer board, full size", 4)
     for i, s in enumerate((
             "Print at 100% (\"Actual size\"), not \"Fit to page\". Then measure both rulers.",
-            "Both drawings are seen from outside: the face you see on the back of the Cardputer.",
-            "Cut round the outer line, tail and all, and fold the tail round the Cardputer's",
-            "bottom edge to the EXT socket. The + marks are the centres of the two M2 screws.",
-            "Paper is thinner than the 1.6 mm board: glue it onto card that thick for a truer fold.")):
+            "Seen from outside, as it lies on the opened Cardputer. Cut along the outer line (the",
+            "Cardputer's own outline) and lay it on, EXT edge to EXT edge. The two big + marks must sit",
+            "over the two screw inserts. J1, the cable socket (on the hidden face, 4.25 mm tall),",
+            "must sit over flat board, clear of the EXT socket, the headphone socket and the battery plug.")):
         words(board, 15, 25 + i * 5, s, 2.5)
-    words(board, (bx1 + bx2) / 2, by2 + 6, "Board 84 x 54 mm, with the tail laid out flat", 2.5, centre=True)
-    words(board, (bx1 + bx2) / 2, by1 - 3, "EXT edge (the Cardputer's bottom edge)", 2.2, centre=True)
-    words(board, (lx1 + lx2) / 2, ly1 - 3, "solder end", 2.2, centre=True)
-    words(board, (lx1 + lx2) / 2, ly2 + 5, "plug end (stiffener behind)", 2.2, centre=True)
-    words(board, (lx1 + lx2) / 2, ly2 + 11, "Tail on its own", 2.5, centre=True)
+    words(board, (bx1 + bx2) / 2, by2 + 6, "Board 79.8 x 49.8 mm inside the Cardputer's 84 x 54 mm outline",
+          2.5, centre=True)
+    words(board, (bx1 + bx2) / 2, by1 - 3, "EXT edge", 2.2, centre=True)
 
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:

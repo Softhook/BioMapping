@@ -30,7 +30,7 @@ The Flipper firmware has been split into a shared plain-C core ([firmware/core/]
 - **Cardputer checks:** run the calibration wizard and repeat the 47k / resistor-grid accuracy test; 1-minute typing test during a recording; step 9 review checks (row 0 `tick_dt_ms` = 0, first SD write under 100 ms, GPS unplug not resetting clock, garbled-byte wake check, outdoor cold start); Live Stream reconnect with the visualiser connected over several visits (the free-memory part is done, see section 5); and a long recording.
 - **Flipper checks:** confirm steps 5–6, 8, and the recent shared-core updates on a real Flipper (recording start and `# End` check, all screens, rising-GSR upward graph direction, and the shared calibration wizard).
 - **Side-by-side walks:** record walks wearing both the Flipper and Cardputer together and compare GSR traces and GPS tracks in the visualiser.
-- **Hardware:** the backpack PCB ([hardware/biomap_cardputer/](../hardware/biomap_cardputer/)) and flex tail ([hardware/biomap_cardputer_tail/](../hardware/biomap_cardputer_tail/)) are laid out in KiCad and pass ERC/DRC, with the ADS1115 on its own bus (G5/G6, EXT 13 and 5) and two 4.7 kΩ pull-ups (R6, R7) on the board (section 2, "Power and connections"). Next: verify against a real Cardputer EXT socket and order. Current tests run off the prototype board.
+- **Hardware:** the backpack PCB ([hardware/biomap_cardputer/](../hardware/biomap_cardputer/), rev G) fits inside a printed back case that replaces M5Stack's back ([hardware/case/](../hardware/case/README.md)), with a short cable soldered to the EXT socket's legs inside the Cardputer. Board and case are drawn and pass their checks (ERC/DRC, layout limits, and a 3D fit check of the board and its parts against the case). The ADS1115 is on its own bus, G3 (SCL) and G5 (SDA), with two 4.7 kΩ pull-ups (R6, R7) on the board (section 2, "Power and connections"). Next: the measurements and Test 1 (ADC clock on G3) in the case README, then print the case and order the board. Current tests run off the prototype board, still wired to G6.
 - **Later / optional (step 13):** Wi-Fi Files screen with streaming ZIP download, faster GSR reading (hardware timer or G4 `ALERT/RDY` pin), 3D-printed cover, keyboard field notes, and the CardputerZero port.
 
 ---
@@ -65,21 +65,11 @@ The Cardputer ADV's 14-pin EXT header sits on the back of the device **(check)**
 
 The Grove port is not enough on its own. It has two signal pins, so it can carry the GPS *or* the I2C bus, not both. Using EXT for everything keeps the Grove port free.
 
-### How the printed board reaches the EXT socket: a flex tail
+### How the printed board reaches the EXT socket: a cable inside a printed back
 
-The printed board (`hardware/biomap_cardputer/`) is exactly the size of the Cardputer's back, 84 × 54 mm, and is held by two M2 screws. It has no header or socket. Instead, a **flex tail** (`hardware/biomap_cardputer_tail/`) joins it to the EXT socket. This is a flexible circuit: a strip of thin plastic with the copper wires inside, like the ribbons inside a phone or camera, but made to our own shape.
+The printed board (`hardware/biomap_cardputer/`, 79.8 × 49.8 mm) sits inside a printed back that replaces M5Stack's own: the battery stays where it is, and the board lies where M5Stack's floor was, with the GPS facing out. A short cable joins it to the Cardputer: its wires are soldered inside the Cardputer onto the legs of the EXT socket, and its plug latches into a JST GH socket on the board's inner face. Nothing sticks out, and the device becomes about 33.5 mm thick (19.6 mm today) with u-blox's 5 mm of plastic clearance over the GPS.
 
-- **The plug end** has a thin stiff plate glued to it, with a straight 2 × 7 pin header soldered through. It stands against the Cardputer's bottom edge, with the header pushed into EXT.
-- **The bendy strip** in the middle folds round the bottom edge.
-- **The solder end** lies flat on the main board, just inside the edge, and is soldered there for good through 8 small plated holes.
-
-**Why this way?** It's the lowest and cleanest connection: nothing on the main board stands taller than the flex itself, about 0.2 mm, and there are no sockets to buy. A header fixed to the main board would have to line up with the socket in three directions at once, and a small mistake in M5Stack's drawings would bend the pins. The flex takes up any mismatch, so the main board only has to fit its screws. If the tail turns out wrong on a real device (for example, the socket rows are the other way round), only the tail needs remaking, not the GPS board.
-
-**How it's made:** circuit board makers such as JLCPCB and PCBWay make flexible circuits from the same kind of drawing files as normal boards. They add the stiff plate behind the plug end. A first batch of 5 seems to cost roughly $15–25, a few days slower than normal boards. You then solder the header into the plug end, lay the solder end on the main board's pads, whose ends stick out past the tail's tip, and touch the iron where each pad meets the tip: the solder runs through each hole onto the pad below and forms a fillet you can see. A strip of Kapton tape over the joint stops bending from pulling on the solder.
-
-**Still to check on a real Cardputer:** that the EXT socket opens out of the bottom edge (M5Stack's 3D model suggests it does; their docs only say "underside"), which row of the socket is which, that no port or button on that edge gets in the way, and that the tail's fold round the edge is comfortable.
-
-Full details are in [hardware/README.md](../hardware/README.md), under "How the Cardputer connects".
+Full details are in [hardware/case/README.md](../hardware/case/README.md) (the case, the wiring, the tests still to do) and [hardware/README.md](../hardware/README.md), under "How the Cardputer connects". An earlier design used a flex tail from the EXT socket to an 84 × 54 mm board screwed onto M5Stack's back (`hardware/biomap_cardputer_tail/`, kept but not used).
 
 ### How other people attach boards to the back
 
@@ -89,22 +79,7 @@ Full details are in [hardware/README.md](../hardware/README.md), under "How the 
 
 ### A case over the board
 
-Someone has made a 3D-printed case for a Cardputer backpack: a box with the same outline as the Cardputer, so its sides sit flush with the device. Two screws go into the Cardputer's M2 holes and four more hold the lid on. We could do something similar in one of two ways.
-
-**Option A: board inside a box.** The walls sit outside the board, so the board must shrink by the wall thickness plus a little play on every side. With 1.6–2 mm printed walls and about 0.3 mm play, that is roughly 79.5 × 49.5 mm. The layout would need redoing, the cuff socket would end up about 2 mm behind the outer wall (the plug may not go fully in unless the wall has a deep cut-out), and the box needs its own way to hold the board.
-
-**Option B: the board is the floor of the case (preferred).** The board stays 84 × 54 mm, and the printed part is just a cover whose walls stand on the board's outer edge. The edges are still flush, with the board showing as a thin stripe between the Cardputer and the cover. This needs:
-
-- a strip about 2 mm wide round the edge kept clear of parts, for the walls to stand on;
-- a cut-out in the wall for the cuff socket, and a gap where the flex tail folds round the edge;
-- longer screws through the cover and board into the Cardputer. The part that goes into the Cardputer must stay about 4 mm, as longer screws can damage the board inside, so screw length = cover + board + 4 mm, with the heads sunk into the cover.
-
-Our tallest parts are only a few mm high, so the cover could be about 5–6 mm deep. Plastic does not block the GPS signal, but keep metal (screws, labels, paint with metal in it) away from the area over the GPS.
-
-**Edge strip checked:** no parts sit in the 2 mm edge strip, so Option B needs no parts moved. The closest are FB1 and U3, about 3.6 mm from the EXT edge. Two things for whoever designs the cover:
-
-- **Screw recesses.** The screw holes are 4 mm from the EXT edge, and they can't move because they must match the Cardputer's. A recess for a typical M2 head (3.8–4 mm across) is about 4.2–4.4 mm wide, so it reaches 0.1–0.2 mm into a 2 mm wall. Either let the wall be that bit thinner at the two screws, or use button-head screws (about 3.5 mm across), whose recess just clears the wall.
-- **Printed text.** The "GPS: keep this side clear of metal" line has been moved inwards so it no longer runs under the bottom wall. The cover hides all the text on the outer face anyway.
+Done as a full replacement back: see [hardware/case/README.md](../hardware/case/README.md). Its top 6.5 mm copies M5Stack's back from M5Stack's own 3D model; below that come the board, the parts with 5 mm of air over the GPS, and a 2 mm floor. The long screws go into the same two inserts as M5Stack's.
 
 ### Power and connections
 
@@ -123,14 +98,14 @@ EXT pins used:
 | 6 | 5V out | — | Input of the new 3.3 V regulator |
 | 4 | GND | — | Common ground for everything |
 | 13 | G5 (I2C SDA) | G5 | ADS1115 SDA |
-| 5 | G6 (I2C SCL) | G6 | ADS1115 SCL |
+| 1 | G3 (I2C SCL) | G3 | ADS1115 SCL (the prototype and the firmware still use G6, pin 5, until Test 1 in `hardware/case/README.md`) |
 | 12 | UART TX | G13 | M10Q RX |
 | 14 | UART RX | G15 | M10Q TX |
-| 3 | G4 | G4 | ADS1115 ALERT/RDY (pulses when a reading is ready; needs the ESP32's pull-up on) |
+| 3 | G4 | G4 | ADS1115 ALERT/RDY (pulses when a reading is ready; needs the ESP32's pull-up on). The board's cable socket has a pin for it; no wire yet |
 
-The ADS1115 has an I2C bus of its own on G5 and G6, not the Cardputer's shared bus on EXT pins 8 and 10 (G8/G9). See "The GSR has its own I2C bus" below. G5 and G6 have no pull-up resistors on the Cardputer, so **the board fits two: 4.7 kΩ from SDA and from SCL to the board's own 3.3 V** (R6, R7). The flex tail leaves EXT pins 8 and 10 (G8/G9) unconnected.
+The ADS1115 has an I2C bus of its own on G3 and G5, not the Cardputer's shared bus on EXT pins 8 and 10 (G8/G9). See "The GSR has its own I2C bus" below (measured on G5/G6; the clock moves to G3 because G6 is in the middle of the hidden row of legs, hard to solder to). G3 and G5 have no pull-up resistors on the Cardputer, so **the board fits two: 4.7 kΩ from SDA and from SCL to the board's own 3.3 V** (R6, R7). The cable leaves EXT pins 8 and 10 (G8/G9) unconnected.
 
-The only EXT pin still free is G3 (pin 1). The ESP32 reads it at power-on to choose a debug mode, so it is best left alone. EXT pins 7, 9 and 11 (G40, G14, G39) are the SD card's SPI bus, shared with the built-in card.
+The ESP32 reads G3 at power-on to choose a debug mode, but only if a one-off setting has been burned into the chip, and our pull-up holds it at the normal choice anyway: `hardware/case/README.md`, "What we checked about G3", has the details. EXT pins 7, 9 and 11 (G40, G14, G39) are the SD card's SPI bus, shared with the built-in card.
 
 Pin 2 ("5V in") is for powering the Cardputer *from* a Cap. It should not be used here.
 
@@ -384,7 +359,7 @@ The ADS1115's top speed is 860 readings a second, and it already runs at that sp
 The Cardputer could collect nearly all of them, in one of two ways:
 
 - **A precise timer.** The ESP32's hardware timers are precise to a microsecond, so the GSR thread can read about every 1.2 ms instead of every "1 ms" step. That gives roughly 800 readings a second, almost all of them new. It is not perfect: the ADS1115's own clock can run up to 10% slow, so now and then a reading is missed or read twice. The existing duplicate counter already detects this. No hardware change is needed.
-- **The ADC's "ready" pin.** The ADS1115 pulses its ALERT/RDY pin each time a new reading is ready. Waiting for that pulse gives exactly 860 a second, none missed, none read twice. The Cardputer board (rev C and later) connects this pin to EXT pin 3 (G4) through the flex tail. The pin can only pull the line low, so the firmware must turn on G4's internal pull-up, and must switch the ADC's ready mode on (top bit of Hi_thresh set, top bit of Lo_thresh clear).
+- **The ADC's "ready" pin.** The ADS1115 pulses its ALERT/RDY pin each time a new reading is ready. Waiting for that pulse gives exactly 860 a second, none missed, none read twice. The Cardputer board (rev C and later) brings this pin out for EXT pin 3 (G4): through the flex tail up to rev F, and to pin 8 of the cable socket from rev G, where no wire is fitted yet. The pin can only pull the line low, so the firmware must turn on G4's internal pull-up, and must switch the ADC's ready mode on (top bit of Hi_thresh set, top bit of Lo_thresh clear).
 
 **What it would gain.** Each CSV row averages 100 ms of readings. More readings in that window reduce the ADC's own random noise: going from about 300 to about 800 a second cuts it by roughly 40% (√(800/300) ≈ 1.6). The gain on noise from the skin and the amplifier is smaller, because the amplifier's filter (about 34 Hz) already smooths out quick changes, so readings taken close together are mostly the same reading. The skin signal itself changes over seconds, so nothing in it is missed at the slower rate.
 
@@ -522,7 +497,7 @@ Steps 1–6 prepared the shared core on the Flipper, and steps 7–11 built the 
 
 - Replace the Flipper, or keep both devices?
 - Carrying: how to see the screen while the GPS antenna faces the sky (see section 6)?
-- Electronics: finish checking the KiCad backpack board and flex tail against a real Cardputer EXT socket, then order PCBs (or build a home-made Cap first)?
+- Electronics: finish the checks in `hardware/case/README.md` (measurements, Test 1), print the case, then order PCBs?
 
 ---
 
@@ -883,7 +858,7 @@ Steps 1–11 are complete in code and pass all host tests, Flipper `ufbt` build,
    - Confirm the graph direction fix: rising GSR (sharp breath or touching cuffs) now draws upward.
    - Run the calibration wizard (now driven by shared `CalWizardCore`) on battery.
 3. **Side-by-side walks (step 12):** wear the Flipper and Cardputer together on real walks and compare GSR traces and GPS tracks in the visualiser.
-4. **Hardware:** verify the KiCad backpack board ([hardware/biomap_cardputer/](../hardware/biomap_cardputer/)) and flex tail ([hardware/biomap_cardputer_tail/](../hardware/biomap_cardputer_tail/)) against a real Cardputer EXT socket, order PCBs, and re-test GSR noise and battery life on the Cardputer's own 5 V supply + LDO.
+4. **Hardware:** do the measurements and Test 1 in [hardware/case/README.md](../hardware/case/README.md), print the case, order the board ([hardware/biomap_cardputer/](../hardware/biomap_cardputer/)), and re-test GSR noise and battery life on the Cardputer's own 5 V supply + LDO.
 5. **Step 13 (later, optional):** Wi-Fi Files screen with streaming ZIP download, faster GSR reading (hardware timer or G4 `ALERT/RDY` pin), 3D-printed cover, keyboard field notes, and the CardputerZero port.
 
 ---
@@ -930,7 +905,7 @@ What this means for the board:
 - that the two M2 screw holes and the EXT socket are in the same places as on the ADV (no mechanical drawing has been published yet)
 - where the 8 MP camera is; if it is on the back, our board would cover it (the "Lite" version has no camera)
 - whether the Zero's greater thickness (23.1 mm) changes the cover design in section 2
-- that the flex tail folds round the edge in the same way
+- the shape of its back: the printed back in `hardware/case/` is drawn for the ADV
 
 ### Software: a third device folder
 

@@ -17,7 +17,7 @@ Almost every part is surface-mount (soldered onto the face of the board):
 | U4 GPS (SAM-M10Q) | Pads underneath | Needs an oven or hotplate; u-blox advises against hot air |
 | J2 cuff socket | Surface-mount JST PH | |
 
-Only the pin headers are through-hole: J1 and J4 on the Flipper, and J1 on the Cardputer's flex tail. They take the strain of plugging in, so they stay through-hole for strength. Assemblers fit them for a small extra fee. The Cardputer board itself is all surface-mount. Its flex tail is a separate flex-board order (roughly $15–25 for 5 at JLCPCB; check the instant quote) and is soldered on by hand.
+Only the Flipper's pin headers are through-hole (J1 and J4). They take the strain of plugging in, so they stay through-hole for strength. Assemblers fit them for a small extra fee. The Cardputer board is all surface-mount. Its cable socket (J1, a JST GH 8-pin socket) sits on the other face from every other part, so it is soldered by hand rather than paying for assembly on both faces. The board sits in a printed back case (`case/`), which costs only the plastic.
 
 Each board's `bom.csv` gives the maker's part number and the LCSC number for every part.
 
