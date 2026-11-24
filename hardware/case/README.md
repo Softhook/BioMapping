@@ -7,7 +7,7 @@ A new back for the Cardputer ADV, printed in one piece. It replaces M5Stack's ow
 An outside review of the case and board (24 November) was acted on the same day. Its four open questions are now decided:
 
 - No wrist strap: the strap corner and its pin are gone, and that corner is a plain rounded corner.
-- The device is carried GPS side up. `Bio Mapping 2` and a rounded `GPS` box over the module are pressed into the outside of the floor.
+- The device is carried GPS side up. `Bio Mapping 2` and a shallow rounded outline over the module are pressed into the outside of the floor.
 - About 10 will be made, soldered by hand.
 - If the open EXT socket is a problem, a sticker goes over it.
 
@@ -15,7 +15,7 @@ Since the review, J1 has moved 3.1 mm towards the EXT socket (now centred at x 5
 
 Still to do before printing: measurement 1 (it sets the long screws) and measurement 7 (the cuff plug). Before ordering the board: measurement 2 and Test 1. See "What is still open".
 
-![The case, seen from the open side: the EXT opening in the near wall, the headphone slot at the left end, the cuff window in the left wall, the two long screw posts with their ledges, and the two posts for the board's screws](cardputer_back.png)
+![The case, seen from the open side: the EXT opening in the near wall, the headphone slot at the left end, the cuff window in the left wall, the two long screw posts with their ledges, and the two posts for the board's screws, and the pocket that thins the floor over the GPS](cardputer_back.png)
 
 ## Why replace the back instead of adding a cover
 
@@ -49,14 +49,15 @@ From the Cardputer outwards (the numbers are the drawing's settings):
 
 1. **Rim and battery layer (6.5 mm).** Copied from M5Stack's back: the outline, the wall faces, the two screw posts, the EXT opening and the headphone slot. Not copied: the Lego tubes, the add-on screw slots, the magnets, the battery ribs and the wrist-strap corner (closed off as a plain rounded corner). Its walls are nowhere thicker than M5Stack's, so nothing inside the Cardputer can touch them (see "How it was checked"). In its bottom 1.5 mm the EXT wall is thinner, as M5Stack's is beside its Lego tubes. Where it gets thicker again, ours slopes back at 45° instead of stepping, so it prints without an overhang; along the slope it is still thinner than M5Stack's.
 2. **Our board (1.6 mm).** Its inner face sits exactly where the inner face of M5Stack's floor was. The battery keeps the same room it has now, and the board holds it in place, as M5Stack's floor did. A thin insulating sheet (Kapton) goes between the board and the battery. All the parts on the board face outwards, except the cable socket J1, which sits in the battery-free strip.
-3. **Parts and GPS space.** This is the tallest part (the GPS module, 6.8 mm at most) plus a gap of 5 mm over it. u-blox asks for at least 5 mm between plastic and the antenna. Test 2 below checks whether a smaller gap costs any signal; the gap is one setting (`gps_gap`).
-4. **Floor (2 mm).** Plain plastic, with `Bio Mapping 2` and a rounded `GPS` box over the GPS antenna debossed 0.4 mm into the outside. No screws, labels or paint containing metal over the GPS.
+3. **Parts and GPS space.** This is the tallest part (the GPS module, 6.8 mm at most) plus a gap of 3 mm over it (3.8 mm right over the GPS, where the floor is thinner: see 4). u-blox asks for at least 5 mm between plastic and the antenna; 3 mm was chosen to keep the case thinner. Test 2 below checks whether that costs any signal; the gap is one setting (`gps_gap`).
+4. **Floor (2 mm).** Plain plastic, with `Bio Mapping 2` debossed 0.4 mm into the outside. Over the GPS the floor is thinned to 1.2 mm by a pocket (18.5 mm square) cut into its inside face: less plastic over the antenna, and 0.8 mm more air, without making the case thicker. The pocket stays inside the shelf the board rests on, and prints without an overhang. A rounded outline round the GPS, one layer (0.2 mm) deep, marks it on the outside, so the thinnest plastic, under that outline, is 1.0 mm. The drawing refuses to build if any plastic over the GPS would be thinner than 1 mm (`gps_floor`, `min_floor`). No screws, labels or paint containing metal over the GPS. Use plain PETG or ASA: carbon-fibre, "silk", glitter or metallic-look filaments can contain particles that block GPS.
 
 Below the battery layer the outside runs straight down, and the floor's edge is rounded as M5Stack's is. At the print bed each rounded edge turns into a 45° chamfer, so the first layers never overhang. The wall beside the board is 1.4 mm thick and stands 0.5 mm clear of the board's edge all round. That leaves room for the board's cutting tolerance (JLCPCB cuts edges to within ±0.2 mm) and for a print that comes out a little small. Below the board the wall is 1.2 mm thicker, which forms a shelf all round; the board's edge rests on 0.7 mm of it.
 
 How thick the Cardputer becomes (19.6 mm today):
 
-- with a 5 mm gap over the GPS: 33.5 mm (the drawing as it is)
+- with a 5 mm gap over the GPS (u-blox's advice): 33.5 mm
+- with a 3 mm gap: 31.5 mm (the drawing as it is)
 - with a 2 mm gap: 30.5 mm
 - with an opening in the floor over the GPS, the module flush with the outside: about 27 mm (not drawn)
 
@@ -70,10 +71,10 @@ How thick the Cardputer becomes (19.6 mm today):
 ## The long screws
 
 - They go into the same two places as M5Stack's screws.
-- **Length:** measure M5Stack's screws first (measurement 1). Each passes through 6 mm of the old back, so the old screw's length less 6 mm is how far a screw may go into the Cardputer. Set that as `screw_engage`, and the length you buy as `screw_len`. The drawing puts the head's seat at the right height and stops with a message if the screw is too short or too long. The default is M2 × 16 mm going in 3 mm: its head sits 8.9 mm up from the floor, at the bottom of a 4.4 mm hole.
+- **Length:** measure M5Stack's screws first (measurement 1). Each passes through 6 mm of the old back, so the old screw's length less 6 mm is how far a screw may go into the Cardputer. Set that as `screw_engage`, and the length you buy as `screw_len`. The drawing puts the head's seat at the right height and stops with a message if the screw is too short or too long. The default is M2 × 16 mm going in 3 mm: its head sits 6.9 mm up from the floor, at the bottom of a 4.4 mm hole.
 - **Their holes are 2.4 mm**, against M5Stack's 2.2 mm. Each screw runs through 13 mm of case, and a printed hole comes out about 0.2 mm small. At 2.2 mm the screw would cut its own thread into the case, and that thread would then hold it back, so it couldn't pull the case tight onto the Cardputer.
 - **A thin cover** closes the top of each head hole after printing; push a 2 mm drill or the screw through it (see "Printing").
-- **Screwdriver:** the heads sit 9 mm deep in a 4.4 mm hole. Use a slim precision screwdriver, not a bit holder.
+- **Screwdriver:** the heads sit 7 mm deep in a 4.4 mm hole. Use a slim precision screwdriver, not a bit holder.
 - **The GPS side.** The screw's head sits at the same height as the GPS module, 10.2 mm from it: just past u-blox's 10 mm, so an ordinary steel screw is fine. (`./pcb case` measures to the head, which is 2 mm wider than the screw.) The post's plastic ledge under the board comes to about 8.5 mm from the module. Plastic matters far less than metal, but Test 2 will show it if it does.
 
 ## The electrical connection
@@ -181,11 +182,11 @@ Use the prototype as it is now: ADC board on flywires, fixed 600 kΩ resistor in
 
 ### Test 2: how much gap the GPS needs (decides the thickness)
 
-1. Print three small test plates, 2 mm thick, in the plastic the case will use, with legs that hold them 0.5, 2 and 5 mm above the GPS module. I'll draw them to fit the prototype's GPS board.
+1. Print small test plates in the plastic the case will use, with legs that hold them above the GPS module: 2 mm thick at 0.5, 2, 3 and 5 mm, and one 1.2 mm thick at 3.8 mm (what the case does over the GPS). I'll draw them to fit the prototype's GPS board.
 2. Go outdoors under open sky. Lay the Cardputer flat on something that isn't metal, GPS facing up, running the bench program and logging to a laptop on battery.
-3. Three minutes each: no plate, then the 5 mm, 2 mm and 0.5 mm plates. Then do the whole round twice more. The satellites move, so taking turns keeps the comparison fair.
+3. Three minutes each: no plate, then the 5 mm, 3 mm, 1.2 mm-at-3.8 mm, 2 mm and 0.5 mm plates. Then do the whole round twice more. The satellites move, so taking turns keeps the comparison fair.
 
-Send me the log. I compare the signal strength of the four strongest satellites, and the number of satellites used. If a smaller gap costs no real signal, the case can be thinner.
+Send me the log. I compare the signal strength of the four strongest satellites, and the number of satellites used. The case is drawn like the 1.2 mm-at-3.8 mm plate. If that costs real signal against the 5 mm plate, set `gps_gap` back to 5 (2 mm thicker); if 2 mm costs nothing, the case can be 1 mm thinner.
 
 ### Test 3: fit
 
@@ -202,7 +203,7 @@ Print `cardputer_back_rim_test.stl`: the battery layer of the new back (6.5 mm) 
 
 ## How the files are made
 
-`cardputer_back.scad` is an OpenSCAD drawing (free, text-based). The choices you might change are at its top: `gps_gap`, `floor_t`, `board_gap`, `ledge`, `screw_len`, `screw_engage`, `board_screw_inserts`, `cuff_scoop`. It needs an OpenSCAD build from 2025 or later (`brew install --cask openscad@snapshot` on a Mac); the 2021 release is too old and blocked on recent macOS.
+`cardputer_back.scad` is an OpenSCAD drawing (free, text-based). The choices you might change are at its top: `gps_gap`, `floor_t`, `board_gap`, `ledge`, `screw_len`, `screw_engage`, `board_screw_inserts`, `cuff_scoop`, `gps_pocket`, `gps_floor`. It needs an OpenSCAD build from 2025 or later (`brew install --cask openscad@snapshot` on a Mac); the 2021 release is too old and blocked on recent macOS.
 
 `board.scad` holds what the case needs to know about the circuit board: its edge, its four holes, the cuff socket, and every part as a box of its outline and height. It is written from the board file, so the case and the board can't drift apart. Don't edit it.
 

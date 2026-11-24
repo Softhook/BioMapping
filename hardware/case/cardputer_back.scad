@@ -27,7 +27,7 @@ include <board.scad>
 
 /* [Choices] */
 // Air between the GPS module's top and the floor. u-blox asks for 5 mm; Test 2 (README) checks whether less costs signal
-gps_gap = 5.0;
+gps_gap = 3.0;
 // Floor thickness
 floor_t = 2.0;
 // Air between the board's edge and the wall, all round: room for the board's cutting tolerance and a print that comes out a little small
@@ -44,8 +44,12 @@ board_screw_inserts = true;
 cuff_scoop = true;
 // Text debossed into the outside of the floor (empty for a plain back)
 back_text = "Bio Mapping 2";
-// Mark the GPS antenna's position on the outside of the floor with a rounded box and "GPS"
+// Mark the GPS antenna's position on the outside of the floor with a shallow rounded outline
 gps_mark = true;
+// Thin the floor over the GPS with a pocket cut into its inside face: less plastic over the antenna, and more air
+gps_pocket = true;
+// Floor left under that pocket
+gps_floor = 1.2;
 // What to make: back, rim_test (the battery layer on a 1 mm plate, to try the fit), assembly (a picture), fit_check
 part = "back"; // [back, rim_test, assembly, fit_check]
 
@@ -86,8 +90,10 @@ scoop_w = 18; scoop_d = 1.8;       // the finger scoop round it: width along the
 text_size = 5.5; text_depth = 0.4; // back lettering: 2 layers deep on a 0.2 mm print (1.6 mm floor remains)
 text_y = 9.0;                      // centred in the top band above the two screw holes (y 15.8)
 text_font = "Helvetica Neue:style=Bold";
-gps_box = [16.5, 16.5, 2.5, 0.8];  // rounded square over the 15.5 mm GPS module: width, height, corner radius, line width
-gps_text_size = 4.2;
+gps_box = [16.5, 16.5, 2.5, 0.8];  // outline over the 15.5 mm GPS module: width, height, corner radius, line width
+gps_mark_depth = 0.2;              // one layer on a 0.2 mm print
+gps_pocket_size = [18.5, 18.5, 3]; // pocket on the inside: width, height, corner radius (covers the outline with 1 mm to spare)
+min_floor = 1.0;                   // thinnest plastic allowed anywhere over the GPS
 
 // ── the stack, from the floor up ──
 part_h = max([for (p = parts_B) p[4]]);        // the tallest part on the board's outer face: the GPS
@@ -98,6 +104,10 @@ z_seat = H - (screw_len - screw_engage);         // where the long screws' heads
 
 assert(z_seat > 1, str("the long screws are too short: ", screw_len, " mm reaches only ", screw_len - screw_engage,
                          " of the ", H, " mm to the rim"));
+gps_floor_min = (gps_pocket ? gps_floor : floor_t) - (gps_mark ? gps_mark_depth : 0);
+assert(gps_floor_min >= min_floor, str("the floor over the GPS would be only ", gps_floor_min, " mm thick (at least ",
+                                       min_floor, " mm)"));
+assert(!gps_pocket || gps_floor <= floor_t, "gps_floor must not be thicker than floor_t");
 assert(z_seat < z_board_B - 2, "the long screws are too long: their heads would sit above the board's ledge");
 
 // ── shapes ──
@@ -179,20 +189,25 @@ module holes() {
     translate([cuff_socket[0] - 2, cuff_socket[1] - cuff_w / 2, z_board_B - cuff_h])
         cube([L - cuff_socket[0] + 4, cuff_w, cuff_h + cuff_up]);
     if (cuff_scoop) scoop();
-    // debossed lettering and GPS antenna mark on the outside of the floor. Rotated 180 degrees
-    // here so that after the final mirror([0, 1, 0]) they read left-to-right, right-side-up when
-    // viewing the back of the Cardputer with the EXT / screen edge at the top
+    // debossed lettering and GPS antenna outline on the outside of the floor. The text is rotated
+    // 180 degrees here so that after the final mirror([0, 1, 0]) it reads left-to-right,
+    // right-side-up when viewing the back of the Cardputer with the EXT / screen edge at the top
     if (back_text != "")
         translate([L / 2, text_y, -eps]) rotate([0, 0, 180]) linear_extrude(text_depth + eps)
             text(back_text, size = text_size, font = text_font, halign = "center", valign = "center", $fn = 24);
     if (gps_mark)
-        translate([gps[0], gps[1], -eps]) rotate([0, 0, 180]) linear_extrude(text_depth + eps) {
-            difference() {
+        translate([gps[0], gps[1], -eps]) linear_extrude(gps_mark_depth + eps) difference() {
+            rrect(-gps_box[0] / 2, -gps_box[1] / 2, gps_box[0] / 2, gps_box[1] / 2, gps_box[2], gps_box[2]);
+            offset(delta = -gps_box[3])
                 rrect(-gps_box[0] / 2, -gps_box[1] / 2, gps_box[0] / 2, gps_box[1] / 2, gps_box[2], gps_box[2]);
-                offset(delta = -gps_box[3])
-                    rrect(-gps_box[0] / 2, -gps_box[1] / 2, gps_box[0] / 2, gps_box[1] / 2, gps_box[2], gps_box[2]);
-            }
-            text("GPS", size = gps_text_size, font = text_font, halign = "center", valign = "center", $fn = 24);
+        }
+    // the pocket over the GPS, cut into the floor's inside face. Kept inside the shelf the board
+    // rests on, so it never weakens the shelf. Prints with no overhang: its floor is built first
+    if (gps_pocket)
+        translate([0, 0, gps_floor]) linear_extrude(floor_t - gps_floor + eps) intersection() {
+            translate(gps) rrect(-gps_pocket_size[0] / 2, -gps_pocket_size[1] / 2, gps_pocket_size[0] / 2,
+                                 gps_pocket_size[1] / 2, gps_pocket_size[2], gps_pocket_size[2]);
+            offset(delta = board_gap - ledge) board_shape();
         }
 }
 
