@@ -46,6 +46,7 @@
     <div class="group">
       <button id="caseModeBtn">Case: Solid</button>
       <button id="frontModeBtn">Cardputer: On</button>
+      <button id="cableBtn">Cable: Off</button>
       <button id="measureBtn">Measure</button>
       <label class="btn">Load .stl<input id="stlFile" type="file" accept=".stl" class="hidden" /></label>
     </div>
@@ -58,6 +59,15 @@
       <span><i class="sw" style="background:#b8c0ca"></i>M2×16 &amp; M2×5 screws</span>
       <span><i class="sw" style="background:#e3d2b0"></i>GPS patch (3.8 mm air, 1.2 mm floor)</span>
       <span><i class="sw" style="background:#d99b26"></i>C9 tantalum</span>
+      <span id="wireLegend" class="hidden">Wires, J1 pin → leg:
+        <i class="sw" style="background:#f2cc26"></i>1 G15
+        <i class="sw" style="background:#33bf59"></i>2 G13
+        <i class="sw" style="background:#212124"></i>3 GND
+        <i class="sw" style="background:#e6332e"></i>4 5VO
+        <i class="sw" style="background:#3373f2"></i>5 G5
+        <i class="sw" style="background:#9e52e0"></i>6 G3
+        <i class="sw" style="background:#6b6b73"></i>7 GND
+        · <i class="sw" style="background:#db4d33"></i>5VI leg (never wired)</span>
     </div>
     <div id="dims" class="pill">84 × 54 × 31.5 mm</div>
     <div id="measureLabel" class="pill hidden"></div>
@@ -526,6 +536,122 @@ function addSmd2(bodyOut, metalOut, x, y, horiz, len, wid, h, zBase=11.8) {
   }
 }
 
+// A round wire through the points (case drawing coords), as short straight pieces.
+function addWire(out, pts, r, segs = 8) {
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const d = [b[0]-a[0], b[1]-a[1], b[2]-a[2]], l = Math.hypot(...d) || 1;
+    const t = d.map((v) => v / l);
+    const h = Math.abs(t[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+    let u = [t[1]*h[2]-t[2]*h[1], t[2]*h[0]-t[0]*h[2], t[0]*h[1]-t[1]*h[0]];
+    const ul = Math.hypot(...u); u = u.map((v) => v / ul);
+    const w = [t[1]*u[2]-t[2]*u[1], t[2]*u[0]-t[0]*u[2], t[0]*u[1]-t[1]*u[0]];
+    const ring = (c, k) => { const an = 2*Math.PI*k/segs, cs = Math.cos(an)*r, sn = Math.sin(an)*r;
+      return P(c[0]+u[0]*cs+w[0]*sn, c[1]+u[1]*cs+w[1]*sn, c[2]+u[2]*cs+w[2]*sn); };
+    for (let k = 0; k < segs; k++) {
+      const a0 = ring(a, k), a1 = ring(a, k+1), b0 = ring(b, k), b1 = ring(b, k+1);
+      out.push(...a0, ...b0, ...b1, ...a0, ...b1, ...a1);
+    }
+  }
+}
+
+// The "Cable" option: the planned JST GH cable. Its plug sits in J1 (pins 1–8 from the EXT
+// end, as printed beside J1) and the six wires are soldered to the EXT legs (GND twice).
+// The plug is drawn the size the case's fit check allows for (11.2 mm wide, 3.6 mm tall).
+// The EXT legs are not measured (measurement 2): they are drawn as a right-angle 2 × 7 socket's
+// legs would be, coming out of the back of its body and bending down into the Cardputer's board.
+function buildCableParts(j1x) {
+  const parts = [];
+  const mk = (verts, color, spec, group) => { if (verts.length) parts.push({ buf: makeFlatBuffer(verts), color, spec, group }); };
+  const PITCH = 2.54, BOARD = 13.4, CARD = 19.9;      // our board's inner face; the Cardputer's board
+
+  // EXT legs, 7 per row, from x 34.38 (G15/G5) to 49.62 (5VI/G3)
+  const legX = (k) => 42 + (k - 3) * PITCH;
+  const rows = {   // z where the leg leaves the socket's body, y where it bends down
+    easy:   { z: CARD - 3.81, y: -6.5 - 2 * PITCH, names: ['G15', 'G13', 'G9', 'G8', '5VO', 'GND', '5VI'] },
+    hidden: { z: CARD - 1.27, y: -6.5 - PITCH,     names: ['G5', 'G39', 'G14', 'G40', 'G6', 'G4', 'G3'] },
+  };
+  const legs = [], legNever = [];
+  for (const row of Object.values(rows)) {
+    row.names.forEach((name, k) => {
+      const out = name === '5VI' ? legNever : legs, x = legX(k), s = 0.32;
+      addBox(out, x - s, -6.5, row.z - s, x + s, row.y - s, row.z + s);   // out of the body
+      addBox(out, x - s, row.y - s, row.z - s, x + s, row.y + s, CARD);   // down into the board
+    });
+  }
+  mk(legs, [0.80, 0.81, 0.83], 0.55, 'legs');
+  mk(legNever, [0.86, 0.30, 0.20], 0.40, 'legs');   // 5VI: never connected
+
+  // The plug: pushed into J1's mouth (y -7.85), 3.6 mm out beyond it, with its latch on top
+  const plug = [];
+  addBox(plug, j1x - 5.3, -5.0, 14.1, j1x + 5.3, -11.45, 17.0);
+  addBox(plug, j1x - 2.5, -8.2, 17.0, j1x + 2.5, -10.8, 17.4);
+  mk(plug, [0.93, 0.91, 0.84], 0.18, 'cable');
+
+  // The wires, with slack: out of the back of the plug, as a flat bundle between the plug and
+  // the long-screw post (H4), round a loop in the free pocket between the EXT legs and the
+  // battery (x 30–50, y -13 to -21), then up to the legs. Each is about 6 cm, as the notes say.
+  const pinX = (pin) => j1x + (pin - 4.5) * 1.25, WIRE_Z = 15.4;
+  const legAt = (rowName, legName) => {
+    const row = rows[rowName], x = legX(row.names.indexOf(legName));
+    if (rowName === 'easy') return [x, row.y - 0.3, row.z + 1.2];   // on the leg, just past its bend
+    // hidden row: low down, from the row's open end (G5 from the left, G3 from the right)
+    return [x + (legName === 'G3' ? 0.5 : -0.5), row.y, CARD - 0.6];
+  };
+  const WIRES = [   // J1 pin, leg, colour
+    [1, ['easy', 'G15'],  [0.95, 0.80, 0.15]],
+    [2, ['easy', 'G13'],  [0.20, 0.75, 0.35]],
+    [3, ['easy', 'GND'],  [0.13, 0.13, 0.14]],
+    [4, ['easy', '5VO'],  [0.90, 0.20, 0.18]],
+    [5, ['hidden', 'G5'], [0.20, 0.45, 0.95]],
+    [6, ['hidden', 'G3'], [0.62, 0.32, 0.88]],
+    [7, ['easy', 'GND'],  [0.42, 0.42, 0.45]],
+  ];
+  // a smooth curve through the points (Catmull-Rom), 10 pieces between each pair
+  const smooth = (pts) => {
+    const out = [];
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[Math.max(i - 1, 0)], b = pts[i], c = pts[i + 1], d = pts[Math.min(i + 2, pts.length - 1)];
+      for (let j = 0; j < 10; j++) {
+        const t = j / 10, t2 = t * t, t3 = t2 * t;
+        out.push([0, 1, 2].map((k) => 0.5 * (2*b[k] + (-a[k] + c[k])*t + (2*a[k] - 5*b[k] + 4*c[k] - d[k])*t2 + (-a[k] + 3*b[k] - 3*c[k] + d[k])*t3)));
+      }
+    }
+    out.push(pts[pts.length - 1]);
+    return out;
+  };
+  WIRES.forEach(([pin, leg, colour], r) => {
+    // place in the bundle: 4 across, 2 layers lying on the board (0.8 mm wires). `out` is how
+    // far a wire is from the inside of the loop, kept the same all the way round so none cross.
+    const out = (r >> 1) * 0.8, z = 13.85 + (r & 1) * 0.8;
+    const px = pinX(pin), end = legAt(...leg);
+    // G3 is at the 5VI end of the hidden row: it leaves the bundle just past the post, takes
+    // its slack in a hairpin there, and comes up beside the row's end, not across the legs
+    const pts = leg[1] === 'G3' ? [
+      [px, -11.45, WIRE_Z],
+      [px - 0.6, -12.0 - out * 0.5, z + 0.3],
+      [52.0, -12.4 - out, z],
+      [46.5, -15.2, z + 0.8],                    // over the bundle, then back
+      [45.8, -13.4, 15.6],
+      [50.2, -12.4, 16.6],                       // past the end of the easy row (5VI)
+      [50.9, -10.2, 18.3],
+      end,
+    ] : [
+      [px, -11.45, WIRE_Z],
+      [px - 0.6, -12.0 - out * 0.5, z + 0.3],
+      [52.0, -12.4 - out, z],                    // past the post (its edge is at y -16)
+      [44.0, -15.0 - out, z],
+      [37.0, -18.0 - out, z],                    // the loop's far side, clear of the battery (y -22)
+      [31.5 - out, -16.5, z],                    // its end
+      [32.5 - out * 0.7, -13.0 + out * 0.7, z + 0.4],
+      [end[0] - 0.6, end[1] - 1.6, (z + end[2]) / 2],
+      end,
+    ];
+    const w = []; addWire(w, smooth(pts), 0.4); mk(w, colour, 0.35, 'cable');
+  });
+  return parts;
+}
+
 function buildAssemblyParts() {
   const parts = [];
   const mk = (verts, color, spec, group) => {
@@ -619,13 +745,17 @@ function buildAssemblyParts() {
   addBox(j1White, j1x - 6.625, -7.85, 13.4, j1x + 6.625, -4.4, 13.4 + t1);    // bottom floor
   mk(j1White, [0.95, 0.93, 0.87], 0.16, 'pcb');
   // 8 shiny pins inside J1 (1.25 mm pitch) + side mounting tabs
+  const j1Metal = [];
   for (let k = 0; k < 8; k++) {
     const px = j1x + (k - 3.5) * 1.25;
-    addBox(j2Metal, px - 0.18, -7.2, 15.2, px + 0.18, -4.3, 15.6);
-    addBox(j2Metal, px - 0.22, -4.0, 13.4, px + 0.22, -2.7, 13.75);
+    addBox(j1Metal, px - 0.18, -7.2, 15.2, px + 0.18, -4.3, 15.6);
+    addBox(j1Metal, px - 0.22, -4.0, 13.4, px + 0.22, -2.7, 13.75);
   }
-  addBox(j2Metal, j1x - 6.725, -8.1, 13.4, j1x - 6.1, -5.4, 13.8);
-  addBox(j2Metal, j1x + 6.1, -8.1, 13.4, j1x + 6.725, -5.4, 13.8);
+  addBox(j1Metal, j1x - 6.725, -8.1, 13.4, j1x - 6.1, -5.4, 13.8);
+  addBox(j1Metal, j1x + 6.1, -8.1, 13.4, j1x + 6.725, -5.4, 13.8);
+  mk(j1Metal, [0.82, 0.84, 0.87], 0.55, 'pcb');
+
+  parts.push(...buildCableParts(j1x));
 
   // 4. BT1: Seiko MS421R backup coin cell (26.5, -47.0)
   const metal = j2Metal;
@@ -698,10 +828,13 @@ const VIEWS = {
   inside: { yaw: 2.65,    pitch: 0.62, dist: 132 },
   pcb:    { yaw: 0.22,    pitch: 0.28, dist: 108 },
   front:  { yaw: Math.PI, pitch: 0.14, dist: 124 },
+  // close-up of J1, the cable's plug, its wires and the EXT legs (case and Cardputer hidden)
+  cable:  { yaw: 2.75,    pitch: 0.75, dist: 62, at: [-7.5, 18, 0] },
 };
 let yaw = VIEWS.iso.yaw, pitch = VIEWS.iso.pitch, dist = VIEWS.iso.dist;
 let targetYaw = yaw, targetPitch = pitch, targetDist = dist;
-let explode = 0, caseMode = 'solid', showFront = true, customSTL = null;
+let at = [0, 0, 0], targetAt = [0, 0, 0];   // the point the camera turns round
+let explode = 0, caseMode = 'solid', showFront = true, showCable = false, customSTL = null;
 let backBuf = null, pcbBuf = null, frontDecal = null, pcbDecals = [], parts = [];
 
 function clearBg() {
@@ -761,9 +894,10 @@ function render() {
   yaw += (targetYaw - yaw) * 0.18;
   pitch += (targetPitch - pitch) * 0.18;
   dist += (targetDist - dist) * 0.18;
+  for (let k = 0; k < 3; k++) at[k] += (targetAt[k] - at[k]) * 0.18;
 
   const proj = mat4Persp(0.55, w / Math.max(h, 1), 1, 800);
-  const cam = mat4Mul(mat4Trans(0, 0, -dist), mat4Mul(mat4RotX(pitch), mat4RotY(yaw)));
+  const cam = mat4Mul(mat4Trans(0, 0, -dist), mat4Mul(mat4RotX(pitch), mat4Mul(mat4RotY(yaw), mat4Trans(-at[0], -at[1], -at[2]))));
 
   if (customSTL) {
     drawMesh(customSTL, cam, proj, [0.56, 0.62, 0.68], 0.28, 1.0);
@@ -774,7 +908,8 @@ function render() {
     const mvBoardScrews = mat4Mul(cam, mat4Trans(0, 0, -explode * 8));
     const mvFront       = mat4Mul(cam, mat4Trans(0, 0, -explode * 26));
 
-    const mvFor = (g) => g === 'back' ? mvBack : g === 'longScrews' ? mvLongScrews : g === 'boardScrews' ? mvBoardScrews : g === 'pcb' ? mvPcb : mvFront;
+    const mvFor = (g) => g === 'back' ? mvBack : g === 'longScrews' ? mvLongScrews : g === 'boardScrews' ? mvBoardScrews
+      : (g === 'pcb' || g === 'cable') ? mvPcb : mvFront;
 
     // Pass 1: all opaque meshes
     if (backBuf && caseMode === 'solid') {
@@ -785,9 +920,7 @@ function render() {
       for (const dec of pcbDecals) drawDecal(dec, mvPcb, proj, 1.0);
     }
     for (const p of parts) {
-      if (p.group === 'front' && !showFront) continue;
-      if (p.group === 'back' && caseMode === 'off') continue;
-      if (p.group === 'longScrews' && caseMode === 'off' && !showFront) continue;
+      if (!partVisible(p)) continue;
       drawMesh(p.buf, mvFor(p.group), proj, p.color, p.spec, 1.0);
     }
     if (showFront && frontDecal) drawDecal(frontDecal, mvFront, proj, 1.0);
@@ -819,7 +952,17 @@ const markProg = makeProg(`
 const markBuf = gl.createBuffer();
 
 const groupOffsetZ = (g) => g === 'back' ? explode * 20 : g === 'longScrews' ? explode * 30
-  : g === 'boardScrews' ? -explode * 8 : g === 'pcb' ? 0 : -explode * 26;
+  : g === 'boardScrews' ? -explode * 8 : (g === 'pcb' || g === 'cable') ? 0 : -explode * 26;
+
+// Which assembly parts are shown with the current buttons (used for drawing and for clicks).
+// The EXT legs show only with the cable, so the plain view stays as it was.
+function partVisible(p) {
+  if (p.group === 'front' && !showFront) return false;
+  if (p.group === 'back' && caseMode === 'off') return false;
+  if (p.group === 'longScrews' && caseMode === 'off' && !showFront) return false;
+  if ((p.group === 'cable' || p.group === 'legs') && !showCable) return false;
+  return true;
+}
 
 // The meshes that can be clicked: what is drawn solid. The see-through (X-Ray) case is skipped,
 // so a click goes through it to the parts inside.
@@ -828,12 +971,7 @@ function pickableMeshes() {
   const list = [];
   if (backBuf && caseMode === 'solid') list.push([backBuf, groupOffsetZ('back')]);
   if (pcbBuf) list.push([pcbBuf, 0]);
-  for (const p of parts) {
-    if (p.group === 'front' && !showFront) continue;
-    if (p.group === 'back' && caseMode === 'off') continue;
-    if (p.group === 'longScrews' && caseMode === 'off' && !showFront) continue;
-    list.push([p.buf, groupOffsetZ(p.group)]);
-  }
+  for (const p of parts) if (partVisible(p)) list.push([p.buf, groupOffsetZ(p.group)]);
   return list;
 }
 
@@ -846,7 +984,7 @@ function pickPoint(clientX, clientY) {
   // Undo the camera's turn: world = RotY(-yaw) · RotX(-pitch) · eye
   const inv = mat4Mul(mat4RotY(-yaw), mat4RotX(-pitch));
   const rot = (v) => [inv[0]*v[0] + inv[4]*v[1] + inv[8]*v[2], inv[1]*v[0] + inv[5]*v[1] + inv[9]*v[2], inv[2]*v[0] + inv[6]*v[1] + inv[10]*v[2]];
-  const o = rot([0, 0, dist]);
+  const o = rot([0, 0, dist]).map((v, k) => v + at[k]);
   const d = rot([nx * asp * t, ny * t, -1]);
   let best = Infinity;
   for (const [buf, oz] of pickableMeshes()) {
@@ -955,12 +1093,18 @@ function updateButtons() {
   const fb = document.getElementById('frontModeBtn');
   fb.textContent = showFront ? 'Cardputer: On' : 'Cardputer: Off';
   fb.classList.toggle('off', !showFront);
+  const cbl = document.getElementById('cableBtn');
+  cbl.textContent = showCable ? 'Cable: On' : 'Cable: Off';
+  cbl.classList.toggle('active', showCable);
+  document.getElementById('wireLegend').classList.toggle('hidden', !showCable);
 }
 
 function setView(name) {
   const v = VIEWS[name];
-  targetYaw = v.yaw; targetPitch = v.pitch; targetDist = v.dist;
-  if (name === 'side') {
+  targetYaw = v.yaw; targetPitch = v.pitch; targetDist = v.dist; targetAt = v.at || [0, 0, 0];
+  if (name === 'cable') {
+    caseMode = 'off'; showFront = false; showCable = true;
+  } else if (name === 'side') {
     caseMode = 'xray'; showFront = true;
   } else if (name === 'pcb') {
     caseMode = 'off'; showFront = false;
@@ -980,6 +1124,12 @@ document.getElementById('caseModeBtn').addEventListener('click', () => {
   caseMode = caseMode === 'solid' ? 'xray' : caseMode === 'xray' ? 'off' : 'solid';
   updateButtons();
 });
+document.getElementById('cableBtn').addEventListener('click', () => {
+  customSTL = null;
+  showCable = !showCable;
+  if (showCable) setView('cable');   // it is all inside: jump to where it can be seen
+  else updateButtons();
+});
 document.getElementById('frontModeBtn').addEventListener('click', () => {
   customSTL = null;
   showFront = !showFront;
@@ -995,7 +1145,7 @@ expEl.addEventListener('input', () => {
 document.getElementById('stlFile').addEventListener('change', async (e) => {
   const f = e.target.files[0]; if (!f) return;
   customSTL = parseBinarySTL(await f.arrayBuffer());
-  targetYaw = -0.5; targetPitch = 0.5; targetDist = 125;
+  targetYaw = -0.5; targetPitch = 0.5; targetDist = 125; targetAt = [0, 0, 0];
   document.getElementById('badge').textContent = `Loaded: ${f.name} · Double-click to restore assembly`;
 });
 
