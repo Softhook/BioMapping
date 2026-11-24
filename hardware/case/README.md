@@ -2,7 +2,18 @@
 
 A new back for the Cardputer ADV, printed in one piece. It replaces M5Stack's own back and holds two things: the Cardputer's battery, as before, and our GSR + GPS board underneath it. The board is wired to the Cardputer inside the case, so there is no flex tail and nothing sticks out.
 
-**Status (24 November 2026):** drawn, not yet printed or ordered. The circuit board (rev G) is laid out to fit inside the case, and its checks pass. The case's STL files are made from `cardputer_back.scad`, and two checks pass: in 3D, the board, every part and both plugs clear the case; and the top 6.5 mm, which meets the Cardputer, is nowhere thicker than M5Stack's own back. An outside review of the case and board was checked and acted on the same day ([review_2026-11-24.md](review_2026-11-24.md)). Still to do before printing: measurement 1 (it sets the long screws) and measurement 7 (the cuff plug). Before ordering the board: measurement 2 and Test 1. See "What is still open".
+**Status (24 November 2026, evening):** drawn, not yet printed or ordered. The circuit board (rev G) is laid out to fit inside the case, and its checks pass (`./pcb check cardputer`: no ERC or DRC problems, all 18 layout limits met). The case's STL files are made from `cardputer_back.scad`. In 3D, the board, every part, both plugs and the screw heads clear the case (`./pcb case`). Both checks were run again after the last changes below.
+
+An outside review of the case and board was checked and acted on the same day ([review_2026-11-24.md](review_2026-11-24.md)). Its four open questions are now decided:
+
+- No wrist strap: the strap corner and its pin are gone, and that corner is a plain rounded corner.
+- The device is carried GPS side up. `Bio Mapping 2` and a rounded `GPS` box over the module are pressed into the outside of the floor.
+- About 10 will be made, soldered by hand.
+- If the open EXT socket is a problem, a sticker goes over it.
+
+Since the review, J1 has moved 3.1 mm towards the EXT socket (now centred at x 59.5), away from the headphone socket. [viewer.html](viewer.html) shows the case and board in 3D in a browser.
+
+Still to do before printing: measurement 1 (it sets the long screws) and measurement 7 (the cuff plug). Before ordering the board: measurement 2 and Test 1. See "What is still open".
 
 ![The case, seen from the open side: the EXT opening in the near wall, the headphone slot at the left end, the cuff window in the left wall, the two long screw posts with their ledges, and the two posts for the board's screws](cardputer_back.png)
 
@@ -26,7 +37,7 @@ M5Stack publishes a 3D model of the Cardputer ADV, with its back as a separate p
 - **Outline.** It is 84 × 54 mm at the rim, with corners rounded 7.7 mm on the screen edge and 3 mm on the keyboard edge. The walls lean in 0.035 mm per mm for the top 4.5 mm. The floor's edge is rounded about 1 mm, and 3 mm along the keyboard edge.
 - **Walls.** They are 1.5 mm thick at the ends and on the keyboard edge, and 1.9 mm on the screen edge (1.2 mm in its bottom 1.5 mm, beside the Lego tubes). At the screen edge's corners the Lego tubes make them thicker.
 - **Screws.** Two screws hold the back on, both 18 mm in from the screen edge: one at x 13, on the battery-plug side, and one at x 54.5. Each runs in a 4 mm post with a 2.2 mm hole, 6 mm long, from the floor to the rim. The head sits in a 4.1 mm hole, 2 mm deep, in the floor. So the screw reaches into the Cardputer by its length less 6 mm.
-- **Openings.** The EXT socket's opening is in the screen edge, at x 32.7–51.3, from the rim down 5.1 mm. The headphone socket's slot is in the end wall, at y 7.75–13.25, from the rim down 5 mm, with a round bottom. The strap corner is the keyboard-edge corner at the headphone end. A thin wall cuts that corner off, and beyond it the corner is open from the rim down 3.5 mm, with a 1.8 mm pin to loop a strap round.
+- **Openings.** The EXT socket's opening is in the screen edge, at x 32.7–51.3, from the rim down 5.1 mm. The headphone socket's slot is in the end wall, at y 7.75–13.25, from the rim down 5 mm, with a round bottom. The strap corner is the keyboard-edge corner at the headphone end. A thin wall cuts that corner off, and beyond it the corner is open from the rim down 3.5 mm, with a 1.8 mm pin to loop a strap round. Our back leaves this out (see below).
 - **Inside.** A 1 mm rib near each end stops the battery sliding. There are Lego tubes and add-on screw slots along the screen edge, and nothing else.
 - **The battery-free strip.** The battery starts about 22 mm in from the screen edge (from the photo). The strip between the screen edge and the battery holds the EXT socket's legs, the headphone socket, the battery plug and the two screw posts.
 
@@ -148,7 +159,7 @@ The drawing is complete, but some of its numbers come from M5Stack's model and a
 | 5. A close look at the hidden row: can a soldering iron reach G3 and G5 from the ends? | The wiring plan |
 | 6. The prototype's GPS board: its size, and where the module sits on it | The Test 2 plates (not drawn yet) |
 | 7. The cuff plug: push it fully into a loose J2 socket and measure how far its back end stands out from the socket's mouth. Also the socket's height above the board | Whether the finger scoop (`cuff_scoop`) is needed: the socket's mouth sits 2.7 mm inside the outside of the case, so a plug standing out less than about 5 mm leaves little to pinch, and people pull on the wires instead. The drawing guesses the socket is 6 mm tall (`cuff_h`), because KiCad has no 3D model of it |
-| 8. M5Stack's real back: any clips, hooks or a lip along the keyboard edge | Both long screws are 18 mm from the screen edge and nothing holds the keyboard edge. That is fine for M5Stack's 8 mm back, but ours is almost three times as deep, so a pull on a strap or a twist can lever it open with much more force. If M5Stack's back has clips there, measure them and they go into the drawing |
+| 8. M5Stack's real back: any clips, hooks or a lip along the keyboard edge | Both long screws are 18 mm from the screen edge and nothing holds the keyboard edge. That is fine for M5Stack's 8 mm back, but ours is almost three times as deep, so a knock or a twist can lever it open with much more force. If M5Stack's back has clips there, measure them and they go into the drawing |
 | Test 1 | The ADC clock on G3, before the board is ordered |
 | Test 2 | `gps_gap`, and so the thickness |
 | Test 3 | The fit of the rim and the battery |
@@ -178,7 +189,7 @@ Send me the log. I compare the signal strength of the four strongest satellites,
 
 ### Test 3: fit
 
-Print `cardputer_back_rim_test.stl`: the battery layer of the new back (6.5 mm) on a 1 mm plate. The plate stands exactly where M5Stack's floor was, so nothing of the Cardputer can be there, and it joins the walls and both screw posts into one piece. It takes about an hour instead of several. Try it on the Cardputer with the battery in place. Check that the rim sits flat all round, the battery fits, the EXT socket and headphone socket line up with their openings, and the two screw holes sit over the screw inserts (an M2 screw should go in by hand). Then print the whole back.
+Print `cardputer_back_rim_test.stl`: the battery layer of the new back (6.5 mm) on a 1 mm plate. The plate stands exactly where M5Stack's floor was, so nothing of the Cardputer can be there, and it joins the walls and both screw posts into one piece. It takes about an hour instead of several. Try it on the Cardputer with the battery in place. Check that the rim sits flat all round, the battery fits, the EXT socket and headphone socket line up with their openings, and the two screw holes sit over the screw inserts (an M2 screw should go in by hand). Also check the closed-off strap corner: M5Stack's back was open there from the rim down 3.5 mm, and ours is solid. It must meet the Cardputer's corner without a gap or a bump. Then print the whole back.
 
 ## Printing
 
@@ -205,9 +216,10 @@ It writes `board.scad`, builds `cardputer_back.stl` and `cardputer_back_rim_test
 
 ### How it was checked
 
-- **Fit (every run of `./pcb case`).** OpenSCAD works out where the case overlaps any of these, and the overlap must be empty: the board in its place; the board on its way in from the rim; every part, as a box of its outline and height (6.8 mm for the GPS, 6 mm for the cuff socket, 4.25 mm for J1, 2 mm for small parts); the cable plug in front of J1; the cuff plug through its window; and the two screw heads. On 24 November it came out empty. To prove the check works, it was run on two deliberately wrong cases: no gap over the GPS, and a 3 mm shelf. Both showed an overlap.
+- **Fit (every run of `./pcb case`).** OpenSCAD works out where the case overlaps any of these, and the overlap must be empty: the board in its place; the board on its way in from the rim; every part, as a box of its outline and height (6.8 mm for the GPS, 6 mm for the cuff socket, 4.25 mm for J1, 2 mm for small parts); the cable plug in front of J1; the cuff plug through its window; and the two screw heads. On 24 November it came out empty, and again that evening after J1 moved and the lettering was added. To prove the check works, it was run on two deliberately wrong cases: no gap over the GPS, and a 3 mm shelf. Both showed an overlap.
 - **Against M5Stack's back (once, 24 November).** Both backs were cut into slices 0.05–6.4 mm below the rim, and drawn on a 0.05 mm grid. In each slice, the space M5Stack's back leaves for the Cardputer's insides was found by filling inwards from the middle. The new back has no material in that space at any of the 16 depths. As a check, a version with walls 1 mm too thick showed up at once (0.95 mm). M5Stack's model isn't kept in this repository, so this check isn't part of `./pcb case`: repeat it if the top 6.5 mm of the drawing changes.
 - **After the review's changes (24 November).** The new top 6.5 mm was compared with the version checked above, in OpenSCAD: it adds no plastic anywhere (a version made 0.2 mm thicker all over showed 690 mm³ at once). The changes there only take plastic away: the slope in the EXT wall and the wider screw holes. Both STL files come out as one piece each.
+- **After the strap corner was closed (24 November, evening).** This does add plastic to the top 6.5 mm, but only on the outside of that one corner, where M5Stack's back was open. The check above only looks at the space inside the walls, so it can't see this. Test 3 shows whether any part of the Cardputer's top half comes down into that corner.
 
 ## Files here
 
@@ -216,5 +228,7 @@ It writes `board.scad`, builds `cardputer_back.stl` and `cardputer_back_rim_test
 - `cardputer_back.stl`: the back, ready for the slicer.
 - `cardputer_back_rim_test.stl`: its battery layer on a 1 mm plate, for Test 3.
 - `cardputer_back.png`: the picture at the top of this page, drawn by `./pcb case`.
+- `viewer.html`: the case, board, screws and inserts in 3D. Open it in a browser. It has buttons for set views (back, side, cuff end, inside, board), can show the case see-through, and can load another STL file. The case model is stored inside the page, so it doesn't change when `./pcb case` runs. After changing the drawing, load the new `cardputer_back.stl` with **Load .stl**.
+- `review_2026-11-24.md`: the outside review of 24 November and what was done about each point.
 - `IMG_20261123_145254345_HDR.jpg`, `IMG_20261123_145307462_HDR.jpg`: the Cardputer ADV with its back removed, showing the battery, the EXT legs and their labels.
 - `adv3.stl`: see the licence note above. Ignored by git.

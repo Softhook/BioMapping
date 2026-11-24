@@ -191,7 +191,9 @@ correctness / structure concerns. Promote to its own doc if picked up.
 - **Server upload** — push live data on to a server (e.g. for a flight-radar
   link). The Flipper → browser half already exists as Live Stream / `live.html`;
   this is only the onward upload.
-- **Physical form factor** — 3D-printed case.
+- **Physical form factor** — 3D-printed case. Cardputer: drawn as a
+  replacement back ([hardware/case/](../hardware/case/README.md)), not yet
+  printed. Flipper: nothing yet.
 - **Cardputer battery percentage curve** — the header percentage comes from
   `M5.Power.getBatteryLevel()` (`firmware/cardputer/src/menu_cardputer.cpp`),
   which draws a straight line from 3.3 V (0%) to 4.15 V (100%). A real LiPo
