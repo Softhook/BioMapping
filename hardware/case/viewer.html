@@ -675,6 +675,24 @@ function buildAssemblyParts() {
   mk(v, [0.16, 0.17, 0.19], 0.22, 'front');
   // Cardputer LiPo battery (603075: 6.0 x 30 x 75 mm)
   v = []; addBox(v, 4.5, -51.5, 13.7, 79.5, -22.0, 19.6); mk(v, [0.76, 0.78, 0.80], 0.35, 'front');
+  // Cardputer battery plug: socket on the Cardputer's board with the plug in it, mouth towards
+  // the GPS end. Position from the photo (x 22–27.4, y 8.7–14.6); its height is not measured
+  // (measurement 2), so it is drawn 4.7 mm, a little under the battery's 6 mm.
+  v = []; addBox(v, 24.4, -8.7, 15.2, 27.4, -14.6, 19.9); mk(v, [0.86, 0.77, 0.62], 0.18, 'front');   // socket
+  v = []; addBox(v, 22.0, -9.2, 15.6, 24.4, -14.1, 19.9); mk(v, [0.95, 0.94, 0.90], 0.18, 'front');   // plug
+  // its two wires, round to the battery's end beside the GPS-end tape
+  for (const [y, colour] of [[-10.9, [0.85, 0.15, 0.12]], [-12.9, [0.10, 0.10, 0.11]]]) {
+    const w = [];
+    const pts = [[22.0, y, 17.6], [18.0, y - 0.4, 17.6], [10.0, y - 1.0, 17.6], [5.4, y - 4.6, 17.4], [4.2, -20.5, 17.2], [6.0, -22.6, 17.0]];   // clear of the long-screw post at H3
+    const fine = [];
+    for (let i = 0; i + 1 < pts.length; i++) for (let j = 0; j < 8; j++) {
+      const a = pts[Math.max(i - 1, 0)], b = pts[i], c = pts[i + 1], d = pts[Math.min(i + 2, pts.length - 1)];
+      const t = j / 8, t2 = t * t, t3 = t2 * t;
+      fine.push([0, 1, 2].map((k) => 0.5 * (2*b[k] + (-a[k] + c[k])*t + (2*a[k] - 5*b[k] + 4*c[k] - d[k])*t2 + (-a[k] + 3*b[k] - 3*c[k] + d[k])*t3)));
+    }
+    fine.push(pts[pts.length - 1]);
+    addWire(w, fine, 0.55); mk(w, colour, 0.35, 'front');
+  }
   // Cardputer brass threaded inserts at H3 & H4 (where long M2x16 screws engage 3 mm)
   v = [];
   addTubeZ(v, 13.0, -18.0, 19.9, 23.4, 1.0, 1.8, 18);
