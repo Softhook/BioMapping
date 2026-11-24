@@ -69,9 +69,7 @@ def numbers(pcb_path):
     plane = pcbnew.B_Cu if on_f > len(b.GetFootprints()) / 2 else pcbnew.F_Cu
     n["ground-face tracks"] = round(sum(pcbnew.ToMM(t.GetLength()) for t in b.GetTracks()
                                         if t.GetClass() == "PCB_TRACK" and t.GetLayer() == plane), 1)
-    gps = next((fp for fp in b.GetFootprints() if fp.GetReference() == "U4"), None)
-    if gps is None:                     # the Cardputer's flex tail: connectors only
-        return n
+    gps = next(fp for fp in b.GetFootprints() if fp.GetReference() == "U4")
     # ground vias around the GPS module: in the 50 x 50 mm plane u-blox asks
     # for, and in the 16 x 16 mm square under the module itself
     gx, gy = pcbnew.ToMM(gps.GetPosition().x), pcbnew.ToMM(gps.GetPosition().y)
@@ -93,9 +91,6 @@ def measure(root=HARDWARE, names=BOARDS):
             continue
         n = numbers(path)
         print(name)
-        if "GPS plane ground vias" not in n:        # the flex tail: nothing noise-sensitive on it
-            print(f"  connectors only; vias {n['vias']}")
-            continue
         print("  decoupling: " + ", ".join(
             f"{c}-{sup[0]} supply {n[f'{c}-{sup[0]} supply']} / ground {n[f'{c}-{gnd[0]} ground']} mm"
             for c, (sup, gnd) in DECOUPLING.items() if f"{c}-{sup[0]} supply" in n))

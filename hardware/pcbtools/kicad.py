@@ -17,15 +17,15 @@ KICAD_PYTHON = os.path.join(KICAD_APP, "Contents/Frameworks/Python.framework/Ver
 FOOTPRINT_DIR = os.path.join(KICAD_APP, "Contents/SharedSupport/footprints")
 LOCAL_FOOTPRINT_LIBS = {"BioMap": os.path.join(HARDWARE, "BioMap.pretty")}
 
-BOARDS = ("biomap_flipper", "biomap_cardputer", "biomap_cardputer_tail")
+BOARDS = ("biomap_flipper", "biomap_cardputer")
 
 
 def board_name(arg):
-    """Accept 'flipper' as well as 'biomap_flipper', and 'tail' for the Cardputer's flex tail."""
+    """Accept 'flipper' as well as 'biomap_flipper'."""
     for b in BOARDS:
-        if arg in (b, b.split("_", 1)[1]) or (arg == "tail" and b.endswith("_tail")):
+        if arg in (b, b.split("_", 1)[1]):
             return b
-    sys.exit(f"unknown board {arg!r}: use one of {', '.join(BOARDS)} (or flipper / cardputer / tail)")
+    sys.exit(f"unknown board {arg!r}: use one of {', '.join(BOARDS)} (or flipper / cardputer)")
 
 
 def board_file(name, ext, root=HARDWARE):

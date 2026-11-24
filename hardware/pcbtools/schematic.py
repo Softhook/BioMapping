@@ -1,10 +1,8 @@
 """Generate the KiCad schematics, project files and BOMs for the BioMapping
-boards: the Flipper board, the Cardputer board and the Cardputer's flex tail
-(a flexible strip soldered to the Cardputer board, with the EXT header on its
-other end).
+boards: the Flipper board and the Cardputer board.
 
 Two separate descriptions of each board live here:
-  * FLIPPER / CARDPUTER / CARDPUTER_TAIL parts tables - which pin connects to which net.
+  * FLIPPER / CARDPUTER parts tables - which pin connects to which net.
     This is the intent.
   * draw_* functions - where each symbol sits on the sheet and how the wires
     run. This is the drawing.
@@ -149,8 +147,6 @@ SYMS = {
     "Conn_1x02": header("Conn_01x02", 2),
     "Conn_1x08": header("Conn_01x08", 8),
     "Conn_1x10": header("Conn_01x10", 10),
-    "Conn_2x07": dict(box("Conn_02x07_Odd_Even", "J", left=[(str(i), f"Pin_{i}") for i in range(1, 15, 2)],
-                          right=[(str(i), f"Pin_{i}") for i in range(2, 15, 2)], width=5.08), show_names=False),
     "TP": sym("TestPoint", "TP", {1: dict(pins=[pin("1", "1", 0, 0, 90, 0)],
                                           body=circle(0, 2.032, 0.762) + poly((0, 0), (0, 1.27), width=0))},
               show_numbers=False),
@@ -316,11 +312,6 @@ FLIPPER = gsr_core() + gps_block() + [
     part("R7", "R", "4.7k", FP_R, {"1": "+3V3", "2": "I2C_SCL"}, "I2C pull-up"),
 ]
 
-# The flex tail's pads (the tail board only; the Cardputer board now takes a
-# cable instead, below). Tail pad k sat on the old board's landing pad k.
-TAIL_NETS = {"1": "ADC_READY", "2": "GND", "3": "+5V_EXT", "4": "I2C_SCL", "5": "I2C_SDA", "6": "GND",
-             "7": "HOST_TX_TO_GPS", "8": "GPS_TX_TO_HOST"}
-
 # The board sits inside a printed back case (hardware/case/README.md) and
 # meets the Cardputer through a short cable: its wires are soldered inside the
 # Cardputer onto the EXT header's legs, and its plug latches into J1, a JST GH
@@ -358,19 +349,6 @@ CARDPUTER = gsr_core(adc_ready="ADC_READY", tantalum_bias=True) + gps_block(back
 ]
 # No pull-up on ADC_READY (the ADS1115's ALERT/RDY pin is open-drain): the
 # firmware turns on the ESP32's own pull-up on G4.
-
-CARDPUTER_TAIL = [
-    part("J1", "Conn_2x07", "Cardputer ADV EXT header", "BioMap:PinHeader_2x07_P2.54mm_Vertical_Stiffener",
-         {"1": None, "2": None, "3": "ADC_READY", "4": "GND", "5": "I2C_SCL", "6": "+5V_EXT", "7": None,
-          "8": None, "9": None, "10": None, "11": None, "12": "HOST_TX_TO_GPS",
-          "13": "I2C_SDA", "14": "GPS_TX_TO_HOST"},
-         "M5 pin table numbering: 3 G4 (ADC ready), 4 GND, 5 G6 SCL, 6 5V OUT, 12 G13, 13 G5 SDA, 14 G15. "
-         "Pin 2 is 5V IN - never connect. Pins 8 and 10 (G8/G9, the Cardputer's own I2C bus) stay open. "
-         "CHECK numbering and mirroring before ordering. Through-hole, "
-         "through the tail's stiffened end. Any 2.54 mm straight 2x7 male header"),
-    part("J2", "Conn_1x08", "Flex tail solder pads", "BioMap:FlexTail_Solder_1x08_P1.50mm", TAIL_NETS,
-         "Plated pads with 0.7 mm holes, soldered onto the Cardputer board's landing pads. Pad k = board pad k"),
-]
 
 # ── Drawing helpers ───────────────────────────────────────────────────────
 
@@ -791,7 +769,7 @@ def draw_flipper_conn(s, x0, y0):
     s.power("J1.8", "GND", n=2)
     draw_pullups(s, x0 + g(26), y0 + g(29))
 
-def tail_pads(s, ref, x, y, nets=TAIL_NETS):
+def conn_pads(s, ref, x, y, nets):
     """An 8-way connector: ground pins to GND symbols, the rest to labels."""
     s.put(ref, x, y)
     for pn, net in nets.items():
@@ -806,7 +784,7 @@ def draw_cardputer_conn(s, x0, y0):
     s.frame(x0, y0, g(38), H1, "4  Cable to the EXT header's legs",
             ["Wires to EXT legs: " + " ".join(f"{k} {v}" for k, v in CABLE_LEGS.items()) + ".",
              "R6/R7: the Cardputer has no pull-ups on G3/G5."])
-    tail_pads(s, "J1", x0 + g(6), y0 + g(14), CABLE_NETS)
+    conn_pads(s, "J1", x0 + g(6), y0 + g(14), CABLE_NETS)
     s.flag((s.pins["J1.3"][0] + G, s.pins["J1.3"][1]))
     for i, ref in enumerate(("H1", "H2", "H3", "H4")):
         s.put(ref, x0 + g(6) + g(6) * (i % 2), y0 + g(31) + g(4) * (i // 2))
@@ -837,25 +815,8 @@ def draw_regulator(s, x0, y0):
     s.power((c5x + g(4), line), "+3V3")
     s.flag((c5x + g(2), line))
 
-def draw_tail(s):
-    s.frame(g(8), ROW1, g(40), H1, "1  Cardputer ADV EXT header",
-            "Pin 2 (5 V in) stays open. Straight header through the tail's stiffened end.")
-    s.put("J1", g(18), ROW1 + g(19))
-    s.nc(*[f"J1.{i}" for i in (1, 7, 9, 11, 2, 8, 10)])
-    s.power("J1.4", "GND", n=2)
-    s.flag((s.pins["J1.4"][0] + G, s.pins["J1.4"][1]))
-    for pn, net in (("3", "ADC_READY"), ("5", "I2C_SCL"), ("13", "I2C_SDA"), ("6", "+5V_EXT"),
-                    ("12", "HOST_TX_TO_GPS"), ("14", "GPS_TX_TO_HOST")):
-        s.label(f"J1.{pn}", net, n=4)
-    s.frame(g(52), ROW1, g(40), H1, "2  Solder pads onto the Cardputer board",
-            "Pad k lies on the Cardputer board's landing pad k.")
-    tail_pads(s, "J2", g(60), ROW1 + g(14))
-
 def draw_sheet(name, parts):
     s = Sheet(parts)
-    if name == "biomap_cardputer_tail":
-        draw_tail(s)
-        return s
     draw_tia(s, g(8), ROW2)
     draw_ref(s, g(69), ROW2)
     draw_adc(s, g(112), ROW2, ready=(name == "biomap_cardputer"))
@@ -904,7 +865,7 @@ def write_project(out, name, title, parts):
         f.write("Designator,Qty,Value,Footprint,Manufacturer,MPN,LCSC,Fit,Note\n")
         for (value, fp, mpn), ps in sorted(rows.items(), key=lambda kv: refkey(min((p["ref"] for p in kv[1]), key=refkey))):
             refs = " ".join(sorted((p["ref"] for p in ps), key=refkey))
-            fit = ("bare pad" if ps[0]["key"] == "TP" or "FlexTail" in fp
+            fit = ("bare pad" if ps[0]["key"] == "TP"
                    else "through-hole" if "PinHeader" in fp
                    else "by hand" if "JST_GH" in fp else "SMD")
             notes = {p["note"] for p in ps}
@@ -936,8 +897,7 @@ def write_project_file(path, name, root):
 
 
 TITLES = {"biomap_flipper": ("BioMapping 2 - Flipper Zero board", FLIPPER),
-          "biomap_cardputer": ("BioMapping 2 - Cardputer ADV Cap", CARDPUTER),
-          "biomap_cardputer_tail": ("BioMapping 2 - Cardputer ADV flex tail", CARDPUTER_TAIL)}
+          "biomap_cardputer": ("BioMapping 2 - Cardputer ADV Cap", CARDPUTER)}
 
 
 def expected_nets(name):

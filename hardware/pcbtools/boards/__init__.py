@@ -1,4 +1,4 @@
 """One module per board, holding its hand-written layout (see flipper.py)."""
-from . import cardputer, cardputer_tail, flipper
+from . import cardputer, flipper
 
-LAYOUTS = {"biomap_flipper": flipper, "biomap_cardputer": cardputer, "biomap_cardputer_tail": cardputer_tail}
+LAYOUTS = {"biomap_flipper": flipper, "biomap_cardputer": cardputer}

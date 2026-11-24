@@ -10,7 +10,7 @@ import tempfile
 from .kicad import BOARDS, board_file, board_name, export_netlist, hide_kicad_noise
 
 
-def boards_arg(p, help_text="flipper, cardputer or tail (default: all three)"):
+def boards_arg(p, help_text="flipper or cardputer (default: both)"):
     p.add_argument("boards", nargs="*", metavar="board", help=help_text)
 
 
@@ -148,7 +148,7 @@ def main(argv=None):
                    help="also rerun on deliberately worse boards, to show the model notices a bad ground")
     p = add("parts", cmd_parts, "Pad positions, nets and keep-out boxes of the named parts (all if none), "
                                 "as the layout places them. Use before moving a part. Changes nothing.")
-    p.add_argument("board", help="flipper, cardputer or tail")
+    p.add_argument("board", help="flipper or cardputer")
     p.add_argument("refs", nargs="*", metavar="REF", help="e.g. U1 C1")
     p = add("render", cmd_render, "Pictures of each schematic and both faces of each board (needs ImageMagick).")
     boards_arg(p)
@@ -158,7 +158,7 @@ def main(argv=None):
                    "file, and ORDER.txt (order-form choices). Runs the full check first and writes nothing "
                    "if it fails."))
     p = add("print", cmd_print,
-            "A full-size PDF of the Cardputer board and its flex tail, seen from outside, to print at 100%%, "
+            "A full-size PDF of the Cardputer board, seen from outside, to print at 100%%, "
             "cut out and hold against a real Cardputer. With two 100 mm rulers to check the printer's scale.")
     p.add_argument("--out", help="PDF to write (default: hardware/out/biomap_cardputer_print.pdf)")
     p = add("case", cmd_case,

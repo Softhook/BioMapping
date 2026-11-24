@@ -4,7 +4,7 @@ A new back for the Cardputer ADV, printed in one piece. It replaces M5Stack's ow
 
 **Status (24 November 2026, evening):** drawn, not yet printed or ordered. The circuit board (rev G) is laid out to fit inside the case, and its checks pass (`./pcb check cardputer`: no ERC or DRC problems, all 18 layout limits met). The case's STL files are made from `cardputer_back.scad`. In 3D, the board, every part, both plugs and the screw heads clear the case (`./pcb case`). Both checks were run again after the last changes below.
 
-An outside review of the case and board was checked and acted on the same day ([review_2026-11-24.md](review_2026-11-24.md)). Its four open questions are now decided:
+An outside review of the case and board (24 November) was acted on the same day. Its four open questions are now decided:
 
 - No wrist strap: the strap corner and its pin are gone, and that corner is a plain rounded corner.
 - The device is carried GPS side up. `Bio Mapping 2` and a rounded `GPS` box over the module are pressed into the outside of the floor.
@@ -229,6 +229,5 @@ It writes `board.scad`, builds `cardputer_back.stl` and `cardputer_back_rim_test
 - `cardputer_back_rim_test.stl`: its battery layer on a 1 mm plate, for Test 3.
 - `cardputer_back.png`: the picture at the top of this page, drawn by `./pcb case`.
 - `viewer.html`: the case, board, screws and inserts in 3D. Open it in a browser. It has buttons for set views (back, side, cuff end, inside, board), can show the case see-through, and can load another STL file. The case model is stored inside the page, so it doesn't change when `./pcb case` runs. After changing the drawing, load the new `cardputer_back.stl` with **Load .stl**.
-- `review_2026-11-24.md`: the outside review of 24 November and what was done about each point.
 - `IMG_20261123_145254345_HDR.jpg`, `IMG_20261123_145307462_HDR.jpg`: the Cardputer ADV with its back removed, showing the battery, the EXT legs and their labels.
 - `adv3.stl`: see the licence note above. Ignored by git.

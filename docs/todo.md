@@ -4,7 +4,6 @@ Loose ideas and unscheduled work. Promote anything real to its own doc under `do
 
 ## Priority
 
-
 - **Sound annotations** — allow people to record little audio snippets attached
   to peaks and hotspots. Investigate how they could be saved on the server and
   then played back. Maybe these could be from an audio file recorded at the same
@@ -19,23 +18,9 @@ Loose ideas and unscheduled work. Promote anything real to its own doc under `do
 
 ## Firmware architecture (structural refactor)
 
-From a full read of `firmware/` (2026-09-13). Re-checked 2026-09-26: the two
-worthwhile items were done, the rest judged not worth doing (reasons below,
-so they don't get re-proposed).
-
-**Done**
-
-- **P2 — Shared save code (small version, 2026-09-26).** The GSR calibration
-  and settings saves in `biomap.c` now share one `write_file_atomic()`
-  helper (write `.tmp`, then rename). Earlier, `5aa9a21` (2026-09-25) had
-  already given them one shared FNV-1a checksum in `biomap_format.c`.
-- **P4 — Slim `biomap.h` (`5aa9a21`, 2026-09-25).** The saved-file structs
-  moved to `biomap_format.h`.
-- **P5 — One "RF active" rule (2026-09-26).** The screen check in
-  `biomap_render.c` is now `has_rf(mode) && !is_diag` instead of listing
-  the RF modes by name, so a new RF mode can't be scanned but not drawn.
-- **P6 — Hygiene, 2 of 3 (2026-09-17).** `PluginEvent` → `BioMapEvent`
-  rename and `gps_uart.h` include reorder.
+From a full read of `firmware/` (2026-09-13). The worthwhile items are done.
+These were judged not worth doing (reasons kept so they don't get proposed
+again).
 
 **Decided against**
 
@@ -111,17 +96,8 @@ High-level review of the GPS filter chain (`src/gps/gps_pipeline.mjs`,
 `gps_filtering_pipeline.md`). The perf engineering is sound — these are
 correctness / structure concerns. Promote to its own doc if picked up.
 
-### Done (2026-09-25)
-
-- The GPS filter is now a single textbook constant-velocity Kalman filter +
-  backwards smoother (`gps_cv_kalman.mjs`); the old filter code is gone.
-- [`gps_filter_review.md`](gps_filter_review.md) has been worked through. The
-  top problem (restarting after only 0.5 s of skipped fixes, so bad stretches
-  were drawn as spikes) is fixed: it now waits 10 s (`RESET_AFTER_S`) and
-  rewinds to where the bad stretch began. The review doc records what was
-  fixed, tested and rejected, or left alone.
-- The Flipper now sends hAcc over Live Stream too, and the L76K GPS chip has
-  been dropped (M10Q only).
+What was fixed, tested and rejected, or left alone is in
+[`gps_filter_review.md`](gps_filter_review.md).
 
 ### Open items
 
@@ -135,8 +111,6 @@ correctness / structure concerns. Promote to its own doc if picked up.
   cap does the job better. The app now only uses `buildDrawPoints`;
   `GpsPipeline.downsampleForDisplay` has no callers left outside the tests
   (checked 2026-09-28), so it could simply be removed.
-
-
 
 ### Smaller notes
 

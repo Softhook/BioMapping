@@ -1,5 +1,5 @@
 """Build a placed and hand-routed .kicad_pcb from a KiCad netlist and the
-board's layout file (boards/flipper.py, cardputer.py, cardputer_tail.py). Needs KiCad's
+board's layout file (boards/flipper.py, cardputer.py). Needs KiCad's
 Python (pcbnew).
 
 Every part position and every track is written out by hand in the layout
@@ -380,37 +380,18 @@ def solid_ground_pads(board):
     """Join these GND pads to the pour with solid copper, not thin spokes:
     the ADS1115 (U2), whose tight pitch leaves no room for spokes at the
     sides, and the GPS (U4), whose antenna uses the board's ground, so every
-    ground pad should join it as fully as possible.
-
-    The flex tail's landing pads get spokes on purpose: they are soldered by
-    hand through the tail's holes, and a pad joined solidly to both ground
-    planes soaks up the iron's heat and gives a cold joint. Their pitch leaves
-    no pour beside them, so the spokes reach each pad from its two short
-    ends."""
+    ground pad should join it as fully as possible."""
     for fp in board.GetFootprints():
-        land = str(fp.GetFPID().GetLibItemName()).startswith("FlexTail_Land")
-        if fp.GetReference() in ("U2", "U4") or land:
+        if fp.GetReference() in ("U2", "U4"):
             for p in fp.Pads():
                 if p.GetNetname().lstrip("/") == "GND":
-                    p.SetLocalZoneConnection(pcbnew.ZONE_CONNECTION_THERMAL if land
-                                             else pcbnew.ZONE_CONNECTION_FULL)
+                    p.SetLocalZoneConnection(pcbnew.ZONE_CONNECTION_FULL)
 
 def widen_mask(fps, margins):
     """Open the solder mask this many mm wider than each pad, all round, for
     the parts named (ref -> mm). Overrides the footprint's own margin."""
     for ref, mm in margins.items():
         fps[ref].SetLocalSolderMaskMargin(MM(mm))
-
-def add_markings(board, markings):
-    """Outlines and notes for the factory on the drawings layer, e.g. where
-    the flex tail's stiffener goes: (rectangle (x1, y1, x2, y2), note)."""
-    for (x1, y1, x2, y2), note in markings:
-        r = pcbnew.PCB_SHAPE(board); r.SetShape(pcbnew.SHAPE_T_RECT)
-        r.SetStart(V(x1, y1)); r.SetEnd(V(x2, y2)); r.SetLayer(pcbnew.Dwgs_User); r.SetWidth(MM(0.1))
-        board.Add(r)
-        t = pcbnew.PCB_TEXT(board)
-        t.SetText(note); t.SetLayer(pcbnew.Dwgs_User); t.SetTextSize(V(0.6, 0.6)); t.SetTextThickness(MM(0.09))
-        t.SetPosition(V((x1 + x2) / 2, y2 + 1.0)); board.Add(t)
 
 def build(name, net_path, pcb_path):
     """Lay out one board from its netlist and layout file and save it to pcb_path."""
@@ -426,9 +407,7 @@ def build(name, net_path, pcb_path):
     guard = getattr(lay, "GUARD", None)
     n = add_stitching(board, nets, fps, lay.STITCH, guard)
     place_labels(board, fps, lay.LABELS)
-    add_markings(board, getattr(lay, "MARKINGS", []))
-    if getattr(lay, "GROUND_POUR", True):  # the flex tail has none: solid copper would stiffen the bend
-        add_ground(board, nets["GND"], guard)
+    add_ground(board, nets["GND"], guard)
     add_guard(board, nets, guard)
     solid_ground_pads(board)
     board.BuildConnectivity()       # the fill needs it to tell connected guard copper from loose pieces

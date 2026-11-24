@@ -6,9 +6,8 @@ Two KiCad 10 projects. Both carry the same GSR circuit as [docs/wiring_guide.md]
 |---|---|---|---|
 | `biomap_flipper/` | Flipper Zero GPIO | 72 × 52 mm, stands up from the Flipper's top edge | Flipper's 3.3 V (pin 9) |
 | `biomap_cardputer/` | A short cable inside the Cardputer, soldered to the EXT socket's legs | 79.8 × 49.8 mm, inside a printed back case ([case/](case/)) | Own 3.3 V regulator (TLV75533), fed from EXT 5 V out |
-| `biomap_cardputer_tail/` | Cardputer ADV EXT socket | Flexible strip, 24 mm long; stiff 20 × 8 mm plug end | Not used: it fitted the 84 × 54 mm board (rev F), which screwed onto M5Stack's own back |
 
-All three boards are placed and routed. KiCad's checks pass on all of them: the wiring check (ERC) and the design rules check (DRC) show 0 errors and 0 warnings, nothing is unconnected, and each board matches its schematic.
+Both boards are placed and routed. KiCad's checks pass on both: the wiring check (ERC) and the design rules check (DRC) show 0 errors and 0 warnings, nothing is unconnected, and each board matches its schematic.
 
 ## How the schematic is drawn
 
@@ -113,8 +112,6 @@ The pins and their legs are printed on the inner face beside the socket. The cas
 
 The firmware still uses G6 for the ADC clock (`GSR_SCL_PIN` in `firmware/cardputer/src/gsr_cardputer.cpp`), because the prototype is wired that way. Change it to 3 once Test 1 in the case README has confirmed G3.
 
-The flex tail (`biomap_cardputer_tail/`) fitted the 84 × 54 mm board that screwed onto M5Stack's back. It doesn't fit this board. Its files are kept, and `./pcb build` still builds and checks it.
-
 ## Check before ordering (both boards)
 
 - **Soldering the GPS module.** Its pads sit underneath it, so it needs an oven or a hotplate. u-blox advises against a hot air gun, which can overheat and damage the module. Follow u-blox's soldering profile and use no-clean flux. Don't wash the board afterwards with water, alcohol or an ultrasonic cleaner; the manual warns that each one can damage the module.
@@ -147,20 +144,19 @@ These come from M5Stack's 3D model and from photos, not from measurements of a r
 
 The ways of getting the boards made (UK assembler, JLCPCB, or by hand) and rough costs are in [BUILD_COSTS.md](BUILD_COSTS.md).
 
-`./pcb fab` (or `./pcb fab cardputer tail`) first runs every check that `./pcb check` runs. If any fails, it writes nothing. Otherwise it fills a folder `out/fab/<board>/` for each board:
+`./pcb fab` (or `./pcb fab cardputer`) first runs every check that `./pcb check` runs. If any fails, it writes nothing. Otherwise it fills a folder `out/fab/<board>/` for each board:
 
 | File | What it's for |
 |---|---|
 | `<board>_gerbers.zip` | Upload this to have the bare board made: one drawing (Gerber file) per layer, plus the drill files |
-| `<board>_bom_jlcpcb.csv` | The parts list, in JLCPCB's format (not for the tail) |
-| `<board>_cpl_jlcpcb.csv` | Where the machine puts each part, in JLCPCB's format (not for the tail) |
+| `<board>_bom_jlcpcb.csv` | The parts list, in JLCPCB's format |
+| `<board>_cpl_jlcpcb.csv` | Where the machine puts each part, in JLCPCB's format |
 | `ORDER.txt` | What to choose on the order form, the oven limits, and what to check in the factory's preview |
 | `gerbers/` | The zip's contents, to look at in KiCad's GerbView |
 
 - **Part rotation.** JLCPCB's machines hold some parts at a different starting angle from KiCad. Their placement preview shows each part on the board: check every chip's pin 1 dot, the diode's stripe and the backup cell's + side. If a part comes out turned, rotate it there, then add its footprint and the angle to `ROTATION_FIX` in `pcbtools/fab.py`, so the next order comes out right without fixing it again.
 - **The Cardputer's cable socket** (J1) is on the other face from every other part, so it is left out of the parts list and placement file: solder it by hand.
-- **The tail** has no parts list: it is a bare flex board, and its header is soldered by hand. Its stiffener outline is in the `User_Drawings` file in the zip: tell the factory that file is the stiffener drawing.
-- The parts list comes from each board's `bom.csv`, which `./pcb build` writes. Bare pads (test pads, the tail's landing pads) and parts soldered by hand are left out.
+- The parts list comes from each board's `bom.csv`, which `./pcb build` writes. Bare pads (test pads) and parts soldered by hand are left out.
 - `out/` isn't saved in git, so keep a copy of the zip you actually send.
 
 ## Tools
@@ -176,7 +172,7 @@ Everything is done with one command, `./pcb`, run from this folder. It needs KiC
 
 | Path | What it holds |
 |---|---|
-| `pcbtools/boards/flipper.py`, `cardputer.py`, `cardputer_tail.py` | **The layouts.** Every part's position and every trace, written out by hand. This is what you edit to change a layout. |
+| `pcbtools/boards/flipper.py`, `cardputer.py` | **The layouts.** Every part's position and every trace, written out by hand. This is what you edit to change a layout. |
 | `pcbtools/schematic.py` | The parts lists (which pin joins which net, what to buy) and the schematic drawings. Edit this to change the circuit or the BOM. |
 | `pcbtools/rules.py` | Track widths, via size and the 0.15 mm clearance, plus the extra DRC rules written to each board's `.kicad_dru` (below). |
 | `pcbtools/limits.py` | Layout limits: how far each decoupling capacitor may be from its chip, how long the GSR wires may be, how many ground vias the GPS needs, how much track may cut the ground plane. |
@@ -194,7 +190,7 @@ Everything is done with one command, `./pcb`, run from this folder. It needs KiC
 5. `./pcb measure --compare` shows the numbers for the last commit next to yours, so you can see whether the change helped.
 6. `./pcb render` draws pictures into `out/` to check by eye.
 
-Units are mm and y points down, as in KiCad. Write tracks with square corners: on the Cardputer board and tail, `BEVEL` at the top of the layout file cuts every square corner at 45 degrees when the board is built (never at a pad or where another track joins). A track can set its own size, or `{"bevel": 0}` to stay square where a cut corner would come too close to a pad. For a part on the back face, `./pcb footprint RF_GPS ublox_SAM-M8Q B 13 17` shows where its pads land at each rotation (back-face parts come out mirrored).
+Units are mm and y points down, as in KiCad. Write tracks with square corners: on the Cardputer board, `BEVEL` at the top of the layout file cuts every square corner at 45 degrees when the board is built (never at a pad or where another track joins). A track can set its own size, or `{"bevel": 0}` to stay square where a cut corner would come too close to a pad. For a part on the back face, `./pcb footprint RF_GPS ublox_SAM-M8Q B 13 17` shows where its pads land at each rotation (back-face parts come out mirrored).
 
 ### Commands
 
@@ -232,7 +228,7 @@ Units are mm and y points down, as in KiCad. Write tracks with square corners: o
 
 `build` writes a `.kicad_dru` file next to each board. KiCad's DRC reads it, both in `./pcb check` and in the PCB editor while you work. It adds:
 
-- **JLCPCB's limits** that are stricter than KiCad's own: drilled holes at least 0.45 mm apart (vias 0.2 mm), at least 0.18 mm of copper round each plated pad hole, and printed text at least 1.0 mm tall with 0.15 mm lines (the sizes are set in `rules.py` as `TEXT` and `TEXT_LINE`). All three boards get these.
+- **JLCPCB's limits** that are stricter than KiCad's own: drilled holes at least 0.45 mm apart (vias 0.2 mm), at least 0.18 mm of copper round each plated pad hole, and printed text at least 1.0 mm tall with 0.15 mm lines (the sizes are set in `rules.py` as `TEXT` and `TEXT_LINE`). Both boards get these.
 - **No ground track or via inside the 0.5 V guard.**
 - **The skin-current wires** (amplifier input and cuff 2) kept 0.3 mm from all copper except the 0.5 V reference.
 
@@ -255,7 +251,7 @@ Another counts the track length on the ground-plane face (the face with no parts
 
 `./pcb ground` checks the Cardputer board's ground copper by working out the current through it, not just its shape. The GSR reading rests on the 0.5 V across the skin, and that 0.5 V lies between two ground points: the cuff's ground (R3) and the ground under the bias divider (R2, C9). Current crossing the ground between them adds a little to the 0.5 V and so changes the reading.
 
-The tool cuts both copper faces into 0.1 mm squares, joins them through the vias, and leads the cable's two ground wires from the socket's ground pins (J1 pins 3 and 7) to the EXT socket's ground leg, which is the Cardputer's ground. Then it sends the GPS's 10 mA (its datasheet's tracking current) in at the GPS's ground pads, and separately the 0.7 mA the ADC sinks when it holds SDA low, and works out the voltage everywhere. It prints how far apart the two ground points move, what that does to a reading on a 47k resistor and on skin, and how it compares with the ADC's own noise (about 7 µV per reading). On today's board (rev G) the GPS moves them 1.4 µV apart: about 0.07 nS on 47k, and 5 times smaller than the ADC's noise. The cable's ground comes in above the GSR circuit, so the GPS current passes closer to it than it did with the flex tail (0.5 µV), but the effect is still far below the measured noise (about 2 nS on 47k).
+The tool cuts both copper faces into 0.1 mm squares, joins them through the vias, and leads the cable's two ground wires from the socket's ground pins (J1 pins 3 and 7) to the EXT socket's ground leg, which is the Cardputer's ground. Then it sends the GPS's 10 mA (its datasheet's tracking current) in at the GPS's ground pads, and separately the 0.7 mA the ADC sinks when it holds SDA low, and works out the voltage everywhere. It prints how far apart the two ground points move, what that does to a reading on a 47k resistor and on skin, and how it compares with the ADC's own noise (about 7 µV per reading). On today's board (rev G) the GPS moves them 1.4 µV apart: about 0.07 nS on 47k, and 5 times smaller than the ADC's noise. The cable's ground comes in above the GSR circuit, so the GPS current passes closer to it than it did on rev F (0.5 µV), but the effect is still far below the measured noise (about 2 nS on 47k).
 
 It also prints how many separate pieces of ground each face has, with how many vias each, any wire on the outer face with no ground under it on the inner face, and the point on the board farthest from a ground via.
 

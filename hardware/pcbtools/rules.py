@@ -48,6 +48,6 @@ GSR_RULES = """
 
 
 def custom_rules(has_guard):
-    """The .kicad_dru text for one board. Boards without the GSR circuit (the
-    flex tail) get only the board maker's limits."""
+    """The .kicad_dru text for one board. A board without the GSR circuit's
+    guard would get only the board maker's limits."""
     return "(version 1)\n" + MAKER_RULES + (GSR_RULES if has_guard else "")

@@ -9,9 +9,6 @@ board, written to out/fab/<board>/:
                           check in the factory's preview
   gerbers/                the zip's contents, to open in KiCad's GerbView
 
-The flex tail has no parts list or placement file: it is a bare flex board,
-and its header is soldered by hand.
-
 The board is checked first (the same checks as ./pcb check), and nothing is
 written if any fails: files from a board with a fault are worse than none."""
 import csv
@@ -26,9 +23,6 @@ from .kicad import HARDWARE, OUT, board_file, cli
 FAB_OUT = os.path.join(OUT, "fab")
 
 RIGID = ["F.Cu", "B.Cu", "F.Paste", "B.Paste", "F.Silkscreen", "B.Silkscreen", "F.Mask", "B.Mask", "Edge.Cuts"]
-# The tail: no paste (nothing is machine-soldered). The mask layers become the
-# coverlay openings, and the drawings layer carries the stiffener's outline.
-FLEX = ["F.Cu", "B.Cu", "F.Silkscreen", "B.Silkscreen", "F.Mask", "B.Mask", "Edge.Cuts", "User.Drawings"]
 
 # JLCPCB's machines take some footprints at a different zero angle from
 # KiCad's. Their placement preview shows any part that comes out turned: put
@@ -65,15 +59,6 @@ BOARDS = {
         "Assembly: top face. J1 and J4 are through-hole headers: the factory fits them for an",
         "extra fee, or leave them out of the parts list and solder them yourself.",
         *CONSIGNED, *OVEN]),
-    "biomap_cardputer_tail": dict(layers=FLEX, assembled=False, notes=[
-        "Order as a FLEX board: 2 layers, polyimide, with coverlay on both sides.",
-        "Stiffener: FR4, 1.0 mm, on the F (top) side over the plug end, drilled for the header.",
-        "Its outline is the 'STIFFENER' rectangle in the drawings-layer file",
-        "(*-User_Drawings.gbr in the zip): tell the factory that file is the stiffener drawing.",
-        "Surface finish: ENIG.",
-        "No assembly: the 2 x 7 header is soldered by hand (hardware/README.md, 'Soldering it on').",
-        "Not used by the Cardputer board since rev G (a cable inside the printed case instead).",
-    ]),
 }
 
 
@@ -139,10 +124,9 @@ def board_facts(pcb):
 
 def write_order(name, pcb, folder, spec, rows):
     w, h, thick, layers = board_facts(pcb)
-    rigid = "" if spec["layers"] is FLEX else f", {thick:g} mm FR4"
     lines = [f"{name}: order notes (written by ./pcb fab)", "",
              f"Upload: {name}_gerbers.zip",
-             f"Board: {layers} copper layers, {w:.1f} x {h:.1f} mm{rigid}", ""]
+             f"Board: {layers} copper layers, {w:.1f} x {h:.1f} mm, {thick:g} mm FR4", ""]
     lines += spec["notes"]
     if spec["assembled"]:
         polar = [ref for r in rows for ref in r["Designator"].split()
