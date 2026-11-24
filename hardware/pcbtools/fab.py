@@ -146,7 +146,7 @@ def write_order(name, pcb, folder, spec, rows):
     lines += spec["notes"]
     if spec["assembled"]:
         polar = [ref for r in rows for ref in r["Designator"].split()
-                 if ref.rstrip("0123456789") in ("U", "D", "BT", "J", "Q")]
+                 if ref.rstrip("0123456789") in ("U", "D", "BT", "J", "Q") or r["Footprint"].startswith("CP_")]
         lines += ["", f"Parts list: {name}_bom_jlcpcb.csv   Placement: {name}_cpl_jlcpcb.csv",
                   "In the placement preview, check that every part sits on its pads, and the pin 1",
                   f"dot, stripe or + side of: {' '.join(polar)}.",

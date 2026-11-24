@@ -41,6 +41,8 @@ screw_engage = 3;
 board_screw_inserts = true;
 // A finger scoop in the end wall round the cuff window, so the cuff plug can be gripped
 cuff_scoop = true;
+// Text debossed into the outside of the floor (empty for a plain back)
+back_text = "Bio Mapping 2";
 // What to make: back, rim_test (the battery layer on a 1 mm plate, to try the fit), assembly (a picture), fit_check
 part = "back"; // [back, rim_test, assembly, fit_check]
 
@@ -82,7 +84,10 @@ insert_d = 3.2; insert_depth = 4;  // or for an M2 heat-set insert (3.2 mm hole,
 cuff_h = 6.0;                      // window in the end wall for the cuff plug, below the board:
 cuff_w = cuff_socket[2] + 0.6;     // as wide as the socket, and this tall ...
 cuff_up = 0.5;                     // ... plus this much above the board's face, so a sagging top can't rub the plug
-scoop_w = 16; scoop_d = 2.5;       // the finger scoop round it: width along the wall, and depth
+scoop_w = 18; scoop_d = 1.8;       // the finger scoop round it: width along the wall, and depth
+text_size = 6.0; text_depth = 0.4; // back lettering: 2 layers deep on a 0.2 mm print (1.6 mm floor remains)
+text_y = 35;                       // optically centred in the open space between the screw holes (y 20.2) and the keyboard edge
+text_font = "Helvetica Neue:style=Bold";
 
 // ── the stack, from the floor up ──
 part_h = max([for (p = parts_B) p[4]]);        // the tallest part on the board's outer face: the GPS
@@ -190,15 +195,21 @@ module holes() {
     translate([cuff_socket[0] - 2, cuff_socket[1] - cuff_w / 2, z_board_B - cuff_h])
         cube([L - cuff_socket[0] + 4, cuff_w, cuff_h + cuff_up]);
     if (cuff_scoop) scoop();
+    // debossed lettering on the outside of the floor, centred. Rotated 180 degrees here so that
+    // after the final mirror([0, 1, 0]) it reads left-to-right, right-side-up when viewing the
+    // back of the Cardputer with the EXT / screen edge at the top
+    if (back_text != "")
+        translate([L / 2, text_y, -eps]) rotate([0, 0, 180]) linear_extrude(text_depth + eps)
+            text(back_text, size = text_size, font = text_font, halign = "center", valign = "center", $fn = 24);
 }
 
 // A shallow dip in the end wall round the cuff window, so a finger and thumb reach the sides of
 // the plug: part of a big upright cylinder, scoop_w wide where it meets the wall and scoop_d
-// deep. Its top slopes back at 45 degrees, so it never overhangs; the slope starts a little
-// below the board, which keeps the wall beside the board whole
+// deep. Starts level with the window floor (keeping full wall thickness below it) and slopes
+// back at 45 degrees so it clears the bridge over the window before z_board_B + cuff_up
 module scoop() {
     r = (pow(scoop_w / 2, 2) + pow(scoop_d, 2)) / (2 * scoop_d);
-    z0 = z_board_B - cuff_h - 1; z1 = z_board_B - 0.5;
+    z0 = z_board_B - cuff_h; z1 = z_board_B - 1.4;
     translate([L - scoop_d + r, cuff_socket[1], 0]) hull() {
         translate([0, 0, z0]) cylinder(r = r, h = z1 - z0);
         translate([scoop_d, 0, z1 + scoop_d]) cylinder(r = r, h = eps);
