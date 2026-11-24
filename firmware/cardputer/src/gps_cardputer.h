@@ -9,12 +9,14 @@
 
 #include "gps_uart.h"
 
-// Opens the port and puts the module to sleep, whatever state it is in
-// (core: gps_uart_sleep_from_unknown_state()). Call once, from setup().
-// Takes up to about 2 s. The port then stays open until power-off: a
-// released port would let the module's receive wire float, and a sleeping
-// M10Q wakes on any signal there.
-void gps_cardputer_port_open(void);
+// Opens the port, polls UBX-NAV-TIMEUTC once for the module's battery-backed
+// clock (if `boot_utc` is non-NULL), and puts the module to sleep, whatever
+// state it is in (core: gps_uart_sleep_from_unknown_state()). Call once,
+// from setup(). Takes up to about 2 s. Returns true and fills *boot_utc
+// (including its millis() read_at_ms) when the module had a valid UTC time.
+// The port then stays open until power-off: a released port would let the
+// module's receive wire float, and a sleeping M10Q wakes on any signal there.
+bool gps_cardputer_port_open(GpsUtcTime* boot_utc = nullptr);
 
 // Starts a GPS session: wakes the module and sets it up (core:
 // gps_uart_create()). Takes a few hundred ms. Always returns a GpsUart;

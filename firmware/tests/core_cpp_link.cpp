@@ -35,7 +35,7 @@ int main() {
     Pipeline p = {};
     pipeline_graph_restart_line(&p);
     volatile bool keep = gsr_sensor_available(nullptr);
-    void (*sleep_fn)(const GpsPlatform*) = gps_uart_sleep_from_unknown_state;
+    bool (*sleep_fn)(const GpsPlatform*, GpsUtcTime*) = gps_uart_sleep_from_unknown_state;
     keep = keep || sleep_fn == nullptr;
     keep = keep || BioMapCueCount == 0;
     bool (*tick_fn)(SessionCore*) = session_core_tick;

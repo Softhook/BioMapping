@@ -320,8 +320,8 @@ static void idle_watch_stop(void) {
 
 // ── Public ──────────────────────────────────────────────────────────────
 
-void gps_cardputer_port_open(void) {
-    if(g_port_open) return;
+bool gps_cardputer_port_open(GpsUtcTime* boot_utc) {
+    if(g_port_open) return false;
     port.setRxBufferSize(RX_BUFFER_BYTES);
     port.begin(GPS_BAUD_RATE, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN, false, 20000,
                RX_FIFO_FULL_BYTES);
@@ -333,12 +333,13 @@ void gps_cardputer_port_open(void) {
     }
     g_port_open = true;
 
-    // The sleep sequence doesn't use the lock or rx_read; a bare context
+    // The boot poll + sleep sequence doesn't use the lock; a bare context
     // with no session is enough.
     GpsCardputer bare;
     GpsPlatform p = platform_for(&bare);
-    gps_uart_sleep_from_unknown_state(&p);
+    bool got_time = gps_uart_sleep_from_unknown_state(&p, boot_utc);
     idle_watch_start();
+    return got_time;
 }
 
 GpsUart* gps_cardputer_start(GpsNavModel nav_model, bool super_s) {

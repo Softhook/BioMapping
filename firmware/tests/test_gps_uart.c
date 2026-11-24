@@ -1383,6 +1383,182 @@ static void test_scheduler_mock_with_real_uart_drain_feedback(void) {
     printf("  -> Pass\n");
 }
 
+// ── Boot-time UBX-NAV-TIMEUTC poll + sleep (Cardputer backup RTC) ───────
+typedef struct {
+    uint32_t baud;
+    bool     rx_on;
+    GpsRxMode rx_mode;
+    bool     wake_answers;
+    bool     wake_seen;
+    uint32_t now;
+    uint8_t  tx_buf[8][64];
+    size_t   tx_len[8];
+    uint32_t tx_baud[8];
+    int      tx_count;
+    // Per-poll canned replies queued for UBX-NAV-TIMEUTC polls (class 0x01, id 0x21).
+    uint8_t  poll_reply[2][128];
+    size_t   poll_reply_len[2];
+    int      poll_count;
+    uint8_t  rx_buf[256];
+    size_t   rx_len;
+    size_t   rx_pos;
+} BootPollMock;
+
+static void bp_set_baud(void* ctx, uint32_t baud) { ((BootPollMock*)ctx)->baud = baud; }
+static void bp_rx_start(void* ctx, GpsRxMode mode) {
+    BootPollMock* m = (BootPollMock*)ctx;
+    m->rx_on = true;
+    m->rx_mode = mode;
+    m->rx_pos = m->rx_len = 0;
+    if(mode == GpsRxWakeWatch) m->wake_seen = false;
+}
+static void bp_rx_stop(void* ctx) { ((BootPollMock*)ctx)->rx_on = false; }
+static void bp_rx_clear(void* ctx) {
+    BootPollMock* m = (BootPollMock*)ctx;
+    m->rx_pos = m->rx_len = 0;
+}
+static size_t bp_rx_read(void* ctx, uint8_t* buf, size_t len) {
+    BootPollMock* m = (BootPollMock*)ctx;
+    if(!m->rx_on || m->rx_mode != GpsRxStream || m->rx_pos >= m->rx_len) return 0;
+    size_t avail = m->rx_len - m->rx_pos;
+    if(len > avail) len = avail;
+    memcpy(buf, m->rx_buf + m->rx_pos, len);
+    m->rx_pos += len;
+    return len;
+}
+static bool bp_rx_wake_seen(void* ctx, uint32_t* first_ms) {
+    BootPollMock* m = (BootPollMock*)ctx;
+    if(!m->wake_seen) return false;
+    *first_ms = m->now;
+    return true;
+}
+static uint32_t bp_now_ms(void* ctx) { return ((BootPollMock*)ctx)->now; }
+static void bp_delay_ms(void* ctx, uint32_t ms) { ((BootPollMock*)ctx)->now += ms; }
+static void bp_tx(void* ctx, const uint8_t* data, size_t len) {
+    BootPollMock* m = (BootPollMock*)ctx;
+    if(m->tx_count < 8) {
+        size_t n = len < 64 ? len : 64;
+        memcpy(m->tx_buf[m->tx_count], data, n);
+        m->tx_len[m->tx_count] = len;
+        m->tx_baud[m->tx_count] = m->baud;
+        m->tx_count++;
+    }
+    if(len == 1 && data[0] == 0xFF && m->wake_answers) {
+        m->wake_seen = true;
+    }
+    // Deliver queued response when UBX-NAV-TIMEUTC poll is sent.
+    if(len == 8 && data[0] == 0xB5 && data[1] == 0x62 && data[2] == 0x01 && data[3] == 0x21) {
+        int idx = m->poll_count++;
+        if(idx < 2 && m->poll_reply_len[idx] > 0) {
+            memcpy(m->rx_buf, m->poll_reply[idx], m->poll_reply_len[idx]);
+            m->rx_len = m->poll_reply_len[idx];
+            m->rx_pos = 0;
+        }
+    }
+}
+
+static size_t build_timeutc_frame(uint8_t* out, uint16_t year, uint8_t month, uint8_t day,
+                                  uint8_t hour, uint8_t minute, uint8_t second,
+                                  int32_t nano, uint32_t t_acc_ns, uint8_t valid) {
+    out[0] = 0xB5; out[1] = 0x62;
+    out[2] = 0x01; out[3] = 0x21;
+    out[4] = 20;   out[5] = 0;
+    uint8_t* p = out + 6;
+    memset(p, 0, 20);
+    p[4] = (uint8_t)(t_acc_ns);       p[5] = (uint8_t)(t_acc_ns >> 8);
+    p[6] = (uint8_t)(t_acc_ns >> 16); p[7] = (uint8_t)(t_acc_ns >> 24);
+    uint32_t nu = (uint32_t)nano;
+    p[8]  = (uint8_t)(nu);       p[9]  = (uint8_t)(nu >> 8);
+    p[10] = (uint8_t)(nu >> 16); p[11] = (uint8_t)(nu >> 24);
+    p[12] = (uint8_t)(year);     p[13] = (uint8_t)(year >> 8);
+    p[14] = month; p[15] = day; p[16] = hour; p[17] = minute; p[18] = second;
+    p[19] = valid;
+    uint8_t a = 0, b = 0;
+    for(int i = 2; i < 26; i++) { a = (uint8_t)(a + out[i]); b = (uint8_t)(b + a); }
+    out[26] = a; out[27] = b;
+    return 28;
+}
+
+static GpsPlatform bp_platform(BootPollMock* m) {
+    GpsPlatform p = {0};
+    p.ctx = m;
+    p.set_baud = bp_set_baud;
+    p.tx = bp_tx;
+    p.rx_start = bp_rx_start;
+    p.rx_stop = bp_rx_stop;
+    p.rx_read = bp_rx_read;
+    p.rx_clear = bp_rx_clear;
+    p.rx_wake_seen = bp_rx_wake_seen;
+    p.now_ms = bp_now_ms;
+    p.delay_ms = bp_delay_ms;
+    return p;
+}
+
+static void assert_last_tx_is_standby(const BootPollMock* m) {
+    assert(m->tx_count >= 3);
+    int last = m->tx_count - 1;
+    assert(m->tx_baud[last] == GPS_BAUD_RATE_FAST);
+    assert(m->tx_len[last] == 24);
+    assert(m->tx_buf[last][0] == 0xB5 && m->tx_buf[last][1] == 0x62 &&
+           m->tx_buf[last][2] == 0x02 && m->tx_buf[last][3] == 0x41);
+    assert(!m->rx_on);
+}
+
+static void test_poll_time_and_sleep(void) {
+    printf("Running test_poll_time_and_sleep...\n");
+
+    // 1. Valid backup UTC reply preceded by NMEA noise, with negative nano.
+    BootPollMock m = {0};
+    m.wake_answers = true;
+    static const char noise[] = "$GNRMC,,V,,,,,,,,,,N,V*37\r\n";
+    memcpy(m.poll_reply[0], noise, sizeof(noise) - 1);
+    size_t flen = build_timeutc_frame(m.poll_reply[0] + sizeof(noise) - 1,
+                                      2026, 11, 24, 18, 25, 30, -250000000, 12000000U, 0x07);
+    m.poll_reply_len[0] = (sizeof(noise) - 1) + flen;
+
+    GpsPlatform p = bp_platform(&m);
+    GpsUtcTime utc = {0};
+    assert(gps_uart_sleep_from_unknown_state(&p, &utc));
+    assert(m.poll_count == 1);
+    assert(utc.year == 2026 && utc.month == 11 && utc.day == 24);
+    assert(utc.hour == 18 && utc.minute == 25 && utc.second == 30);
+    assert(utc.nano == -250000000);
+    // read_at_ms is captured when the frame arrives, before the 100 ms standby settle.
+    assert(utc.read_at_ms == m.now - 100);
+    // Verify poll packet bytes & checksum (M10 SPG 5.10 §3.15.24).
+    assert(m.tx_baud[2] == GPS_BAUD_RATE_FAST && m.tx_len[2] == 8);
+    assert(m.tx_buf[2][6] == 0x22 && m.tx_buf[2][7] == 0x67);
+    assert_last_tx_is_standby(&m);
+
+    // 2. Valid UBX frame with valid=0x00 (backup cell flat): returns false
+    //    immediately on attempt 1 without wasting a retry, still sleeps.
+    memset(&m, 0, sizeof(m));
+    m.wake_answers = true;
+    m.poll_reply_len[0] = build_timeutc_frame(m.poll_reply[0], 2015, 10, 18, 0, 0, 0, 0, 0, 0x00);
+    assert(!gps_uart_sleep_from_unknown_state(&p, &utc));
+    assert(m.poll_count == 1);
+    assert_last_tx_is_standby(&m);
+
+    // 3. First attempt times out (or corrupt checksum), second attempt succeeds.
+    memset(&m, 0, sizeof(m));
+    m.wake_answers = true;
+    m.poll_reply_len[0] = build_timeutc_frame(m.poll_reply[0], 2026, 11, 24, 18, 25, 30, 0, 5000000U, 0x07);
+    m.poll_reply[0][27] ^= 0xFF; // corrupt checksum on attempt 1
+    m.poll_reply_len[1] = build_timeutc_frame(m.poll_reply[1], 2026, 11, 24, 18, 25, 31, 0, 5000000U, 0x07);
+    memset(&utc, 0, sizeof(utc));
+    assert(gps_uart_sleep_from_unknown_state(&p, &utc));
+    assert(m.poll_count == 2 && utc.second == 31);
+    assert_last_tx_is_standby(&m);
+
+    // 4. Complete silence (no module attached): bounded 2 retries, returns false, sleeps.
+    memset(&m, 0, sizeof(m));
+    assert(!gps_uart_sleep_from_unknown_state(&p, &utc));
+    assert(m.poll_count == 2);
+    assert_last_tx_is_standby(&m);
+
+    printf("  -> Pass\n");
+}
+
 int main(void) {
     // As at app start (biomap.c) — every GpsUart borrows the held port.
     gps_uart_port_open();
@@ -1419,6 +1595,7 @@ int main(void) {
     test_free_sends_spec_correct_sleep_command();
     test_port_open_module_answers();
     test_port_open_no_reply();
+    test_poll_time_and_sleep();
     test_alloc_wakes_before_configuring();
     test_rx_byte_with_error_flag_is_kept();
     test_malformed_line_ignored();

@@ -189,11 +189,33 @@ uint32_t  gps_uart_get_reinit_count(const GpsUart* gps);
 // can still see an ID found earlier.
 const char* gps_uart_get_chip_id(const GpsUart* gps);
 
+// UTC time read from the module's UBX-NAV-TIMEUTC message (u-blox M10 SPG 5.10
+// Interface Description §3.15.24). Used at boot on devices without a hardware
+// RTC (Cardputer) to grab the module's battery-backed clock before putting it
+// to sleep.
+typedef struct {
+    uint16_t year;       // 2025..2099
+    uint8_t  month;      // 1..12
+    uint8_t  day;        // 1..31
+    uint8_t  hour;       // 0..23
+    uint8_t  minute;     // 0..59
+    uint8_t  second;     // 0..60
+    int32_t  nano;       // fractional second, -1e9..+1e9 ns
+    uint32_t read_at_ms; // platform now_ms() when the reply arrived
+} GpsUtcTime;
+
 // Puts the module to sleep from whatever state it is in at app start:
 // asleep, awake at its 9600 default, or awake at 115200. Blocks for up to
 // ~1.9 s (most of it waiting for the module to wake first). Uses only
 // set_baud, tx, rx_start/rx_stop in GpsRxWakeWatch, rx_wake_seen, now_ms,
 // delay_ms and log; leaves the port at 115200 with receiving off.
+//
+// If `boot_utc` is non-NULL, polls UBX-NAV-TIMEUTC once (retrying once on
+// timeout) after moving to 115200 and before sending standby, to read the
+// module's battery-backed RTC (also requires rx_read and rx_clear). Returns
+// true and fills *boot_utc when the module answers with a valid UTC time
+// (validTOW + validWKN + validUTC set, year >= 2025); returns false otherwise
+// (or when `boot_utc` is NULL).
 //
 // Hardware rule for every device: open the serial port once at app start,
 // call this, and hold the port until the app exits. A sleeping M10Q wakes
@@ -201,7 +223,7 @@ const char* gps_uart_get_chip_id(const GpsUart* gps);
 // — on the Flipper the module was awake again within seconds of every
 // release. Held, the line idles steadily high, so the module stays asleep
 // between GPS sessions. See research/archive/gps_sleep_investigation.md.
-void gps_uart_sleep_from_unknown_state(const GpsPlatform* platform);
+bool gps_uart_sleep_from_unknown_state(const GpsPlatform* platform, GpsUtcTime* boot_utc);
 
 #ifdef __cplusplus
 }

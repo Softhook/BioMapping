@@ -14,6 +14,11 @@
 // Sets the time zone. Call once, from setup().
 void clock_cardputer_begin(void);
 
+// Sets the clock from a UBX-NAV-TIMEUTC reading captured at boot, advancing
+// it by the time elapsed since utc->read_at_ms. Future live GPS sessions
+// still resync if the backup clock drifted >= 2 s.
+void clock_cardputer_set_from_gps_rtc(const GpsUtcTime* utc);
+
 // Sets the clock from the GPS when it has a fix: once two looks in a row
 // agree, using only a GPS time that has moved on since the last look, and
 // not while GPS bytes wait to be parsed (clock_rule.h). Call every pass of

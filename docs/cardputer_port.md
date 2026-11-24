@@ -350,7 +350,7 @@ The Flipper's six buttons map onto the Cardputer's arrow keys (`;` `.` `,` `/`, 
 
 The Flipper keeps the time when switched off. The Cardputer ADV has no battery-backed clock chip (confirmed on the bench), so it loses the time when powered down.
 
-Time and date come from the GPS in UK local time (GMT/BST, switching automatically; [clock_cardputer.cpp](../firmware/cardputer/src/clock_cardputer.cpp), [clock_rule.c](../firmware/cardputer/src/clock_rule.c), [clock_local.c](../firmware/cardputer/src/clock_local.c)). `GPS + GSR` blocks recording until GPS time is known, while `GSR Only` records anyway (using GPS time if already found since power-up, otherwise `1970-01-01`).
+Time and date come from the GPS in UK local time (GMT/BST, switching automatically; [clock_cardputer.cpp](../firmware/cardputer/src/clock_cardputer.cpp), [clock_rule.c](../firmware/cardputer/src/clock_rule.c), [clock_local.c](../firmware/cardputer/src/clock_local.c)). At power-up, during the splash animation, `gps_cardputer_port_open()` wakes the SAM-M10Q, polls `UBX-NAV-TIMEUTC` once to grab the module's battery-backed RTC (`BT1`, ~1.5–2 days off-time hold-up), and puts it straight back to sleep (`gps_uart_sleep_from_unknown_state()`). If the backup clock is still valid, `GSR Only` and the menu get the real date and time immediately even indoors, and any later GPS session resyncs automatically if the backup clock drifted by ≥ 2 s. If `BT1` has gone flat, `GPS + GSR` blocks recording until GPS time is known while `GSR Only` records anyway (`1970-01-01`).
 
 ### GSR reading speed (later, not part of the first port)
 

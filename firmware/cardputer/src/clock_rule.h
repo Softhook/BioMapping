@@ -53,6 +53,12 @@ typedef struct {
 bool clock_rule_gps_time_ms(const struct minmea_date* d, const struct minmea_time* t,
                             int64_t* out);
 
+// Converts a calendar UTC reading (e.g. from the boot UBX-NAV-TIMEUTC poll)
+// into ms since 1970 UTC. Rejects out-of-range fields and years before 2025.
+bool clock_rule_utc_ms(uint16_t year, uint8_t month, uint8_t day,
+                       uint8_t hour, uint8_t minute, uint8_t second,
+                       int32_t nano, int64_t* out);
+
 // One look, about once a second. Start from a zeroed ClockRule.
 // `gps_ok`: clock_rule_gps_time_ms() gave a time, and no GPS bytes are
 // waiting to be parsed. `gps_ms`: the GPS time; `clock_ms`: the clock

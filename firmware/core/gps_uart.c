@@ -356,16 +356,22 @@ static bool ubx_wake(const GpsPlatform* p, bool warn_if_silent) {
 }
 
 // ── UBX Fletcher-8 checksum (spec §3.4) — shared by outgoing packet
-// construction (ubx_send_valset) and incoming ACK/NAK and UNIQID
+// construction (ubx_send_valset) and incoming ACK/NAK, UNIQID and TIMEUTC
 // verification below.
-static void ubx_calc_checksum(const uint8_t* buf, size_t len, uint8_t* ck_a, uint8_t* ck_b) {
-    uint8_t a = 0, b = 0;
+static void ubx_checksum_update(uint8_t* ck_a, uint8_t* ck_b, const uint8_t* buf, size_t len) {
+    uint8_t a = *ck_a, b = *ck_b;
     for(size_t i = 0; i < len; i++) {
         a = (uint8_t)(a + buf[i]);
         b = (uint8_t)(b + a);
     }
     *ck_a = a;
     *ck_b = b;
+}
+
+static void ubx_calc_checksum(const uint8_t* buf, size_t len, uint8_t* ck_a, uint8_t* ck_b) {
+    *ck_a = 0;
+    *ck_b = 0;
+    ubx_checksum_update(ck_a, ck_b, buf, len);
 }
 
 // ── UBX-ACK-ACK/NAK confirmation ────────────────────────────────────────
@@ -415,10 +421,10 @@ static void ubx_calc_checksum(const uint8_t* buf, size_t len, uint8_t* ck_a, uin
 // The 1 ms wait paces real-hardware polling between empty polls; under
 // test the wait is a no-op, so this still terminates promptly when no data
 // is available.
-static bool ubx_read_byte(GpsUart* g, uint8_t* out) {
+static bool ubx_read_byte(const GpsPlatform* p, uint8_t* out) {
     for(int i = 0; i < UBX_ACK_BYTE_POLLS; i++) {
-        if(g->platform.rx_read(g->platform.ctx, out, 1) == 1) return true;
-        g->platform.delay_ms(g->platform.ctx, 1);
+        if(p->rx_read(p->ctx, out, 1) == 1) return true;
+        p->delay_ms(p->ctx, 1);
     }
     return false;
 }
@@ -431,11 +437,11 @@ static bool ubx_read_byte(GpsUart* g, uint8_t* out) {
 // gap between the buffered noise draining and the ACK's own bytes
 // actually arriving over the wire is normal and must not be mistaken for
 // a dead link.
-static bool ubx_find_sync(GpsUart* g) {
+static bool ubx_find_sync(const GpsPlatform* p) {
     bool have_first = false;
     for(int i = 0; i < UBX_ACK_MAX_SYNC_BYTES; i++) {
         uint8_t b;
-        if(!ubx_read_byte(g, &b)) return false;
+        if(!ubx_read_byte(p, &b)) return false;
         if(have_first && b == 0x62) return true;
         have_first = (b == 0xB5);
     }
@@ -456,21 +462,22 @@ typedef enum {
 // appears on this link, so a mismatch here is itself the problem being
 // reported, not noise to search past.
 static UbxAckOutcome ubx_wait_ack(GpsUart* g, uint8_t want_cls, uint8_t want_id) {
-    if(!ubx_find_sync(g)) return UbxAckTimeout;
+    const GpsPlatform* p = &g->platform;
+    if(!ubx_find_sync(p)) return UbxAckTimeout;
 
     uint8_t hdr[4]; // class, id, len_lo, len_hi
-    if(!ubx_read_byte(g, &hdr[0]) || !ubx_read_byte(g, &hdr[1]) ||
-       !ubx_read_byte(g, &hdr[2]) || !ubx_read_byte(g, &hdr[3])) {
+    if(!ubx_read_byte(p, &hdr[0]) || !ubx_read_byte(p, &hdr[1]) ||
+       !ubx_read_byte(p, &hdr[2]) || !ubx_read_byte(p, &hdr[3])) {
         return UbxAckTimeout;
     }
     uint16_t len = (uint16_t)hdr[2] | ((uint16_t)hdr[3] << 8);
 
     uint8_t payload[2];
-    if(!ubx_read_byte(g, &payload[0]) || !ubx_read_byte(g, &payload[1])) {
+    if(!ubx_read_byte(p, &payload[0]) || !ubx_read_byte(p, &payload[1])) {
         return UbxAckTimeout;
     }
     uint8_t ck_a, ck_b;
-    if(!ubx_read_byte(g, &ck_a) || !ubx_read_byte(g, &ck_b)) return UbxAckTimeout;
+    if(!ubx_read_byte(p, &ck_a) || !ubx_read_byte(p, &ck_b)) return UbxAckTimeout;
 
     if(hdr[0] != 0x05 || len != 2) return UbxAckTimeout; // not an ACK/NAK frame
 
@@ -527,6 +534,35 @@ static void ubx_send_and_confirm(GpsUart* g, const uint8_t* data, size_t len, co
     gps_log(&g->platform, true, "%s: no ACK/NAK received", label);
 }
 
+// Sends a 0-length UBX poll (class = poll[2], id = poll[3]) and reads back
+// one frame, accepting it only if class, id, payload length and checksum all
+// match. Anything else (wrong frame, bad checksum, timeout) returns false.
+static bool ubx_poll_frame(const GpsPlatform* p, const uint8_t* poll, size_t poll_len,
+                           uint8_t* payload, uint16_t want_len) {
+    p->rx_clear(p->ctx); // drop stale bytes first — see ubx_send_and_confirm()'s doc comment
+    p->tx(p->ctx, poll, poll_len);
+
+    if(!ubx_find_sync(p)) return false;
+
+    uint8_t hdr[4]; // class, id, len_lo, len_hi
+    for(int i = 0; i < 4; i++) {
+        if(!ubx_read_byte(p, &hdr[i])) return false;
+    }
+    uint16_t len = (uint16_t)hdr[2] | ((uint16_t)hdr[3] << 8);
+    if(hdr[0] != poll[2] || hdr[1] != poll[3] || len != want_len) return false;
+
+    for(uint16_t i = 0; i < want_len; i++) {
+        if(!ubx_read_byte(p, &payload[i])) return false;
+    }
+    uint8_t ck_a, ck_b;
+    if(!ubx_read_byte(p, &ck_a) || !ubx_read_byte(p, &ck_b)) return false;
+
+    uint8_t calc_a = 0, calc_b = 0;
+    ubx_checksum_update(&calc_a, &calc_b, hdr, sizeof(hdr));
+    ubx_checksum_update(&calc_a, &calc_b, payload, want_len);
+    return calc_a == ck_a && calc_b == ck_b;
+}
+
 // ── UBX-SEC-UNIQID (class 0x27, id 0x03) — unique chip ID poll ──────────
 // u-blox M10 SPG 5.10 Interface Description §3.17.1: a 0-length poll
 // request to this class/id gets back a 10-byte payload — version(1) +
@@ -535,37 +571,12 @@ static void ubx_send_and_confirm(GpsUart* g, const uint8_t* data, size_t len, co
 // with the payload populated).
 static const uint8_t ubx_poll_uniqid[] = {0xB5, 0x62, 0x27, 0x03, 0x00, 0x00, 0x2A, 0xA5};
 
-// One attempt: send the poll, read back exactly one frame, accept it only
-// if it's actually UBX-SEC-UNIQID with a valid checksum. Anything else
-// (wrong class/id/length, corrupted frame, timeout) is a failure.
 static bool ubx_poll_chip_id_once(GpsUart* g) {
-    g->platform.rx_clear(g->platform.ctx); // drop stale bytes first — see ubx_send_and_confirm()'s doc comment
-    g->platform.tx(g->platform.ctx, ubx_poll_uniqid, sizeof(ubx_poll_uniqid));
-
-    if(!ubx_find_sync(g)) return false;
-
-    uint8_t hdr[4]; // class, id, len_lo, len_hi
-    if(!ubx_read_byte(g, &hdr[0]) || !ubx_read_byte(g, &hdr[1]) ||
-       !ubx_read_byte(g, &hdr[2]) || !ubx_read_byte(g, &hdr[3])) {
+    uint8_t payload[10];
+    if(!ubx_poll_frame(&g->platform, ubx_poll_uniqid, sizeof(ubx_poll_uniqid),
+                       payload, sizeof(payload))) {
         return false;
     }
-    uint16_t len = (uint16_t)hdr[2] | ((uint16_t)hdr[3] << 8);
-    if(hdr[0] != 0x27 || hdr[1] != 0x03 || len != 10) return false; // not our response
-
-    uint8_t payload[10];
-    for(int i = 0; i < 10; i++) {
-        if(!ubx_read_byte(g, &payload[i])) return false;
-    }
-    uint8_t ck_a, ck_b;
-    if(!ubx_read_byte(g, &ck_a) || !ubx_read_byte(g, &ck_b)) return false;
-
-    uint8_t ck_buf[14] = {
-        hdr[0], hdr[1], hdr[2], hdr[3],
-        payload[0], payload[1], payload[2], payload[3], payload[4],
-        payload[5], payload[6], payload[7], payload[8], payload[9]};
-    uint8_t calc_a, calc_b;
-    ubx_calc_checksum(ck_buf, sizeof(ck_buf), &calc_a, &calc_b);
-    if(calc_a != ck_a || calc_b != ck_b) return false; // corrupted frame
 
     // payload[4..9] is the 6-byte (48-bit) uniqueId (spec offset 4, U1[6]).
     // Rendered as a 5-word phrase (EFF short wordlist, see
@@ -784,10 +795,96 @@ static void gps_uart_configure(GpsUart* g);
 // a further 1000 ms it worked 5 times in 5. So it waits first.
 #define GPS_SLEEP_AFTER_SILENT_WAKE_MS 1000
 
-void gps_uart_sleep_from_unknown_state(const GpsPlatform* p) {
+// ── UBX-NAV-TIMEUTC (class 0x01, id 0x21) — boot backup-RTC poll ────────
+// u-blox M10 SPG 5.10 Interface Description §3.15.24: 0-length poll returns a
+// 20-byte UTC time solution payload:
+//   0..3  iTOW (U4, ms)          4..7  tAcc (U4, ns)     8..11 nano (I4, ns)
+//  12..13 year (U2, 1999..2099) 14     month (U1, 1..12) 15    day (U1, 1..31)
+//  16     hour (U1, 0..23)      17     min (U1, 0..59)   18    sec (U1, 0..60)
+//  19     valid (X1: bit 0 validTOW, bit 1 validWKN, bit 2 validUTC)
+static const uint8_t ubx_poll_timeutc[] = {0xB5, 0x62, 0x01, 0x21, 0x00, 0x00, 0x22, 0x67};
+
+typedef enum {
+    UbxTimeGotValid,
+    UbxTimeNotValid, // valid UBX-NAV-TIMEUTC frame, but backup clock isn't set
+    UbxTimeNoReply,  // timeout, bad checksum, or wrong frame
+} UbxTimeOutcome;
+
+static UbxTimeOutcome ubx_poll_timeutc_once(const GpsPlatform* p, GpsUtcTime* out,
+                                            uint32_t* t_acc_ns_out) {
+    uint8_t payload[20];
+    if(!ubx_poll_frame(p, ubx_poll_timeutc, sizeof(ubx_poll_timeutc),
+                       payload, sizeof(payload))) {
+        return UbxTimeNoReply;
+    }
+
+    uint32_t read_at_ms = p->now_ms(p->ctx);
+    uint8_t valid = payload[19];
+    uint16_t year = (uint16_t)payload[12] | ((uint16_t)payload[13] << 8);
+    uint8_t month = payload[14];
+    uint8_t day = payload[15];
+    uint8_t hour = payload[16];
+    uint8_t minute = payload[17];
+    uint8_t second = payload[18];
+
+    // Require validTOW (0x01) + validWKN (0x02) + validUTC (0x04) and a
+    // plausible modern year (rejects ROM defaults if BT1 went flat).
+    if((valid & 0x07) != 0x07 || year < 2025 || year > 2099 ||
+       month < 1 || month > 12 || day < 1 || day > 31 ||
+       hour > 23 || minute > 59 || second > 60) {
+        return UbxTimeNotValid;
+    }
+
+    uint32_t t_acc_ns = (uint32_t)payload[4] | ((uint32_t)payload[5] << 8) |
+                        ((uint32_t)payload[6] << 16) | ((uint32_t)payload[7] << 24);
+    int32_t nano = (int32_t)((uint32_t)payload[8] | ((uint32_t)payload[9] << 8) |
+                             ((uint32_t)payload[10] << 16) | ((uint32_t)payload[11] << 24));
+    if(nano < -1000000000 || nano > 1000000000) nano = 0;
+
+    out->year = year;
+    out->month = month;
+    out->day = day;
+    out->hour = hour;
+    out->minute = minute;
+    out->second = second;
+    out->nano = nano;
+    out->read_at_ms = read_at_ms;
+    if(t_acc_ns_out) *t_acc_ns_out = t_acc_ns;
+    return UbxTimeGotValid;
+}
+
+static bool ubx_poll_boot_time(const GpsPlatform* p, GpsUtcTime* out) {
+    GpsUtcTime utc = {0};
+    uint32_t t_acc_ns = 0;
+    UbxTimeOutcome outcome = UbxTimeNoReply;
+    p->rx_start(p->ctx, GpsRxStream);
+    for(int attempt = 0; attempt < 2; attempt++) {
+        outcome = ubx_poll_timeutc_once(p, &utc, &t_acc_ns);
+        if(outcome != UbxTimeNoReply) break;
+    }
+    p->rx_stop(p->ctx);
+
+    if(outcome == UbxTimeGotValid) {
+        gps_log(p, false, "Boot UTC: %04u-%02u-%02u %02u:%02u:%02u (tAcc %lu ms)",
+                (unsigned)utc.year, (unsigned)utc.month, (unsigned)utc.day,
+                (unsigned)utc.hour, (unsigned)utc.minute, (unsigned)utc.second,
+                (unsigned long)(t_acc_ns / 1000000U));
+        *out = utc;
+        return true;
+    }
+    gps_log(p, false,
+            outcome == UbxTimeNotValid ? "Boot UTC: backup clock not set" : "Boot UTC: no reply");
+    return false;
+}
+
+bool gps_uart_sleep_from_unknown_state(const GpsPlatform* p, GpsUtcTime* boot_utc) {
     CORE_CHECK(p && p->set_baud && p->tx && p->rx_start && p->rx_stop && p->rx_wake_seen &&
                    p->now_ms && p->delay_ms,
                "GpsUart: incomplete platform");
+    if(boot_utc) {
+        CORE_CHECK(p->rx_read && p->rx_clear, "GpsUart: incomplete platform");
+    }
+
     p->set_baud(p->ctx, GPS_BAUD_RATE);
     // Wake it (a no-op if already awake), move it to 115200 and follow it
     // there. A module already at 115200 ignores the 9600 command and
@@ -802,8 +899,12 @@ void gps_uart_sleep_from_unknown_state(const GpsPlatform* p) {
         p->delay_ms(p->ctx, GPS_SLEEP_AFTER_SILENT_WAKE_MS);
     }
     p->delay_ms(p->ctx, 50);
+
+    bool got_time = boot_utc ? ubx_poll_boot_time(p, boot_utc) : false;
+
     p->tx(p->ctx, ubx_rxm_pmreq_standby, sizeof(ubx_rxm_pmreq_standby));
     p->delay_ms(p->ctx, 100); // let it finish shifting out, and any NMEA already in flight
+    return got_time;
 }
 
 // ── Serial baud-switch helper — stop/re-set/restart at a new baud,

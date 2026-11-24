@@ -273,7 +273,7 @@ void gps_uart_port_open(void) {
     g_port_inited = false;
     GpsFlipper bare = {.handle = g_port};
     GpsPlatform platform = gps_flipper_platform(&bare);
-    gps_uart_sleep_from_unknown_state(&platform);
+    gps_uart_sleep_from_unknown_state(&platform, NULL);
     gps_uart_idle_watch_start();
 }
 

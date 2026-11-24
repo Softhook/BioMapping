@@ -144,16 +144,18 @@ static bool serial_keys_poll(void) {
 // and the other core carries Bluetooth and Wi-Fi. One priority above the
 // animation, so its short waits keep their timing; same stack as setup().
 static std::atomic<bool> g_gps_asleep{false};
+static bool              g_boot_utc_ok = false;
+static GpsUtcTime        g_boot_utc = {};
 
 static void gps_sleep_task(void* arg) {
     (void)arg;
-    gps_cardputer_port_open();
-    g_gps_asleep.store(true);
+    g_boot_utc_ok = gps_cardputer_port_open(&g_boot_utc);
+    g_gps_asleep.store(true, std::memory_order_release);
     vTaskDelete(nullptr);
 }
 
 static bool gps_is_asleep(void) {
-    return g_gps_asleep.load();
+    return g_gps_asleep.load(std::memory_order_acquire);
 }
 
 void setup() {
@@ -173,14 +175,18 @@ void setup() {
     settings_cardputer_load();
     menu_cardputer_begin();
 
-    // The GPS port is opened once and held until power-off; opening it puts
-    // the module to sleep, while the start-up animation plays.
+    // The GPS port is opened once and held until power-off; opening it polls
+    // the module's battery-backed RTC and puts it to sleep while the start-up
+    // animation plays.
     if(xTaskCreatePinnedToCore(gps_sleep_task, "gps_sleep", 8192, nullptr,
                                uxTaskPriorityGet(nullptr) + 1, nullptr, xPortGetCoreID()) == pdPASS) {
         splash_cardputer_play(canvas, gps_is_asleep, g_settings.sound_enabled);
     } else {
-        gps_cardputer_port_open();
+        g_boot_utc_ok = gps_cardputer_port_open(&g_boot_utc);
         splash_cardputer_play(canvas, nullptr, g_settings.sound_enabled);
+    }
+    if(g_boot_utc_ok) {
+        clock_cardputer_set_from_gps_rtc(&g_boot_utc);
     }
 
     settings_cardputer_log_in_use();

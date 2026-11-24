@@ -14,9 +14,32 @@ static ClockRule g_rule = {};
 static bool      g_looked = false;
 static uint32_t  g_last_look_ms = 0;
 
+static void set_system_clock(int64_t utc_ms) {
+    struct timeval tv;
+    tv.tv_sec = (time_t)(utc_ms / 1000);
+    tv.tv_usec = (suseconds_t)(utc_ms % 1000) * 1000;
+    settimeofday(&tv, nullptr);
+}
+
 void clock_cardputer_begin(void) {
     setenv("TZ", CLOCK_UK_TZ, 1);
     tzset();
+}
+
+void clock_cardputer_set_from_gps_rtc(const GpsUtcTime* utc) {
+    if(!utc) return;
+    int64_t utc_ms = 0;
+    if(!clock_rule_utc_ms(utc->year, utc->month, utc->day, utc->hour, utc->minute, utc->second,
+                          utc->nano, &utc_ms)) {
+        return;
+    }
+    utc_ms += (int64_t)(uint32_t)(millis() - utc->read_at_ms);
+    set_system_clock(utc_ms);
+    g_rule = {};
+    g_rule.clock_set = true;
+    Serial.printf("[Clock] set from GPS backup RTC: %04u-%02u-%02u %02u:%02u:%02u UTC\n",
+                  (unsigned)utc->year, (unsigned)utc->month, (unsigned)utc->day,
+                  (unsigned)utc->hour, (unsigned)utc->minute, (unsigned)utc->second);
 }
 
 void clock_cardputer_poll(const GpsUart* gps) {
@@ -36,10 +59,7 @@ void clock_cardputer_poll(const GpsUart* gps) {
     bool was_set = g_rule.clock_set;
     if(!clock_rule_look(&g_rule, gps_ok, gps_ms, clock_ms)) return;
 
-    struct timeval tv;
-    tv.tv_sec = (time_t)(gps_ms / 1000);
-    tv.tv_usec = (suseconds_t)(gps_ms % 1000) * 1000;
-    settimeofday(&tv, nullptr);
+    set_system_clock(gps_ms);
     if(was_set) {
         Serial.printf("[Clock] reset from GPS (was %ld ms out)\n", (long)(clock_ms - gps_ms));
     } else {

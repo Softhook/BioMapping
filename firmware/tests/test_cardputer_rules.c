@@ -121,6 +121,39 @@ static void test_set_before_fix(void) {
     printf("  clock set before a fix: ok\n");
 }
 
+static void test_boot_utc_ms_and_resync(void) {
+    int64_t ms = 0;
+    // 21 Nov 2026 14:00:00 UTC + 250 ms
+    assert(clock_rule_utc_ms(2026, 11, 21, 14, 0, 0, 250000000, &ms));
+    assert(ms == T0 + 250);
+    // Negative nano (-500 ms) steps back half a second cleanly.
+    assert(clock_rule_utc_ms(2026, 11, 21, 14, 0, 0, -500000000, &ms));
+    assert(ms == T0 - 500);
+    // Reject ROM-default / out-of-range dates and invalid nano.
+    assert(!clock_rule_utc_ms(2015, 1, 1, 0, 0, 0, 0, &ms));
+    assert(!clock_rule_utc_ms(2024, 12, 31, 23, 59, 59, 0, &ms));
+    assert(!clock_rule_utc_ms(2026, 13, 1, 0, 0, 0, 0, &ms));
+    assert(!clock_rule_utc_ms(2026, 11, 21, 24, 0, 0, 0, &ms));
+    assert(!clock_rule_utc_ms(2026, 11, 21, 14, 0, 0, 1500000000, &ms));
+
+    // When seeded from backup RTC (clock_set = true), small offset (< 2 s) is
+    // left alone while real drift (>= 2 s) resyncs once two looks agree.
+    Sim s = {.r = {.clock_set = true}, .gps = T0, .clock = T0 - 800};
+    for(int i = 0; i < 5; i++) {
+        assert(!look(&s, true));
+        tick(&s, 1000, 1000);
+    }
+    assert(s.sets == 0);
+
+    // Backup clock 5 s slow when satellites arrive -> resynced on 2nd look.
+    s.clock -= 5000;
+    assert(!look(&s, true));
+    tick(&s, 1000, 1000);
+    assert(look(&s, true));
+    assert(s.sets == 1 && s.clock == s.gps);
+    printf("  boot UTC conversion and backup-RTC resync: ok\n");
+}
+
 static void test_no_gps_time_never_sets(void) {
     Sim s = {.gps = T0, .clock = 0};
     for(int i = 0; i < 10; i++) {
@@ -1071,6 +1104,7 @@ int main(void) {
     test_no_gps_time_never_sets();
     test_rmc_time_before_fix();
     test_set_before_fix();
+    test_boot_utc_ms_and_resync();
     test_stopped_gps_time_is_ignored();
     test_old_sentence_after_a_pause();
     test_midnight_date_mix_up();
