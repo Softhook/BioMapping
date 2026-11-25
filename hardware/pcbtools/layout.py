@@ -311,6 +311,8 @@ def place_labels(board, fps, texts):
             cx, cyy = (c[0] + c[2]) / 2, (c[1] + c[3]) / 2
             spots = [(cx, c[1] - 0.6), (cx, c[3] + 0.6), (c[0] - 0.4, cyy), (c[2] + 0.4, cyy),
                      (c[0], c[1] - 0.6), (c[2], c[1] - 0.6), (c[0], c[3] + 0.6), (c[2], c[3] + 0.6)]
+            if ref.startswith("H"):
+                spots[0], spots[1] = spots[1], spots[0]
             best = None
             # flat first; turned on its side only where flat finds no room
             for angle, strict in ((0, True), (0, False), (90, True), (90, False)):
@@ -393,6 +395,22 @@ def widen_mask(fps, margins):
     for ref, mm in margins.items():
         fps[ref].SetLocalSolderMaskMargin(MM(mm))
 
+def add_graphics(board, graphics):
+    """Add filled silkscreen polygons: (face, [(x, y), ...])."""
+    for side, pts in graphics:
+        s = pcbnew.PCB_SHAPE(board)
+        s.SetShape(pcbnew.SHAPE_T_POLY)
+        s.SetLayer(pcbnew.B_SilkS if side == "B" else pcbnew.F_SilkS)
+        s.SetFilled(True)
+        s.SetWidth(MM(0.1))
+        poly = pcbnew.SHAPE_POLY_SET()
+        poly.NewOutline()
+        for x, y in pts:
+            poly.Append(MM(x), MM(y))
+        s.SetPolyShape(poly)
+        board.Add(s)
+
+
 def build(name, net_path, pcb_path):
     """Lay out one board from its netlist and layout file and save it to pcb_path."""
     lay = LAYOUTS[name]
@@ -407,6 +425,7 @@ def build(name, net_path, pcb_path):
     guard = getattr(lay, "GUARD", None)
     n = add_stitching(board, nets, fps, lay.STITCH, guard)
     place_labels(board, fps, lay.LABELS)
+    add_graphics(board, getattr(lay, "GRAPHICS", ()))
     add_ground(board, nets["GND"], guard)
     add_guard(board, nets, guard)
     solid_ground_pads(board)

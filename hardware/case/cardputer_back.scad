@@ -87,8 +87,9 @@ cuff_h = 6.0;                      // window in the end wall for the cuff plug, 
 cuff_w = cuff_socket[2] + 0.6;     // as wide as the socket, and this tall ...
 cuff_up = 0.5;                     // ... plus this much above the board's face, so a sagging top can't rub the plug
 scoop_w = 18; scoop_d = 1.8;       // the finger scoop round it: width along the wall, and depth
-text_size = 5.5; text_depth = 0.4; // back lettering: 2 layers deep on a 0.2 mm print (1.6 mm floor remains)
-text_y = 9.0;                      // centred in the top band above the two screw holes (y 15.8)
+text_size = 3.8; text_depth = 0.4; // back lettering: 2 layers deep on a 0.2 mm print (1.6 mm floor remains)
+text_x = 60.0;                     // centred between the cuff socket end (~78) and the GPS outline (38.75)
+text_y = gps[1];                   // in line with the centre of the GPS rectangle
 text_font = "Helvetica Neue:style=Bold";
 gps_box = [16.5, 16.5, 2.5, 0.8];  // outline over the 15.5 mm GPS module: width, height, corner radius, line width
 gps_mark_depth = 0.2;              // one layer on a 0.2 mm print
@@ -193,7 +194,7 @@ module holes() {
     // 180 degrees here so that after the final mirror([0, 1, 0]) it reads left-to-right,
     // right-side-up when viewing the back of the Cardputer with the EXT / screen edge at the top
     if (back_text != "")
-        translate([L / 2, text_y, -eps]) rotate([0, 0, 180]) linear_extrude(text_depth + eps)
+        translate([text_x, text_y, -eps]) rotate([0, 0, 180]) linear_extrude(text_depth + eps)
             text(back_text, size = text_size, font = text_font, halign = "center", valign = "center", $fn = 24);
     if (gps_mark)
         translate([gps[0], gps[1], -eps]) linear_extrude(gps_mark_depth + eps) difference() {
