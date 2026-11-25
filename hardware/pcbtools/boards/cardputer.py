@@ -237,14 +237,15 @@ LABELS = {"B": [("Bio Mapping 2", 19.0, 9.5, 1.8), (f"Christian Nold, 2004 - 202
                 ("1 G15  2 G13  3 GND  4 5VO", 59.5, 12.9, TEXT),
                 ("5 G5  6 G3  7 GND  8 G4", 59.5, 14.6, TEXT)]}
 
-# Classic symmetric square-wave logo on the left side of the open inner face (F.SilkS),
-# centred vertically between H3 (y ~22.8) and the bottom text (y 49.25).
+# Classic symmetric square-wave logo on the open inner face (F.SilkS), centred
+# vertically between H3 (y ~22.8) and the bottom text (y 49.25), with its baseline
+# extending across the board from the left edge to the right edge (0.2 mm margin).
 GRAPHICS = [
     ("F", [
-        (10.0, 35.4), (11.9, 35.4), (11.9, 30.4), (18.1, 30.4),
-        (18.1, 40.4), (21.9, 40.4), (21.9, 35.4), (25.0, 35.4),
-        (25.0, 36.6), (23.1, 36.6), (23.1, 41.6), (16.9, 41.6),
-        (16.9, 31.6), (13.1, 31.6), (13.1, 36.6), (10.0, 36.6),
+        (2.3, 35.4), (11.9, 35.4), (11.9, 30.4), (18.1, 30.4),
+        (18.1, 40.4), (21.9, 40.4), (21.9, 35.4), (81.7, 35.4),
+        (81.7, 36.6), (23.1, 36.6), (23.1, 41.6), (16.9, 41.6),
+        (16.9, 31.6), (13.1, 31.6), (13.1, 36.6), (2.3, 36.6),
     ]),
 ]
 
