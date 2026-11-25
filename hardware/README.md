@@ -112,7 +112,7 @@ The board sits in a printed back case that replaces M5Stack's back ([case/README
 
 The pins and their legs are printed on the inner face beside the socket. The case README explains the soldering inside the Cardputer and the checks before switching on. **5VI must never be connected.**
 
-The firmware still uses G6 for the ADC clock (`GSR_SCL_PIN` in `firmware/cardputer/src/gsr_cardputer.cpp`), because the prototype is wired that way. Change it to 3 once Test 1 in the case README has confirmed G3.
+The firmware uses the same pins (`GSR_SDA_PIN` and `GSR_SCL_PIN` in `firmware/cardputer/src/gsr_cardputer.cpp`). A prototype wired with flywires must follow the board: ADC clock on G3, not G6.
 
 ## Check before ordering (both boards)
 

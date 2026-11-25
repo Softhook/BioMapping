@@ -215,19 +215,25 @@ MASK_MARGIN = {"U4": 0.05}
 # a closer grid under the GPS module (u-blox: fill the ground under it with vias)
 STITCH = [((26.5, 29.0, 34.5, 37.0), 2.0), ((3.0, 3.0, 49.5, 51.0), 3.0), ((52.5, 1.75, 81.0, 51.0), 5.0)]
 
-# The title sits in the free space under the GSR circuit, its lines between the
-# rows of ground vias (y 41.75, 46.75). The inner face carries the cable's
+# The title sits in the free corner on the GPS side, near the EXT edge; the
+# credit line sits in the free space under the GSR circuit, between the rows of
+# ground vias (y 46.75 and the edge). The inner face carries the cable's
 # wiring, for whoever solders it inside the Cardputer.
-LABELS = {"B": [("Bio Mapping 2", 66.0, 44.25, 1.8), ("Christian Nold, 2004 - 2026  rev G", 64.5, 49.25, TEXT),
-                ("GPS: keep this side", 12.0, 46.5, TEXT), ("clear of metal", 12.0, 48.3, TEXT),
-                ("CUFFS", 77.1, 31.4, TEXT), ("BODY <> WORLD", 19.0, 9.5, 1.2),
+# The board's revision, printed on both faces. Change it here whenever the board
+# changes.
+REV = "G"
+
+LABELS = {"B": [("Bio Mapping 2", 19.0, 9.5, 1.8), (f"Christian Nold, 2004 - 2026  rev {REV}", 64.5, 49.25, TEXT),
+                ("GPS: Keep this clear", 13.5, 49.25, TEXT),
+                ("CUFFS", 77.1, 31.4, TEXT),
                 # each GPS pad's name beside it, on the side away from the module, 0.3 mm
                 # clear of its printed outline. RESET stands further off: TP2's own name
                 # goes between, as C7, TP7 and the module leave it no other room
                 ("SAFEBOOT/PPS", 13.95, 33.0, TEXT), ("GND", 18.1, 35.7, TEXT),
                 ("RESET", 47.2, 33.3, TEXT), ("GND", 42.9, 36.0, TEXT),
                 ("RDY", 66.5, 24.0, TEXT), ("5V to 3.3V", 37.0, 18.6, TEXT)],
-          "F": [("CABLE TO EXT LEGS", 59.5, 9.25, TEXT),
+          "F": [(f"Bio Mapping 2 - Cardputer rev {REV}", 18.45, 49.25, TEXT), ("www.biomapping.net", 70.9, 49.25, TEXT),
+                ("CABLE TO EXT LEGS", 59.5, 9.25, TEXT),
                 ("1 G15  2 G13  3 GND  4 5VO", 59.5, 12.9, TEXT),
                 ("5 G5  6 G3  7 GND  8 G4", 59.5, 14.6, TEXT)]}
 

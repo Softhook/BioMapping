@@ -6,18 +6,19 @@
 #include "core_check.h"
 
 // Which I2C bus the ADS1115 is on. true: a bus of its own on EXT pins
-// G5 (SDA, EXT 13) and G6 (SCL, EXT 5), using the ESP32's second I2C
+// G5 (SDA, EXT 13) and G3 (SCL, EXT 1), as wired on the printed board, using the ESP32's second I2C
 // controller through M5's Ex_I2C (which M5 only points at the Grove port and
 // never starts). This keeps the ADS1115 off the keyboard / audio / motion
 // sensor bus and its pull-ups, which run from the Cardputer's own 3.3 V.
-// G5 and G6 have no pull-ups on the Cardputer, so the board must fit them.
+// G3 and G5 have no pull-ups on the Cardputer, so the board must fit them
+// (R6, R7).
 // false: the shared internal bus (G8/G9, EXT 8 and 10) through M5's In_I2C,
 // the same driver M5's own code uses, which locks the bus around every
 // transfer: opening those pins with Arduino's Wire would make two drivers
 // fight (docs/cardputer_port.md, "Gotchas").
 static const bool GSR_OWN_BUS = true;
 static const int  GSR_SDA_PIN = 5;
-static const int  GSR_SCL_PIN = 6;
+static const int  GSR_SCL_PIN = 3;
 static const uint32_t I2C_FREQ = 400000;
 
 // Above the main loop, so a slow screen push or SD write never delays a
@@ -99,7 +100,7 @@ GsrSensor* gsr_cardputer_start(void) {
     static bool bus_open = false;
     if(GSR_OWN_BUS && !bus_open) {
         bus_open = M5.Ex_I2C.begin(I2C_NUM_0, GSR_SDA_PIN, GSR_SCL_PIN);
-        if(!bus_open) Serial.println("[GSR] warning: could not open I2C on G5/G6");
+        if(!bus_open) Serial.printf("[GSR] warning: could not open I2C on G%d/G%d\n", GSR_SDA_PIN, GSR_SCL_PIN);
     }
     auto* g = new GsrCardputer();
     g->mutex = xSemaphoreCreateMutex();

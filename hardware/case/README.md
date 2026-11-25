@@ -104,7 +104,7 @@ We solder six wires. Four go on the easy row. The other two go on the two **ends
 
 Leave every other leg alone. **5VI must never be connected**: it is the Cardputer's charging input. G40, G14 and G39 are the SD card's wires.
 
-The ADC keeps its own I2C bus, as now. This is the quiet set-up measured on 21 November. The only change is that the clock wire moves from G6 to G3, because G6 is in the middle of the hidden row and hard to reach. The firmware change is one number (`GSR_SCL_PIN` in [gsr_cardputer.cpp](../../firmware/cardputer/src/gsr_cardputer.cpp)). It still says 6, as the prototype is wired: change it in Test 1. The board has two pull-up resistors (R6, R7). The prototype needs none, because its ADC board has its own.
+The ADC keeps its own I2C bus, as now. This is the quiet set-up measured on 21 November. The only change is that the clock wire moves from G6 to G3, because G6 is in the middle of the hidden row and hard to reach. The firmware already uses G3 (`GSR_SCL_PIN` in [gsr_cardputer.cpp](../../firmware/cardputer/src/gsr_cardputer.cpp)), so the prototype's clock flywire must move to G3 too (Test 1, step 1). The board has two pull-up resistors (R6, R7). The prototype needs none, because its ADC board has its own.
 
 ### What we checked about G3
 
@@ -174,7 +174,7 @@ You do the wiring and printing. I prepare the firmware and the test plates, then
 Use the prototype as it is now: ADC board on flywires, fixed 600 kΩ resistor in place of the finger cuffs. As usual, switch the prototype's power on before the Cardputer and off after it.
 
 1. Move the clock flywire from EXT pin 5 (G6) to EXT pin 1 (G3). Pin 1 is in the same row, two holes along from pin 5, at the opposite end from pin 13 (G5). The data wire stays on pin 13 (G5).
-2. Plug the Cardputer into the laptop. I flash a test version with the clock on G3, and read the chip's start-up setting.
+2. Plug the Cardputer into the laptop. I flash the current firmware (clock on G3) and read the chip's start-up setting.
 3. Unplug USB. Switch the Cardputer off and on 10 times. Each time it should start normally and show a GSR reading (ADC found).
 4. Record 3 minutes in GSR Only mode without touching anything, everything on battery as before. I compare the noise with the 21 November recording (about 0.3 nS).
 5. Plug USB back in. Check that it starts normally while charging and that I can still flash it.

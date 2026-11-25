@@ -32,7 +32,7 @@ The Flipper firmware has been split into a shared plain-C core ([firmware/core/]
 - **Cardputer checks:** run the calibration wizard and repeat the 47k / resistor-grid accuracy test; 1-minute typing test during a recording; step 9 review checks (row 0 `tick_dt_ms` = 0, first SD write under 100 ms, GPS unplug not resetting clock, garbled-byte wake check, outdoor cold start); Live Stream reconnect with the visualiser connected over several visits (the free-memory part is done, see section 5); and a long recording.
 - **Flipper checks:** confirm steps 5–6, 8, and the recent shared-core updates on a real Flipper (recording start and `# End` check, all screens, rising-GSR upward graph direction, and the shared calibration wizard).
 - **Side-by-side walks:** record walks wearing both the Flipper and Cardputer together and compare GSR traces and GPS tracks in the visualiser.
-- **Hardware:** the backpack PCB ([hardware/biomap_cardputer/](../hardware/biomap_cardputer/), rev G) fits inside a printed back case that replaces M5Stack's back ([hardware/case/](../hardware/case/README.md)), with a short cable soldered to the EXT socket's legs inside the Cardputer. Board and case are drawn and pass their checks (ERC/DRC, layout limits, and a 3D fit check of the board and its parts against the case; all run again on 24 Nov after J1 moved away from the headphone socket and `Bio Mapping 2` and a `GPS` box were added to the back). The outside review of 24 Nov is done, and its four questions are decided: no wrist strap, carried GPS side up, about 10 made by hand, a sticker over the EXT socket if needed. The ADS1115 is on its own bus, G3 (SCL) and G5 (SDA), with two 4.7 kΩ pull-ups (R6, R7) on the board (section 2, "Power and connections"). Next: the measurements and Test 1 (ADC clock on G3) in the case README, then print the case and order the board. Current tests run off the prototype board, still wired to G6.
+- **Hardware:** the backpack PCB ([hardware/biomap_cardputer/](../hardware/biomap_cardputer/), rev G) fits inside a printed back case that replaces M5Stack's back ([hardware/case/](../hardware/case/README.md)), with a short cable soldered to the EXT socket's legs inside the Cardputer. Board and case are drawn and pass their checks (ERC/DRC, layout limits, and a 3D fit check of the board and its parts against the case; all run again on 24 Nov after J1 moved away from the headphone socket and `Bio Mapping 2` and a `GPS` box were added to the back). The outside review of 24 Nov is done, and its four questions are decided: no wrist strap, carried GPS side up, about 10 made by hand, a sticker over the EXT socket if needed. The ADS1115 is on its own bus, G3 (SCL) and G5 (SDA), with two 4.7 kΩ pull-ups (R6, R7) on the board (section 2, "Power and connections"). Next: the measurements and Test 1 (ADC clock on G3) in the case README, then print the case and order the board. The firmware uses G3 to match the board; the prototype's clock flywire moves from G6 to G3 to match.
 - **Later / optional (step 13):** faster GSR reading (hardware timer or G4 `ALERT/RDY` pin), keyboard field notes, and the CardputerZero port. (Wi-Fi Files and the printed case, once on this list, are done or drawn.)
 
 ---
@@ -100,7 +100,7 @@ EXT pins used:
 | 6 | 5V out | — | Input of the new 3.3 V regulator |
 | 4 | GND | — | Common ground for everything |
 | 13 | G5 (I2C SDA) | G5 | ADS1115 SDA |
-| 1 | G3 (I2C SCL) | G3 | ADS1115 SCL (the prototype and the firmware still use G6, pin 5, until Test 1 in `hardware/case/README.md`) |
+| 1 | G3 (I2C SCL) | G3 | ADS1115 SCL (the firmware uses G3; the prototype's flywire moves here from G6, pin 5: Test 1 in `hardware/case/README.md`) |
 | 12 | UART TX | G13 | M10Q RX |
 | 14 | UART RX | G15 | M10Q TX |
 | 3 | G4 | G4 | ADS1115 ALERT/RDY (pulses when a reading is ready; needs the ESP32's pull-up on). The board's cable socket has a pin for it; no wire yet |
@@ -124,9 +124,9 @@ What the regulator still decides is how steady the supply stays **during** a rec
 
 This is also a chance to improve on the Flipper. A dedicated, quiet regulator on the Cap keeps the GSR circuit away from the noise of the Cardputer's own 3.3 V supply, which powers the ESP32 and its radio.
 
-#### The GSR has its own I2C bus (G5/G6)
+#### The GSR has its own I2C bus (G3/G5)
 
-The ESP32 has two I2C controllers and can route either to almost any pin. M5Stack's library uses one for the internal bus (`M5.In_I2C`, G8/G9) and only points the other (`M5.Ex_I2C`) at the Grove port without starting it. [gsr_cardputer.cpp](../firmware/cardputer/src/gsr_cardputer.cpp) starts that second controller on G5 (SDA) and G6 (SCL) the first time the GSR starts, and leaves it open. `GSR_OWN_BUS = false` at the top of the file puts the ADS1115 back on the shared bus, for comparison tests on the prototype. The printed board can't use it: its tail doesn't connect G8/G9.
+The ESP32 has two I2C controllers and can route either to almost any pin. M5Stack's library uses one for the internal bus (`M5.In_I2C`, G8/G9) and only points the other (`M5.Ex_I2C`) at the Grove port without starting it. [gsr_cardputer.cpp](../firmware/cardputer/src/gsr_cardputer.cpp) starts that second controller on G5 (SDA) and G3 (SCL) the first time the GSR starts, and leaves it open. `GSR_OWN_BUS = false` at the top of the file puts the ADS1115 back on the shared bus, for comparison tests on the prototype. The printed board can't use it: its tail doesn't connect G8/G9.
 
 Why a bus of its own:
 
@@ -164,7 +164,7 @@ None of the addresses clash, so sharing works electrically.
 
   The keyboard only reads the bus after a key press (the keyboard chip signals it on G11), so it rarely makes the GSR thread wait, and then only for a fraction of a millisecond.
 - **Bus speed.** All four parts support 400 kHz. At 860 readings a second, the GSR reads keep the bus busy roughly 40% of the time at 100 kHz and about 10% at 400 kHz (an estimate). The keyboard only uses the bus when a key is pressed, so there is room either way, but 400 kHz leaves more.
-- **Pull-up resistors.** The Cardputer already has them: the [official schematic](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1178/Sch_M5CardputerAdv_v1.0_2025_06_20_17_19_58.pdf) (page 2, beside the keyboard chip) shows 3.3 kΩ from G8 (R35) and G9 (R36) to the Cardputer's 3.3 V. That value suits 400 kHz. They run from the Cardputer's 3.3 V, not our regulator's, which is fine: the ADS1115's I2C pins accept up to 5.5 V whatever its own supply. (The printed board no longer uses this bus: it is on G5/G6 with its own pull-ups, R6 and R7.) To check a real unit, switch the Cardputer on with nothing plugged into the EXT header and measure the voltage from SDA and from SCL to GND. Each should read about 3.3 V, which shows the pull-ups are there. Measuring resistance with the power off is less reliable: the protection diodes in the chips on the bus can let the meter's current through and give a low reading.
+- **Pull-up resistors.** The Cardputer already has them: the [official schematic](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1178/Sch_M5CardputerAdv_v1.0_2025_06_20_17_19_58.pdf) (page 2, beside the keyboard chip) shows 3.3 kΩ from G8 (R35) and G9 (R36) to the Cardputer's 3.3 V. That value suits 400 kHz. They run from the Cardputer's 3.3 V, not our regulator's, which is fine: the ADS1115's I2C pins accept up to 5.5 V whatever its own supply. (The printed board no longer uses this bus: it is on G3/G5 with its own pull-ups, R6 and R7.) To check a real unit, switch the Cardputer on with nothing plugged into the EXT header and measure the voltage from SDA and from SCL to GND. Each should read about 3.3 V, which shows the pull-ups are there. Measuring resistance with the power off is less reliable: the protection diodes in the chips on the bus can let the meter's current through and give a low reading.
 - **Keyboard lock-up workaround.** M5Cardputer 1.1.1 has a race in its keyboard reader that can leave G11 stuck low after 10–20 minutes ([issue #12](https://github.com/Mr-PauI/Gameboy-Enhanced-Firmware-m5stack-cardputer-/issues/12)). `keys.cpp` detects G11 held low and restarts the keyboard controller (section 9, "Second review").
 
 
@@ -221,7 +221,7 @@ The regulator is a linear type, so it draws the same current from 5V out as it g
 
 #### Header pin numbers
 
-The schematic and the online pin table number the EXT header differently. The schematic counts 1–7 down one side and 8–14 down the other; the online table alternates sides. The schematic also labels G13 "GPS-RX" and G15 "GPS-TX" (meaning they connect to the GPS module's RX and TX), which suggests the header was designed with a GPS in mind. **Wire by signal name (5VOUT, GND, G5, G6, G13, G15), not by pin number,** and confirm with a multimeter before connecting anything.
+The schematic and the online pin table number the EXT header differently. The schematic counts 1–7 down one side and 8–14 down the other; the online table alternates sides. The schematic also labels G13 "GPS-RX" and G15 "GPS-TX" (meaning they connect to the GPS module's RX and TX), which suggests the header was designed with a GPS in mind. **Wire by signal name (5VOUT, GND, G3, G5, G13, G15), not by pin number,** and confirm with a multimeter before connecting anything.
 
 ### Things to check on the hardware
 
@@ -311,7 +311,7 @@ Yes, easily. The Flipper runs the main thread, the GSR thread and its own Blueto
 None of these stops the port, but each would cause a confusing fault if missed.
 
 - **Bluetooth message size.** Each live packet is 49 bytes (`BT_STREAM_PACKET_SIZE` in [core/biomap_format.h](../firmware/core/biomap_format.h)). By default, ESP32 Bluetooth sends only 20 bytes per message, so [bt_cardputer.cpp](../firmware/cardputer/src/bt_cardputer.cpp) raises the MTU to 52 bytes and uses the same service and characteristic IDs as the visualiser.
-- **One I2C driver per bus.** M5Stack's own library already uses G8/G9 for the keyboard and audio chip. If code opens the same pins through a second, separate driver (such as Arduino's `Wire`), the two fight over the bus and readings go wrong at random. The GSR now has its own bus on G5/G6 through `M5.Ex_I2C`; with `GSR_OWN_BUS = false` it must use `M5.In_I2C`, the same driver as M5Stack's library.
+- **One I2C driver per bus.** M5Stack's own library already uses G8/G9 for the keyboard and audio chip. If code opens the same pins through a second, separate driver (such as Arduino's `Wire`), the two fight over the bus and readings go wrong at random. The GSR now has its own bus on G3/G5 through `M5.Ex_I2C`; with `GSR_OWN_BUS = false` it must use `M5.In_I2C`, the same driver as M5Stack's library.
 - **Keep the GPS serial port open all the time.** A sleeping M10Q wakes on any signal on its receive wire. On the Flipper, letting go of the port left that wire floating, and the module woke within seconds ([gps_uart_flipper.c](../firmware/flipper/gps_uart_flipper.c), [gps_sleep_investigation.md](../research/archive/gps_sleep_investigation.md)). The Cardputer must do what the Flipper does: open the port when the app starts and hold it until the app exits.
 - **C-only features in shared headers.** The Arduino setup compiles its own code as C++. [bt_stream.h](../firmware/flipper/bt_stream.h) uses `_Atomic`, a C-only feature that C++ cannot read. Keep such details inside `.c` files, so every shared header can be read by both. Shared headers also need the usual `extern "C"` wrapper.
 - **The 1 ms pause.** See "Build tools" above.
@@ -884,7 +884,7 @@ Most details below come from [M5Stack's CardputerZero docs](https://docs.m5stack
 | 8 | I2C SDA | G8 | GPIO2, `/dev/i2c-1` |
 | 10 | I2C SCL | G9 | GPIO3, `/dev/i2c-1` |
 | 13 | ADS1115 SDA (own bus) | G5 | not yet looked up **(check)** |
-| 5 | ADS1115 SCL (own bus) | G6 | not yet looked up **(check)** |
+| 1 | ADS1115 SCL (own bus) | G3 | not yet looked up **(check)** |
 | 12 | Serial, to M10Q RX | G13 | GPIO15, `/dev/serial0` |
 | 14 | Serial, from M10Q TX | G15 | GPIO14, `/dev/serial0` |
 
