@@ -23,6 +23,7 @@
 #include "cardputer/src/zip_stream.h"
 #include "cardputer/src/splash_anim.h"
 #include "cardputer/src/write_queue.h"
+#include "cardputer/src/gsr_audio.h"
 #include "core/biomap_pipeline.h"
 #include "minmea.h"
 
@@ -1099,6 +1100,283 @@ static void test_write_queue_full_and_clear(void) {
     printf("  full queue takes only what fits; drop and clear: ok\n");
 }
 
+// ── Standalone 48 kHz GSR audification ──────────────────────────────────
+
+static void test_gsr_audio_settle_and_scale_invariance(void) {
+    GsrAudio dry, warm;
+    gsr_audio_init(&dry, GsrAudioDrone);
+    gsr_audio_init(&warm, GsrAudioDrone);
+
+    // Open-circuit (< 100 nS) stays silent.
+    for(int i = 0; i < 20; i++) {
+        gsr_audio_tick(&dry, 18.0f, true);
+        assert(!dry.has_contact && dry.target_gate == 0.0f);
+    }
+    int16_t pcm[512];
+    gsr_audio_render(&dry, pcm, 512);
+    for(int i = 0; i < 512; i++) assert(pcm[i] == 0);
+
+    // Fresh finger contact settles silently for GSR_AUDIO_SETTLE_TICKS - 1 ticks,
+    // then opens cleanly right at the resting pitch with zero startle jump.
+    for(int t = 1; t <= GSR_AUDIO_SETTLE_TICKS; t++) {
+        gsr_audio_tick(&dry, 1500.0f, true);
+        gsr_audio_tick(&warm, 15000.0f, true);
+        if(t < GSR_AUDIO_SETTLE_TICKS) {
+            assert(!dry.has_contact && dry.target_gate == 0.0f);
+        }
+    }
+    assert(dry.has_contact && dry.target_gate == 1.0f);
+    assert(fabsf(dry.pitch_norm - GSR_AUDIO_REST_NORM) < 1e-4f);
+    assert(fabsf(warm.pitch_norm - GSR_AUDIO_REST_NORM) < 1e-4f);
+
+    // Same 10% proportional rise on dry (1.5 uS) and warm (15 uS) skin gives
+    // identical pitch movement.
+    for(int t = 0; t < 15; t++) {
+        float frac = 1.0f + 0.10f * ((float)(t + 1) / 15.0f);
+        gsr_audio_tick(&dry, 1500.0f * frac, true);
+        gsr_audio_tick(&warm, 15000.0f * frac, true);
+    }
+    assert(dry.pitch_norm > GSR_AUDIO_REST_NORM + 0.10f);
+    assert(fabsf(dry.pitch_norm - warm.pitch_norm) < 1e-4f);
+    assert(fabsf(dry.target_hz - warm.target_hz) < 1e-3f);
+
+    // Musical pitch helper formats standard note names cleanly.
+    char note[8];
+    gsr_audio_hz_note_name(110.0f, note, sizeof(note));
+    assert(strcmp(note, "A2") == 0);
+    gsr_audio_hz_note_name(130.8128f, note, sizeof(note));
+    assert(strcmp(note, "C3") == 0);
+    gsr_audio_hz_note_name(196.0f, note, sizeof(note));
+    assert(strcmp(note, "G3") == 0);
+    gsr_audio_hz_note_name(329.6276f, note, sizeof(note));
+    assert(strcmp(note, "E4") == 0);
+    printf("  contact settle, dry/warm scale invariance, and note labels: ok\n");
+}
+
+static void test_gsr_audio_arousal_relax_and_gait_filter(void) {
+    GsrAudio a;
+    gsr_audio_init(&a, GsrAudioDrone);
+    for(int t = 0; t < GSR_AUDIO_SETTLE_TICKS; t++) {
+        gsr_audio_tick(&a, 5000.0f, true);
+    }
+    float rest_hz = a.target_hz;
+    float expect_rest = gsr_audio_norm_to_hz(GsrAudioDrone, GSR_AUDIO_REST_NORM);
+    assert(fabsf(rest_hz - expect_rest) < 0.2f);
+
+    // 1.8 Hz walking footstep ripple (+/- 40 nS around 5000 nS) is rejected.
+    for(int t = 0; t < 100; t++) {
+        float step_ripple = 40.0f * sinf(2.0f * 3.14159265f * 1.8f * ((float)t * 0.1f));
+        gsr_audio_tick(&a, 5000.0f + step_ripple, true);
+        if(t > 20) {
+            assert(fabsf(a.target_hz - rest_hz) < 1.0f);
+        }
+    }
+
+    // Startle (+15% rise over 2 s) glides pitch smoothly upward; gradual breath
+    // recovery back below 5000 nS glides pitch down into the deep A2-D3 bass.
+    for(int t = 1; t <= 20; t++) {
+        gsr_audio_tick(&a, 5000.0f * (1.0f + 0.15f * ((float)t / 20.0f)), true);
+    }
+    float peak_hz = a.target_hz;
+    assert(peak_hz > rest_hz + 45.0f && peak_hz <= GSR_AUDIO_DRONE_MAX_HZ);
+
+    for(int t = 1; t <= 80; t++) {
+        float u = (float)t / 80.0f;
+        float ns = 5750.0f - (5750.0f - 4600.0f) * u;
+        gsr_audio_tick(&a, ns, true);
+    }
+    assert(a.target_hz < rest_hz - 10.0f && a.target_hz >= GSR_AUDIO_DRONE_MIN_HZ);
+
+    // Single-tick > 500 nS cuff re-seat jump re-primes without spiking slope.
+    gsr_audio_tick(&a, 6200.0f, true);
+    assert(fabsf(a.smooth_dlog_s) < 1e-5f);
+
+    // Regression test: putting fingers on the cuffs gradually over 1.5 s
+    // (300 nS -> 4500 nS ramp) must NEVER leave lpf3_ns lagging behind raw_ns
+    // when contact settles, so pitch opens right at the calm resting hum (~138 Hz)
+    // and stays there instead of jumping to maximum frequency!
+    GsrAudio grab;
+    gsr_audio_init(&grab, GsrAudioDrone);
+    for(int t = 0; t < 15; t++) {
+        float ramp_ns = 300.0f + (4500.0f - 300.0f) * ((float)(t + 1) / 15.0f);
+        gsr_audio_tick(&grab, ramp_ns, true);
+    }
+    for(int t = 0; t < 30; t++) {
+        gsr_audio_tick(&grab, 4500.0f, true);
+    }
+    assert(grab.has_contact);
+    assert(fabsf(grab.target_hz - expect_rest) < 0.5f);
+    assert(fabsf(grab.pitch_norm - GSR_AUDIO_REST_NORM) < 0.005f);
+
+    // Sensitivity control (10%..150%): 10% vs 100% vs 150% scales response
+    // amplitude while keeping the settled baseline pinned at GSR_AUDIO_REST_NORM,
+    // and clamps out-of-range inputs cleanly to [10%, 150%].
+    GsrAudio low_s, mid_s, hi_s, clamp_lo, clamp_hi;
+    gsr_audio_init(&low_s,    GsrAudioDrone);
+    gsr_audio_init(&mid_s,    GsrAudioDrone);
+    gsr_audio_init(&hi_s,     GsrAudioDrone);
+    gsr_audio_init(&clamp_lo, GsrAudioDrone);
+    gsr_audio_init(&clamp_hi, GsrAudioDrone);
+    gsr_audio_set_sensitivity_pct(&low_s,    10);
+    gsr_audio_set_sensitivity_pct(&mid_s,    100);
+    gsr_audio_set_sensitivity_pct(&hi_s,     150);
+    gsr_audio_set_sensitivity_pct(&clamp_lo, 1);
+    gsr_audio_set_sensitivity_pct(&clamp_hi, 500);
+    assert(fabsf(clamp_lo.sens_scale - 0.10f) < 1e-5f);
+    assert(fabsf(clamp_hi.sens_scale - 1.50f) < 1e-5f);
+    for(int t = 0; t < GSR_AUDIO_SETTLE_TICKS; t++) {
+        gsr_audio_tick(&low_s, 5000.0f, true);
+        gsr_audio_tick(&mid_s, 5000.0f, true);
+        gsr_audio_tick(&hi_s,  5000.0f, true);
+    }
+    assert(fabsf(low_s.pitch_norm - GSR_AUDIO_REST_NORM) < 1e-4f);
+    assert(fabsf(hi_s.pitch_norm  - GSR_AUDIO_REST_NORM) < 1e-4f);
+    for(int t = 1; t <= 12; t++) {
+        float ns = 5000.0f * (1.0f + 0.04f * ((float)t / 12.0f));
+        gsr_audio_tick(&low_s, ns, true);
+        gsr_audio_tick(&mid_s, ns, true);
+        gsr_audio_tick(&hi_s,  ns, true);
+    }
+    assert(low_s.pitch_norm > GSR_AUDIO_REST_NORM);
+    assert(mid_s.pitch_norm > low_s.pitch_norm + 0.06f);
+    assert(hi_s.pitch_norm  > mid_s.pitch_norm + 0.04f);
+
+    // Logarithmic volume curve: 6.0 dB per 10% step down to -54 dB at 10%, 0 at 0%.
+    assert(gsr_audio_volume_pct_to_gain(0) == 0.0f);
+    assert(fabsf(gsr_audio_volume_pct_to_gain(100) - 1.0f) < 1e-5f);
+    assert(fabsf(gsr_audio_volume_pct_to_gain(80)  - 0.251189f) < 1e-4f);
+    assert(fabsf(gsr_audio_volume_pct_to_gain(50)  - 0.031623f) < 1e-4f);
+    assert(fabsf(gsr_audio_volume_pct_to_gain(10)  - 0.001995f) < 1e-5f);
+    printf("  arousal glide, gait filter, 10-150%% sensitivity & log volume curve: ok\n");
+}
+
+static void test_gsr_audio_modes_click_free_render(void) {
+    assert(GSR_AUDIO_SAMPLE_RATE == 48000);
+    assert(GsrAudioModeCount == 6);  // Off + Drone, Breath, Chord, Bowls, Rain
+
+    // Forward & backward soundscape cycling covers all 5 active soundscapes cleanly.
+    GsrAudioMode cur = GsrAudioDrone;
+    for(int i = 0; i < 5; i++) cur = gsr_audio_cycle_soundscape(cur, true);
+    assert(cur == GsrAudioDrone);
+    cur = gsr_audio_cycle_soundscape(GsrAudioDrone, false);
+    assert(cur == GsrAudioRain);
+
+    GsrAudio a;
+    gsr_audio_init(&a, GsrAudioDrone);
+    gsr_audio_set_volume_pct(&a, 100);
+    for(int t = 0; t < GSR_AUDIO_SETTLE_TICKS + 5; t++) {
+        gsr_audio_tick(&a, 4000.0f, true);
+    }
+
+    int16_t pcm[3840];  // 80 ms block at 48 kHz
+    int16_t prev = 0;
+    const GsrAudioMode modes[5] = {
+        GsrAudioDrone, GsrAudioBreath, GsrAudioChord, GsrAudioBowls, GsrAudioRain
+    };
+
+    for(int m = 0; m < 5; m++) {
+        gsr_audio_set_mode(&a, modes[m]);
+        int32_t max_abs = 0;
+        int32_t max_step = 0;
+        float min_breath = 1.0f, max_breath = 0.0f;
+        for(int blk = 0; blk < 28; blk++) {  // ~2.24 s per soundscape
+            if(blk == 8) gsr_audio_set_volume_pct(&a, 60);
+            if(blk == 12) gsr_audio_set_volume_pct(&a, 100);
+            gsr_audio_tick(&a, 4000.0f + 35.0f * (float)blk, true);
+            gsr_audio_render(&a, pcm, 3840);
+            if(modes[m] == GsrAudioBreath) {
+                if(a.breath_level < min_breath) min_breath = a.breath_level;
+                if(a.breath_level > max_breath) max_breath = a.breath_level;
+            }
+            for(size_t i = 0; i < 3840; i++) {
+                int32_t v = pcm[i] < 0 ? -(int32_t)pcm[i] : (int32_t)pcm[i];
+                if(v > max_abs) max_abs = v;
+                int32_t step = (int32_t)pcm[i] - (int32_t)prev;
+                if(step < 0) step = -step;
+                if(step > max_step) max_step = step;
+                prev = pcm[i];
+            }
+        }
+        assert(max_abs > 3000 && max_abs <= 30000);
+        // Continuous 48 kHz audio across all 5 soundscapes never clicks sample-to-sample.
+        assert(max_step < 2600);
+        if(modes[m] == GsrAudioBreath) {
+            assert(max_breath - min_breath > 0.25f);
+        }
+    }
+
+    // Muting (GsrAudioOff) is also the Esc fade (gsr_audio_cardputer_stop):
+    // from full sound it reaches exact zero, with no big step, within two
+    // 80 ms blocks, and the block that finishes the fade ends in silence.
+    gsr_audio_set_mode(&a, GsrAudioDrone);
+    for(int blk = 0; blk < 40; blk++) {  // 3.2 s: the 400 ms fade-in is done
+        gsr_audio_tick(&a, 4000.0f, true);
+        gsr_audio_render(&a, pcm, 3840);
+    }
+    assert(a.cur_gate > 0.99f);
+    prev = pcm[3839];
+    gsr_audio_set_mode(&a, GsrAudioOff);
+    int blocks = 0;
+    int32_t fade_step = 0;
+    while(!(a.mode == GsrAudioOff && a.cur_gate == 0.0f)) {
+        gsr_audio_render(&a, pcm, 3840);
+        blocks++;
+        for(size_t i = 0; i < 3840; i++) {
+            int32_t step = (int32_t)pcm[i] - (int32_t)prev;
+            if(step < 0) step = -step;
+            if(step > fade_step) fade_step = step;
+            prev = pcm[i];
+        }
+        assert(blocks <= 2);
+    }
+    assert(fade_step < 400);
+    for(size_t i = 3000; i < 3840; i++) assert(pcm[i] == 0);
+    gsr_audio_render(&a, pcm, 3840);
+    for(size_t i = 0; i < 3840; i++) assert(pcm[i] == 0);
+    printf("  all 5 soundscapes (DRONE, BREATH, CHORD, BOWLS, RAIN), mute/Esc fade: ok\n");
+}
+
+static void test_gsr_audio_rain_drops_and_bowl_note(void) {
+    // RAIN: at rest (u ~ 0.21) drops come at roughly 8 + 18 * 0.21 ~ 12 a
+    // second, at many pitches across 380..815 Hz.
+    GsrAudio a;
+    gsr_audio_init(&a, GsrAudioRain);
+    for(int t = 0; t < GSR_AUDIO_SETTLE_TICKS + 5; t++) gsr_audio_tick(&a, 4000.0f, true);
+    int16_t one;
+    int drops = 0;
+    float lo = 1e9f, hi = 0.0f;
+    for(int t = 0; t < 100; t++) {  // 10 s
+        gsr_audio_tick(&a, 4000.0f, true);
+        for(int i = 0; i < 4800; i++) {
+            float before = a.drop_atk_rem;
+            gsr_audio_render(&a, &one, 1);
+            if(a.drop_atk_rem > before) {
+                drops++;
+                float hz = a.drop_w * (float)GSR_AUDIO_SAMPLE_RATE / (2.0f * 3.14159265f);
+                if(hz < lo) lo = hz;
+                if(hz > hi) hi = hz;
+            }
+        }
+    }
+    assert(drops >= 60 && drops <= 200);
+    assert(lo >= 379.0f && hi <= 816.0f && hi - lo > 250.0f);
+
+    // BOWLS: the pitch shown stays on the bowl last struck; the 10 Hz tick
+    // must not move it to a different note.
+    GsrAudio b;
+    gsr_audio_init(&b, GsrAudioBowls);
+    for(int t = 0; t < GSR_AUDIO_SETTLE_TICKS; t++) gsr_audio_tick(&b, 4000.0f, true);
+    int16_t pcm[4800];
+    for(int t = 0; t < 30; t++) {  // 3 s: the first strike is at 0.15 s
+        gsr_audio_tick(&b, 4000.0f * (1.0f + 0.004f * (float)t), true);
+        gsr_audio_render(&b, pcm, 4800);
+    }
+    int last = b.bowl_next_slot ^ 1;
+    assert(b.bowl_dec[last] > 0.0f);
+    assert(fabsf(b.target_hz - b.bowl_hz[last]) < 1e-3f);
+    printf("  RAIN drop rate and pitch spread, BOWLS shows the struck note: ok\n");
+}
+
 int main(void) {
     setenv("TZ", CLOCK_UK_TZ, 1);
     tzset();
@@ -1146,6 +1424,11 @@ int main(void) {
     printf("Write queue:\n");
     test_write_queue_order();
     test_write_queue_full_and_clear();
+    printf("GSR audio:\n");
+    test_gsr_audio_settle_and_scale_invariance();
+    test_gsr_audio_arousal_relax_and_gait_filter();
+    test_gsr_audio_modes_click_free_render();
+    test_gsr_audio_rain_drops_and_bowl_note();
     printf("All Cardputer rule tests passed.\n");
     return 0;
 }

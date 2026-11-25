@@ -18,6 +18,7 @@
 #include "clock_cardputer.h"
 #include "cues_cardputer.h"
 #include "gps_cardputer.h"
+#include "gsr_audio_cardputer.h"
 #include "gsr_cardputer.h"
 #include "key_map.h"
 #include "keys.h"
@@ -59,11 +60,15 @@ static void log_second(void) {
     }
     float hz = 0.0f, dup_pct = 0.0f, ok_pct = 0.0f;
     uint32_t i2c_peak_ms = 0;
-    if(s.gsr) {
-        hz = gsr_sensor_get_worker_hz(s.gsr);
-        dup_pct = gsr_sensor_get_duplicate_rate(s.gsr);
-        ok_pct = gsr_sensor_get_success_rate(s.gsr);
-        i2c_peak_ms = gsr_sensor_get_i2c_peak_ms(s.gsr);
+    const GsrSensor* active_gsr = s.gsr ? s.gsr : gsr_audio_cardputer_sensor();
+    if(!s.gsr && active_gsr) {
+        ns = gsr_sensor_get_raw(active_gsr);
+    }
+    if(active_gsr) {
+        hz = gsr_sensor_get_worker_hz(active_gsr);
+        dup_pct = gsr_sensor_get_duplicate_rate(active_gsr);
+        ok_pct = gsr_sensor_get_success_rate(active_gsr);
+        i2c_peak_ms = gsr_sensor_get_i2c_peak_ms(active_gsr);
     }
     uint32_t flush_peak_ms = 0, flush_fails = 0;
     if(g_session.logger) {
@@ -96,6 +101,9 @@ static void log_second(void) {
     if(wifi_files_active()) {
         Serial.printf(" wifi=1 wifi_clients=%d", wifi_files_client_count());
     }
+    if(gsr_audio_cardputer_active()) {
+        Serial.printf(" audio=1");
+    }
     if(clock_cardputer_is_set()) {
         SessionDateTime now;
         clock_cardputer_now(&now);
@@ -115,6 +123,9 @@ static bool keys_poll(void) {
     if(!M5Cardputer.Keyboard.isChange() || !M5Cardputer.Keyboard.isPressed()) return false;
     key_count++;
     const auto& st = M5Cardputer.Keyboard.keysState();
+    // GSR Audio's extra keys (they do nothing on any other screen).
+    if(st.tab && gsr_audio_cardputer_char('\t')) return true;
+    if(!st.word.empty() && gsr_audio_cardputer_char(st.word.back())) return true;
     SessionKey key;
     if(!keys_to_session(st, &key)) return false;  // count only
     return dispatch_key(key);
@@ -131,6 +142,10 @@ static bool serial_keys_poll(void) {
         bool crlf_tail = (ch == '\n' && prev_ch == '\r');
         prev_ch = ch;
         if(crlf_tail) continue;
+        if(gsr_audio_cardputer_char(ch)) {  // GSR Audio's extra keys only
+            redraw = true;
+            continue;
+        }
         SessionKey key;
         if(key_map_char(ch, &key) && dispatch_key(key)) redraw = true;
     }

@@ -30,7 +30,7 @@ import serial
 ESPTOOL = os.path.expanduser("~/.platformio/packages/tool-esptool/esptool")
 
 UP, DOWN, LEFT, RIGHT, OK, BACK = ";", ".", ",", "/", "\r", "\x1b"
-MAIN_MENU = ["GPS + GSR", "GSR Only", "Live Stream", "Wi-Fi Files", "Options"]
+MAIN_MENU = ["GPS + GSR", "GSR Only", "Live Stream", "Wi-Fi Files", "GSR Audio", "Options"]
 OPTIONS = ["GPS Profile", "Super-S", "Cold Reset GPS", "Auto-zoom GSR", "GSR Calibration",
            "Backlight", "Sound", "Diagnostics", "Debug Fields"]
 
@@ -553,6 +553,57 @@ def test_diagnostics(dev):
     dev.no_faults()
 
 
+def test_gsr_audio(dev, cycles=4):
+    """Standalone GSR Audio mode: sleeps GPS, 5 soundscapes, 10-150% sens, log volume, zero leak."""
+    dev.restart()
+    open_main(dev, "GSR Audio")
+    heaps_off = []
+    for i in range(cycles):
+        if i:
+            dev.press(OK)
+        dev.wait_for(r"\[Audio\] on: mode=(DRONE|BREATH|CHORD|BOWLS|RAIN) rate=48000", 3)
+        m = dev.mark()
+        dev.pump(3.5)
+        rows = dev.statuses(m)[1:]
+        check_gsr_healthy(rows, "GSR Audio")
+        check(all(r.get("audio") == 1 for r in rows), "missing audio=1 in GSR Audio mode")
+        check(all("gps_fix" not in r for r in rows), "GPS session active inside GSR Audio")
+        if i == 0:
+            for expected in ["BREATH", "CHORD", "BOWLS", "RAIN", "DRONE"]:
+                dev.press(RIGHT)
+                dev.wait_for(rf"\[Audio\] mode={expected} vol=80% sens=100%", 2)
+            dev.press(UP)
+            dev.wait_for(r"\[Audio\] mode=DRONE vol=80% sens=110%", 2)
+            dev.press(DOWN)
+            dev.wait_for(r"\[Audio\] mode=DRONE vol=80% sens=100%", 2)
+            dev.press("+")
+            dev.wait_for(r"\[Audio\] mode=DRONE vol=90% sens=100%", 2)
+            dev.press("-")
+            dev.wait_for(r"\[Audio\] mode=DRONE vol=80% sens=100%", 2)
+            dev.press(OK)
+            dev.wait_for(r"\[Audio\] mode=MUTED", 2)
+            dev.press(OK)
+            dev.wait_for(r"\[Audio\] mode=DRONE", 2)
+        dev.press(BACK)
+        off = dev.wait_for(r"\[Audio\] off \(free heap \d+\)", 3)
+        heaps_off.append(int(re.search(r"free heap (\d+)", off).group(1)))
+        dev.pump(1.2)
+        last = dev.statuses(0)[-1]
+        check(last["hz"] == 0, "GSR reader still running after leaving GSR Audio")
+        check("audio" not in last, "audio=1 still present after leaving GSR Audio")
+    per = (heaps_off[1] - heaps_off[-1]) / max(1, cycles - 2)
+    print(f"      free memory after each stop: {heaps_off} ({per:.0f} bytes lost per visit)")
+    check(per <= 256, f"losing {per:.0f} bytes per GSR Audio visit")
+    # Verify GPS stayed completely asleep during GSR Audio (same idle-watch check as GSR Only).
+    dev.press(UP * 4 + OK)              # GSR Audio (index 4) -> GPS + GSR (index 0)
+    idle = dev.wait_for(r"\[GPS\]( warning:)? Idle:", 6)
+    check("GPS silent" in idle, "GPS was not asleep during GSR Audio: " + idle)
+    dev.pump(1)
+    dev.press(BACK)
+    dev.pump(1)
+    dev.no_faults()
+
+
 def test_settings_persist(dev):
     """Auto-zoom toggled in Options survives a restart; then put back."""
     dev.restart()
@@ -647,6 +698,7 @@ TESTS = [
     ("gsr_only", test_gsr_only),
     ("record_crlf", test_record_crlf),
     ("diagnostics", test_diagnostics),
+    ("gsr_audio", test_gsr_audio),
     ("gps_gsr", test_gps_gsr),
     ("gps_reset_in_session", test_gps_reset_in_session),
     ("key_flood", test_key_flood),

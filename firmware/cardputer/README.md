@@ -1,6 +1,6 @@
 # BioMapping on the Cardputer ADV
 
-The BioMapping firmware for the M5Stack Cardputer ADV. Steps 1–11 of the port plan are complete (validation and side-by-side walks are next; see [docs/cardputer_port.md](../../docs/cardputer_port.md)). It boots into a colour main menu (`GPS + GSR`, `GSR Only`, `Live Stream`, `Wi-Fi Files`, `Options`), includes the full **Options** menu and 4-step **GSR Calibration Wizard**, persists settings and calibration to `/sd/biomapping/` on the built-in SD card, streams live BLE packets to the visualiser's **Live** tab, and draws the live GSR graph and Diagnostics screens through the shared code in [`../core/`](../core/).
+The BioMapping firmware for the M5Stack Cardputer ADV. Steps 1–11 of the port plan are complete (validation and side-by-side walks are next; see [docs/cardputer_port.md](../../docs/cardputer_port.md)). It boots into a colour main menu (`GPS + GSR`, `GSR Only`, `Live Stream`, `Wi-Fi Files`, `GSR Audio`, `Options`), includes the full **Options** menu and 4-step **GSR Calibration Wizard**, persists settings and calibration to `/sd/biomapping/` on the built-in SD card, streams live BLE packets to the visualiser's **Live** tab, and draws the live GSR graph and Diagnostics screens through the shared code in [`../core/`](../core/).
 
 The shared code is built straight from `../core/` and `../vendor/minmea/`; nothing is copied into this folder. Our own code and `core/` are built with warnings treated as errors.
 
@@ -42,12 +42,17 @@ The same keys also work typed into a serial monitor on the computer (`pio device
 
 At power-up, while the start-up animation plays, it wakes the GPS, reads the time from the GPS module's backup clock, and leaves the GPS running so it can start finding satellites. It then loads saved settings and calibration from the SD card and shows the **Bio Mapping** main menu.
 
-The GPS keeps running on the menu and between GPS sessions, so going back into `GPS + GSR` doesn't have to find the satellites again. It is put to sleep when you open something that doesn't use it (`GSR Only`, `Diagnostics`, `GSR Calibration`, `Wi-Fi Files`), and stays asleep until the next GPS session.
+The GPS keeps running on the menu and between GPS sessions, so going back into `GPS + GSR` doesn't have to find the satellites again. It is put to sleep when you open something that doesn't use it (`GSR Only`, `Diagnostics`, `GSR Calibration`, `Wi-Fi Files`, `GSR Audio`), and stays asleep until the next GPS session.
 
 - **`GPS + GSR`** — sets up the GPS module (waking it first if it is asleep), opens the live GSR waveform screen, and records 11-column `GPS+GSR` CSV files.
 - **`GSR Only`** — puts the GPS to sleep, opens the live GSR waveform screen, and records 2-column `GSR Only` CSV files.
 - **`Live Stream`** — starts the GPS and GSR sensors and advertises over Bluetooth Low Energy (`Cardputer`) with the visualiser's Live service and notify characteristic UUIDs (52-byte MTU for 49-byte packets every 300 ms). Bluetooth is switched on only while Live Stream is open. Leaving with **Esc** disconnects any phone or browser and switches Bluetooth off completely.
 - **`Wi-Fi Files`** — turns on a Wi-Fi hotspot (`BioMapping-XXXX`, open — no password) and starts a small web server at `http://192.168.4.1` for downloading or deleting `.csv` recordings (one by one or all at once as a streamed `.zip`) from a phone, tablet, or laptop. Shows a **Join Wi-Fi** QR code first and automatically switches to the **Open page** QR code as soon as a device connects (use Left / Right to switch manually). Wi-Fi is switched off completely when you press **Esc**, or by itself after 10 minutes with no device connected (the screen counts down, e.g. `Off in 9 min`).
+- **`GSR Audio`** — puts the GPS to sleep (just like `GSR Only`) and opens a completely separate sound-listening mode (no recording, no Bluetooth, no Wi-Fi) that turns the wearer's skin signal into smooth 48 kHz sound through the built-in speaker or 3.5 mm headphones. Silent until fingers settle on the cuffs:
+  - **Left / Right** (`,` / `/`), **Tab**, or the top **G0** button switches between five relaxing soundscapes: **`DRONE`** (warm chordal hum), **`BREATH`** (slow ~6-breaths/min ocean surf and chord tide), **`CHORD`** (steady ambient chord whose upper harmonic layers gently open and close without sliding pitch), **`BOWLS`** (soft felt-mallet singing bowls on steady warm notes), and **`RAIN`** (gentle warm rainfall over a distant pad).
+  - **Up / Down** (`;` / `.`, or `[` / `]`) adjusts how strongly the sound responds to GSR changes (`10%`–`150%` in `10%` steps, default `100%`).
+  - **`-` / `+`** (`-` and `=`) turns volume down or up in `10%` logarithmic steps (`0%`–`100%`, `6 dB` per step down to a whisper-quiet `-54 dB` at `10%`).
+  - **Enter** mutes or unmutes; **Esc** fades out cleanly, stops the sound task and sensor, frees all audio memory, and returns to the main menu (leaving the GPS asleep, as after `GSR Only`).
 - **`Options`** — configures and saves:
   - **GPS Profile** (`PED`, `WRIST`, `VEHICLE`, `STATION`, `SEA`, `BIKE`, `FLIGHT`)
   - **Super-S** (`AUTO` / `OFF`)
@@ -109,6 +114,8 @@ The SD card stays inside the Cardputer. To get the files onto a computer, phone 
 | `src/sd_cardputer.cpp` | The SD card, written in whole 512-byte blocks from a task of its own (so a slow card never holds up the GSR) |
 | `src/write_queue.c` | The queue of bytes waiting for the card (plain C, host-tested) |
 | `src/cues_cardputer.cpp` | The Flipper's sounds |
+| `src/gsr_audio.c` | Standalone 48 kHz GSR audification: footstep filter, baseline centering, sensitivity scaling, and the `DRONE`, `BREATH`, `CHORD`, `BOWLS`, and `RAIN` soundscapes (plain C, host-tested) |
+| `src/gsr_audio_cardputer.cpp` | Standalone `GSR Audio` screen, dedicated Core 0 48 kHz speaker driver, sensitivity (`10%`–`150%`) and logarithmic `10%` volume controls |
 | `src/keys.cpp` | The Cardputer's keys as the Flipper's six buttons, plus the TCA8418 keyboard unstick check |
 | `src/core_fatal.cpp` | What happens when the shared code stops on a broken rule |
 | `tools/hw_test.py` | Automated tests on the real Cardputer over USB (see "Testing on the device") |

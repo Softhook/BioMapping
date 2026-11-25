@@ -10,6 +10,7 @@
 #include "clock_cardputer.h"
 #include "cues_cardputer.h"
 #include "gps_cardputer.h"
+#include "gsr_audio_cardputer.h"
 #include "gsr_cardputer.h"
 #include "sd_cardputer.h"
 #include "session_cardputer.h"
@@ -30,6 +31,7 @@ enum class ScreenId {
     CalShowCurrent,
     CalWizard,
     WifiFiles,
+    GsrAudio,
 };
 
 // Main menu items (Cardputer has no CC1101 radio).
@@ -38,6 +40,7 @@ enum {
     MainGsrOnly,
     MainLiveStream,
     MainWifiFiles,
+    MainGsrAudio,
     MainOptions,
     MAIN_MENU_COUNT,
 };
@@ -47,6 +50,7 @@ static const char* const MAIN_LABELS[MAIN_MENU_COUNT] = {
     "GSR Only",
     "Live Stream",
     "Wi-Fi Files",
+    "GSR Audio",
     "Options",
 };
 
@@ -228,6 +232,9 @@ bool menu_cardputer_poll(M5Canvas& canvas) {
         }
         return redraw;
     }
+    if(g_screen == ScreenId::GsrAudio) {
+        return gsr_audio_cardputer_poll();
+    }
     return false;
 }
 
@@ -257,6 +264,15 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
                 if(wifi_files_start(canvas)) {
                     play_cue(BioMapCueConfirm);
                     g_screen = ScreenId::WifiFiles;
+                } else {
+                    play_cue(BioMapCueError);
+                }
+            } else if(g_main_sel == MainGsrAudio) {
+                show_splash_banner(canvas, "GSR Audio", "Starting sensor...", TFT_CYAN);
+                gps_cardputer_sleep();
+                play_cue(BioMapCueConfirm);
+                if(gsr_audio_cardputer_start()) {
+                    g_screen = ScreenId::GsrAudio;
                 } else {
                     play_cue(BioMapCueError);
                 }
@@ -401,6 +417,15 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
             return true;
         }
         return wifi_files_key(key);
+
+    case ScreenId::GsrAudio:
+        if(key == SessionKeyBack) {
+            gsr_audio_cardputer_stop();
+            play_cue(BioMapCueBack);
+            g_screen = ScreenId::MainMenu;
+            return true;
+        }
+        return gsr_audio_cardputer_key(key);
     }
     return false;
 }
@@ -479,6 +504,9 @@ static void draw_main_menu(M5Canvas& canvas) {
             badge_col = TFT_CYAN;
         } else if(i == MainWifiFiles) {
             badge = "WiFi";
+            badge_col = TFT_CYAN;
+        } else if(i == MainGsrAudio) {
+            badge = "Sound";
             badge_col = TFT_CYAN;
         } else if(i == MainOptions) {
             badge = ">";
@@ -825,6 +853,9 @@ void menu_cardputer_draw(M5Canvas& canvas) {
         break;
     case ScreenId::WifiFiles:
         wifi_files_draw(canvas);
+        break;
+    case ScreenId::GsrAudio:
+        gsr_audio_cardputer_draw(canvas);
         break;
     }
 }
