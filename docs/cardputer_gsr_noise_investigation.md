@@ -114,6 +114,29 @@ was: Walflow's reads 497–498 mV and And4lo7h's 494–495 mV.
   quote them in commands. Cardputer files carry a 1980 date, so they sort
   last by date.
 
+### G3 against G6, 25 Nov
+
+The ADC's clock wire moved from G6 to G3 to match the printed board (Test 1
+in `hardware/case/README.md`). Same 600 kΩ, GSR Only, Cardputer on
+battery, recorded one straight after the other with only the clock wire
+and the pin number in the firmware changed.
+
+| File | Clock | Firmware | Reading | Noise | 30 s stretches | Within | Bias |
+|---|---|---|---|---|---|---|---|
+| `biomap_0003_nodate.csv` (21 Nov) | G6 | own-bus build | 1651.1 nS | 0.26 nS | 0.23–0.27 | 2.3 nS | 497.7 mV |
+| `biomap_0082_nodate.csv` | G3 | `453b97f` | 1659.7 nS | 0.51 nS | 0.48–0.57 | 5.1 nS | 495.6 mV |
+| `biomap_0083_nodate.csv` | G6 | `453b97f` + G6 test change | 1659.3 nS | 0.48 nS | 0.45–0.50 | 3.7 nS | 495.4 mV |
+
+- **G3 adds no noise:** 0.51 against 0.48 nS, within the usual spread.
+- **Both are about twice 21 November.** Not explained yet. What differs
+  since then: the board's power (a Flipper on 21 Nov; the bias, 2 mV
+  lower now, points to a different supply), the firmware's averaging (the
+  exact 100 ms window came after 0003), and how the flywires lie (freshly
+  twisted on 21 Nov). Still about 0.03% of the reading, far too small to
+  see on skin.
+- **Clean otherwise:** no jumps, no frozen rows, no once-a-second dip and
+  no dip at SD writes in either file.
+
 ## Comparing fairly
 
 ### The ADC range
@@ -485,18 +508,23 @@ To build the hum simulator, follow the build lines at the top of
    - after pressing start, take your hand away and ignore the first 30 s
    - 3 minutes per recording, and at least two recordings per condition
    - Debug Fields on, so the hum column is written
-4. **The Cardputer's once-a-second dip:** keep watching for it. If it comes
+4. **The doubled noise since 21 November** (0.5 against 0.26 nS on
+   600 kΩ, "G3 against G6, 25 Nov"): note how the board is powered, then
+   change one thing at a time. First a Flipper powering the board, as on
+   21 Nov; then the clock and data wires twisted together with a ground
+   wire.
+5. **The Cardputer's once-a-second dip:** keep watching for it. If it comes
    back:
    - add a debug column for the number of readings in each window. If
      something holds up the GSR readings once a second, the dip rows will
      have fewer.
    - then make a test build with the once-a-second jobs (`log_second()` and
      the debug heartbeat) switched off.
-5. **Calibrate And4lo7h, and recalibrate Walflow on battery,** on the board
+6. **Calibrate And4lo7h, and recalibrate Walflow on battery,** on the board
    used for the tests.
-6. **The second GSR board:** check it has pull-ups on SDA and SCL before
+7. **The second GSR board:** check it has pull-ups on SDA and SCL before
    using it with the Cardputer. Then run the same three-device set on it.
-7. **Optional, as these are too small to matter for skin:**
+8. **Optional, as these are too small to matter for skin:**
    - The SD-write dip: one Flipper recording on another, idle Flipper's
      power, with good wiring. If the dip goes, the card's current on the
      supply is confirmed.

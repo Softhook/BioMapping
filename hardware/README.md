@@ -72,7 +72,7 @@ Each board's `bom.csv` lists every part with its maker, maker's part number and 
 
 Everything is surface-mount and suits machine assembly, except the angled pin headers, and the Cardputer's cable socket, which is on the other face and soldered by hand.
 
-- **Finger cuffs:** JST PH 2-pin side-entry socket, surface-mount (J2, S2B-PH-SM4-TB). Its two side tabs only hold it down.
+- **Finger cuffs:** JST PH 2-pin side-entry socket, surface-mount (J2, S2B-PH-SM4-TB). Its two side tabs only hold it down. The cuff plug was measured on the prototype's top-entry socket (6 mm wide, pins 2.0 mm apart), so it is JST PH and fits; it is held by the same friction bump in a side-entry socket. JST PH is a common series: spares are easy to buy (LCSC C295747, Digi-Key, Mouser, Farnell), and it is easy to solder by hand (tack one tab, then the two pins, then the other tab).
 - **GPS:** u-blox SAM-M10Q-00B (U4), on KiCad's standard SAM-M8Q footprint; u-blox says the two modules are pin-compatible. **LCSC has none in stock**, so buy them from Mouser or Digi-Key and send them to the assembler.
 - **Backup cell:** Seiko MS421R-IV03E (rechargeable, 3 V, 1.5 mAh, 4.8 mm). It can go through the soldering oven, so a machine fits it like any other part. It is the cell on SparkFun's SAM-M10Q board, and its footprint (`BioMap.pretty/Seiko_MS421R_IV03E`) copies SparkFun's pads. Seiko rates the cell for 3 µA in normal use and 10 µA at most, but with the GPS switched off the module draws 28 µA from it. That doesn't harm the cell, but it gets less of its stored charge out, so expect it to keep satellite data for about a day at most. After a longer time off, the GPS takes longer to find its first position. Not stocked by LCSC; Farnell 3534555.
 - **C2** is 1206 size, because 100 nF C0G capacitors are hard to find in 0805.
@@ -110,7 +110,7 @@ The board sits in a printed back case that replaces M5Stack's back ([case/README
 | 7 | Ground | GND (the same leg) |
 | 8 | ADC ready | G4 (no wire yet) |
 
-The pins and their legs are printed on the inner face beside the socket. The case README explains the soldering inside the Cardputer and the checks before switching on. **5VI must never be connected.**
+The pins and their legs are printed on the inner face beside the socket. The inner face also carries `Bio Mapping 2 - Cardputer rev G` (bottom left) and `www.biomapping.net` (bottom right), placed like the credit line and the GPS note on the outer face (JLCPCB prints both faces at no extra cost). The revision letter is set once, as `REV` in `pcbtools/boards/cardputer.py`, and feeds both faces: change it whenever the board changes. The case README explains the soldering inside the Cardputer and the checks before switching on. **5VI must never be connected.**
 
 The firmware uses the same pins (`GSR_SDA_PIN` and `GSR_SCL_PIN` in `firmware/cardputer/src/gsr_cardputer.cpp`). A prototype wired with flywires must follow the board: ADC clock on G3, not G6.
 

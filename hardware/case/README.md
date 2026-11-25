@@ -13,7 +13,7 @@ An outside review of the case and board (24 November) was acted on the same day.
 
 Since the review, J1 has moved 3.1 mm towards the EXT socket (now centred at x 59.5), away from the headphone socket. [viewer.html](viewer.html) shows the case and board in 3D in a browser.
 
-Still to do before printing: measurement 1 (it sets the long screws) and measurement 7 (the cuff plug). Before ordering the board: measurement 2 and Test 1. See "What is still open".
+Still to do before printing: measurement 1 (it sets the long screws) and measurement 7 (the cuff plug). Before ordering the board: measurement 2. Test 1 passed on 25 November. See "What is still open".
 
 ![The case, seen from the open side: the EXT opening in the near wall, the headphone slot at the left end, the cuff window in the left wall, the two long screw posts with their ledges, and the two posts for the board's screws, and the pocket that thins the floor over the GPS](cardputer_back.png)
 
@@ -104,7 +104,7 @@ We solder six wires. Four go on the easy row. The other two go on the two **ends
 
 Leave every other leg alone. **5VI must never be connected**: it is the Cardputer's charging input. G40, G14 and G39 are the SD card's wires.
 
-The ADC keeps its own I2C bus, as now. This is the quiet set-up measured on 21 November. The only change is that the clock wire moves from G6 to G3, because G6 is in the middle of the hidden row and hard to reach. The firmware already uses G3 (`GSR_SCL_PIN` in [gsr_cardputer.cpp](../../firmware/cardputer/src/gsr_cardputer.cpp)), so the prototype's clock flywire must move to G3 too (Test 1, step 1). The board has two pull-up resistors (R6, R7). The prototype needs none, because its ADC board has its own.
+The ADC keeps its own I2C bus, as now. This is the quiet set-up measured on 21 November. The only change is that the clock wire moves from G6 to G3, because G6 is in the middle of the hidden row and hard to reach. The firmware uses G3 (`GSR_SCL_PIN` in [gsr_cardputer.cpp](../../firmware/cardputer/src/gsr_cardputer.cpp)), and the prototype was rewired to match for Test 1, which passed. The board has two pull-up resistors (R6, R7). The prototype needs none, because its ADC board has its own.
 
 ### What we checked about G3
 
@@ -112,15 +112,15 @@ Our notes used to say "leave G3 alone". On 23 November we checked why:
 
 - **Inside the Cardputer, G3 goes nowhere else.** In M5Stack's circuit diagram for the ADV, G3 runs only from the processor module to EXT pin 1. No keyboard, sound, screen or power part uses it.
 - **M5Stack calls that pin "RESET".** It is the reset wire for M5Stack's LoRa radio add-on. Our back replaces the place that add-on fits, so nothing else will use the pin. Other firmware written for that add-on might switch G3 on and off. That does no harm; the ADC ignores it.
-- **The ESP32 chip looks at G3 when it starts.** This only counts if a special one-off setting has been burned into the chip, and normal chips don't have it. Even then, G3 only chooses how a debugging tool connects; the Cardputer starts normally either way. And our pull-up resistor holds G3 high, which picks the normal choice. Test 1 reads that setting from the chip to be sure. Reading it changes nothing.
-- **M5Stack's software wiggles G3 for a moment at start-up.** To work out which M5Stack device it is running on, it briefly tries some other devices, and a few of those use pins 3, 5 and 6. Today's wiring already gets this on G5 and G6, and the prototype has worked fine, because our firmware only starts talking to the ADC afterwards. Test 1 checks that the ADC is found at every start.
+- **The ESP32 chip looks at G3 when it starts.** This only counts if a special one-off setting has been burned into the chip, and normal chips don't have it. Even then, G3 only chooses how a debugging tool connects; the Cardputer starts normally either way. And our pull-up resistor holds G3 high, which picks the normal choice. Test 1 read that setting from our chip (`STRAP_JTAG_SEL`): it is off, so G3 plays no part in starting up.
+- **M5Stack's software wiggles G3 for a moment at start-up.** To work out which M5Stack device it is running on, it briefly tries some other devices, and a few of those use pins 3, 5 and 6. Today's wiring already gets this on G5 and G6, and the prototype has worked fine, because our firmware only starts talking to the ADC afterwards. In Test 1 the ADC was found at every start: 10 power-ups and 10 restarts in the middle of a recording.
 - **The CardputerZero** would need a different back anyway, so this choice changes nothing there.
 
 ### Possible problems
 
 1. **G3 sits right behind 5VI.** 5VI carries 5 V whenever USB is plugged in, because it feeds the battery charger. A blob of solder joining them would put 5 V on G3, which can only take 3.3 V, every time you charge, and could damage the Cardputer. Solder G3 with a fine tip and little solder, with a strip of Kapton slipped between the two rows of legs so solder can't reach 5VI. Then, **before plugging in USB**, check with a multimeter that G3 and 5VI are not connected (no beep).
 2. **G5 sits right behind G15**, with G39 (the SD card) beside it. A blob there does no damage, but the GPS, the ADC or the SD card would stop working. Check G5 against G15 and G39 the same way.
-3. **The two ADC wires start at opposite ends of the row**, about 15 mm apart, so they can't be twisted together right from the legs. Bring them together as soon as possible and twist them from there, with a ground wire. Over a few centimetres inside the case this shouldn't matter. Test 1 checks the noise.
+3. **The two ADC wires start at opposite ends of the row**, about 15 mm apart, so they can't be twisted together right from the legs. Bring them together as soon as possible and twist them from there, with a ground wire. Over a few centimetres inside the case this shouldn't matter. In Test 1 the noise was the same with the clock on G3 as on G6.
 4. **The ADC's "reading ready" wire (G4) stays unconnected.** G4 is in the middle of the hidden row. The firmware doesn't use it; it would only matter for faster GSR reading later. J1's pin 8 is kept for it.
 5. **Two ways of numbering the pins.** M5Stack's diagram numbers the EXT pins differently from our notes. In our notes, pin 1 is G3, pin 5 is G6 and pin 13 is G5. In M5Stack's, G5 is pin 7. Go by the names (G3, G5, 5VI), not the numbers.
 
@@ -161,7 +161,7 @@ The drawing is complete, but some of its numbers come from M5Stack's model and a
 | 6. The prototype's GPS board: its size, and where the module sits on it | The Test 2 plates (not drawn yet) |
 | 7. The cuff plug: push it fully into a loose J2 socket and measure how far its back end stands out from the socket's mouth. Also the socket's height above the board | Whether the finger scoop (`cuff_scoop`) is needed: the socket's mouth sits 2.7 mm inside the outside of the case, so a plug standing out less than about 5 mm leaves little to pinch, and people pull on the wires instead. The drawing guesses the socket is 6 mm tall (`cuff_h`), because KiCad has no 3D model of it |
 | 8. M5Stack's real back: any clips, hooks or a lip along the keyboard edge | Both long screws are 18 mm from the screen edge and nothing holds the keyboard edge. That is fine for M5Stack's 8 mm back, but ours is almost three times as deep, so a knock or a twist can lever it open with much more force. If M5Stack's back has clips there, measure them and they go into the drawing |
-| Test 1 | The ADC clock on G3, before the board is ordered |
+| Test 1 (done, 25 Nov) | Nothing: the ADC clock works on G3 (results under Tests) |
 | Test 2 | `gps_gap`, and so the thickness |
 | Test 3 | The fit of the rim and the battery |
 
@@ -169,7 +169,7 @@ The drawing is complete, but some of its numbers come from M5Stack's model and a
 
 You do the wiring and printing. I prepare the firmware and the test plates, then go through the files you send.
 
-### Test 1: the ADC clock on G3 (confirms the wiring)
+### Test 1: the ADC clock on G3 (confirms the wiring) — passed 25 November
 
 Use the prototype as it is now: ADC board on flywires, fixed 600 kΩ resistor in place of the finger cuffs. As usual, switch the prototype's power on before the Cardputer and off after it.
 
@@ -179,6 +179,15 @@ Use the prototype as it is now: ADC board on flywires, fixed 600 kΩ resistor in
 4. Record 3 minutes in GSR Only mode without touching anything, everything on battery as before. I compare the noise with the 21 November recording (about 0.3 nS).
 5. Plug USB back in. Check that it starts normally while charging and that I can still flash it.
 6. Still on USB, start a recording. I restart the Cardputer from the laptop 10 times while it records, without switching it off (the same way new firmware is flashed). Each time it should start normally and find the ADC. This checks something step 3 can't: there the ADC loses power too. If the Cardputer restarts while it is reading the ADC, and the ADC stays powered, the ADC can get stuck holding its data wire low, and the Cardputer then says "ADC not found" until it is switched off and on. This can happen after a crash, after flashing over USB, or when M5Stack's start-up code briefly wiggles G3 and G5. If the ADC is ever missing, the usual fix is 9 pulses on the clock wire before the bus starts: about 15 lines in [gsr_cardputer.cpp](../../firmware/cardputer/src/gsr_cardputer.cpp).
+
+**Results, 25 November (firmware 453b97f): passed.**
+
+- **Step 2:** the start-up setting (`STRAP_JTAG_SEL`) is off, so the chip ignores G3 when it starts.
+- **Step 3:** 10 of 10 starts on battery showed a GSR reading.
+- **Step 4:** 600 kΩ, GSR Only, about 3 minutes: noise 0.51 nS with the clock on G3 (`biomap_0082_nodate.csv`). To see whether G3 caused that, the same set-up was recorded again straight after, with the clock flywire back on G6 and a test build: 0.48 nS (`biomap_0083_nodate.csv`). The gap is within the usual spread between recordings, so G3 adds no noise. Both read 1659 nS, with no jumps, no frozen rows and no dip at the SD writes. Both are about twice the 21 November recording (0.26 nS, `biomap_0003_nodate.csv`); that is not G3, and is still unexplained ([noise notes](../../docs/cardputer_gsr_noise_investigation.md), "25 Nov").
+- **Step 5:** flashing over USB works, and it starts normally while charging.
+- **Step 6:** run from the laptop with the helpers in [hw_test.py](../../firmware/cardputer/tools/hw_test.py): start a GSR Only recording, check the readings, restart in the middle of it. 10 of 10 restarts found the ADC, reading 1000 times a second with no failed reads. The 9-pulse fix isn't needed. These left ten short recordings on the card (`biomap_0084` to `biomap_0093`).
+- **Cuffs unplugged:** the reading sits at about 23 nS, not 0. That is normal (a small leftover offset); fingers read in the thousands.
 
 ### Test 2: how much gap the GPS needs (decides the thickness)
 
