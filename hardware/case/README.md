@@ -138,6 +138,33 @@ Our notes used to say "leave G3 alone". On 23 November we checked why:
 - **Unplug the battery before soldering.** Cover the joints with heat-shrink or Kapton tape, and tape or glue the cable to the Cardputer's board, so pulling the plug can't pull on the joints.
 - **Before switching on, check with a multimeter:** G3 not joined to 5VI, G5 not joined to G15 or G39, no short between 5VO and GND, and each wire on the right leg.
 
+### Soldering by hand
+
+Both jobs, J1 onto our board and the wires onto the EXT legs, are done with an ordinary soldering iron that lets you set the temperature.
+
+**Don't use a hot air gun.** The other face of our board already carries the factory-fitted parts, including the GPS. Hot air spreads heat widely: it can melt their solder and loosen small parts, u-blox advises against it for the GPS, and it can soften J1's plastic. Inside the Cardputer it would heat the parts and plastic round the EXT socket. An iron heats only the pin it touches. A hotplate is out too, because our board has parts on both faces. Hot air is only useful for taking J1 off again if it goes on crooked.
+
+| Tool | What to look for |
+|---|---|
+| Iron | Temperature control (for example a Pinecil, TS101 or Hakko FX-888D). About 330–350 °C with leaded solder, 350–370 °C with lead-free. |
+| Tip | A small flat (chisel) tip, 1–1.5 mm wide, suits J1's 1.25 mm pin spacing and the EXT legs. A finer pointed tip helps for G3 and G5 at the ends of the hidden row. |
+| Solder | Thin, 0.3–0.5 mm. Leaded 63/37 flows more easily. |
+| Flux | A no-clean flux pen or gel. This matters most: it stops pins joining. Leave it on afterwards. The board must not be washed (see the GPS soldering notes in [../README.md](../README.md)). |
+| Solder wick | A thin desoldering braid, to lift off solder that joins two pins. |
+| Magnifier | A 3–5× head magnifier, or a cheap stereo or USB microscope, with a bright light. A 10× loupe for checking the joints afterwards. |
+| Also | Fine tweezers, Kapton tape, a multimeter, and something to hold the board steady. |
+
+**J1 on our board:**
+
+1. Rest the board on something that doesn't press on the parts on its other face.
+2. Put flux on the pads. Put a little solder on one of the two large side-tab pads.
+3. Hold the socket in place with tweezers and reheat that tab to tack it down. Under the magnifier, check that all eight pins sit on their pads and the socket lies flat; if not, reheat and nudge it. This is the step that matters.
+4. Solder the other side tab. The two tabs take the strain of plugging in, so give them a full joint. They take a little longer to heat.
+5. Solder the eight small pins one at a time, with very little solder and the iron on each for only a second or two. If two pins join, add flux and lift the extra solder off with wick.
+6. Beep each pin against the pin next to it: none should be joined.
+
+**The wires on the EXT legs:** unplug the battery first. Put solder on each wire end before you start, so each joint needs only a quick touch. Slip the Kapton strip between the two rows before soldering G3 (Possible problems, above). The magnifier matters most at G3 and G5: they are the hardest joints to see, and a mistake at G3 can damage the Cardputer. Then do the multimeter checks above before plugging in USB.
+
 ## Putting it together
 
 1. Solder the cable inside the Cardputer (above) and check it with a multimeter.
