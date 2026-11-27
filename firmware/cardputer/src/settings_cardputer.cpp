@@ -8,17 +8,14 @@
 
 #include "clock_cardputer.h"
 #include "sd_cardputer.h"
+#include "ui_theme.h"
 
 CardputerSettings g_settings;
 
-static const char* const SETTINGS_PATH     = "/sd/biomapping/biomap.settings";
-static const char* const SETTINGS_PATH_TMP = "/sd/biomapping/biomap.settings.tmp";
-static const char* const CAL_PATH          = "/sd/biomapping/biomap.cal";
-static const char* const CAL_PATH_TMP      = "/sd/biomapping/biomap.cal.tmp";
-
-// Bright (normal) vs dim (power-saving) screen brightness on the Cardputer.
-static const uint8_t BRIGHTNESS_ON  = 128;
-static const uint8_t BRIGHTNESS_DIM = 24;
+static const char* const SETTINGS_PATH     = SD_BIOMAP_DIR "/biomap.settings";
+static const char* const SETTINGS_PATH_TMP = SD_BIOMAP_DIR "/biomap.settings.tmp";
+static const char* const CAL_PATH          = SD_BIOMAP_DIR "/biomap.cal";
+static const char* const CAL_PATH_TMP      = SD_BIOMAP_DIR "/biomap.cal.tmp";
 
 static bool read_file_exact(const char* path, void* out, size_t size) {
     if(!sd_card_mount()) return false;
@@ -64,7 +61,8 @@ static bool write_file_atomic(const char* tmp_path, const char* path,
 }
 
 void settings_cardputer_apply_backlight(void) {
-    M5Cardputer.Display.setBrightness(g_settings.backlight_on ? BRIGHTNESS_ON : BRIGHTNESS_DIM);
+    M5Cardputer.Display.setBrightness(
+        g_settings.backlight_on ? UI_BRIGHTNESS_ON : UI_BRIGHTNESS_DIM);
 }
 
 void settings_cardputer_log_in_use(void) {

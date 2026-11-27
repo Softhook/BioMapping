@@ -6,7 +6,6 @@
 #include "sd_cardputer.h"
 #include "wifi_files_rules.h"
 
-static const char* const DIR_PATH = "/sd/biomapping";
 static const char* const NVS_SPACE = "biomap";
 static const char* const NVS_KEY = "rec_no";
 
@@ -20,7 +19,7 @@ static uint32_t stored_last(void) {
 
 static uint32_t highest_on_card(void) {
     if(!sd_card_ready()) return 0;
-    DIR* dir = opendir(DIR_PATH);
+    DIR* dir = opendir(SD_BIOMAP_DIR);
     if(!dir) return 0;
     uint32_t best = 0;
     for(struct dirent* ent; (ent = readdir(dir)) != nullptr;) {

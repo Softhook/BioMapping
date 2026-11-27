@@ -28,6 +28,7 @@
 #include "session_cardputer.h"
 #include "settings_cardputer.h"
 #include "splash_cardputer.h"
+#include "ui_theme.h"
 #include "wifi_files_cardputer.h"
 
 static M5Canvas canvas(&M5Cardputer.Display);
@@ -179,7 +180,7 @@ void setup() {
     M5Cardputer.begin(cfg, true);
     // M5GFX already turns the ADV's panel to landscape; rotation 0 keeps it there.
     M5Cardputer.Display.setRotation(0);
-    M5Cardputer.Display.setBrightness(128);
+    M5Cardputer.Display.setBrightness(UI_BRIGHTNESS_ON);
     canvas.createSprite(M5Cardputer.Display.width(), M5Cardputer.Display.height());
     cues_cardputer_begin();
 

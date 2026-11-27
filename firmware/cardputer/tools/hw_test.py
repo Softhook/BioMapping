@@ -15,7 +15,7 @@ Run from firmware/cardputer with the Cardputer plugged in:
 Needs: the GSR board fitted. It turns Sound off and leaves it off. Other
 settings it changes (Auto-zoom, Debug Fields) are put back before it
 finishes. Recordings it makes are left on the card
-(named biomap_1970-01-01_... unless the clock was set from GPS).
+(named biomap_NNNN_nodate.csv unless the clock was set from GPS).
 """
 
 import glob

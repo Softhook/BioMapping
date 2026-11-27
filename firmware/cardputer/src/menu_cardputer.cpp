@@ -15,14 +15,8 @@
 #include "sd_cardputer.h"
 #include "session_cardputer.h"
 #include "settings_cardputer.h"
+#include "ui_theme.h"
 #include "wifi_files_cardputer.h"
-
-// Custom RGB565 theme colours for the 240 × 135 colour UI.
-static const uint16_t COL_HEADER_BG = 0x10A4;  // deep navy
-static const uint16_t COL_SEL_BG    = 0x02B3;  // rich blue highlight
-static const uint16_t COL_SEL_EDGE  = 0x07FF;  // cyan accent bar
-static const uint16_t COL_FOOTER_BG = 0x1082;  // dark slate footer
-static const uint16_t COL_MUTED     = 0x8410;  // mid grey
 
 enum class ScreenId {
     MainMenu,
@@ -173,7 +167,7 @@ static bool wizard_poll(void) {
 static void show_splash_banner(M5Canvas& canvas, const char* title, const char* subtitle,
                                uint16_t subtitle_col) {
     canvas.fillSprite(TFT_BLACK);
-    canvas.fillRect(0, 0, 240, 22, COL_HEADER_BG);
+    canvas.fillRect(0, 0, UI_SCREEN_W, 22, UI_COL_HEADER_BG);
     canvas.setFont(&fonts::Font2);
     canvas.setTextColor(TFT_WHITE);
     canvas.drawString(title, 6, 3);
@@ -432,38 +426,13 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
 
 // ── Colour UI drawing ────────────────────────────────────────────────────
 
-static void draw_header(M5Canvas& canvas, const char* title, const char* right_text = nullptr,
-                        uint16_t right_col = TFT_LIGHTGREY) {
-    canvas.fillRect(0, 0, 240, 22, COL_HEADER_BG);
-    canvas.drawFastHLine(0, 22, 240, COL_SEL_EDGE);
-    canvas.setFont(&fonts::Font2);
-    canvas.setTextDatum(textdatum_t::top_left);
-    canvas.setTextColor(TFT_WHITE);
-    canvas.drawString(title, 6, 3);
-    canvas.drawString(title, 7, 3);  // bold title
-    if(right_text && right_text[0]) {
-        canvas.setTextColor(right_col);
-        int w = canvas.textWidth(right_text);
-        canvas.drawString(right_text, 240 - w - 6, 3);
-    }
-}
-
-static void draw_footer(M5Canvas& canvas, const char* text, uint16_t col = TFT_LIGHTGREY) {
-    canvas.fillRect(0, 117, 240, 18, COL_FOOTER_BG);
-    canvas.drawFastHLine(0, 116, 240, TFT_DARKGREY);
-    canvas.setFont(&fonts::Font2);
-    canvas.setTextDatum(textdatum_t::top_left);
-    canvas.setTextColor(col);
-    canvas.drawString(text, 6, 118);
-}
-
 static void draw_list_row(M5Canvas& canvas, int row_vis, bool selected,
                           const char* label, const char* value = nullptr,
                           uint16_t value_col = TFT_LIGHTGREY) {
     int y = 25 + row_vis * 18;
     if(selected) {
-        canvas.fillRect(2, y, 236, 17, COL_SEL_BG);
-        canvas.fillRect(2, y, 3, 17, COL_SEL_EDGE);
+        canvas.fillRect(2, y, UI_SCREEN_W - 4, 17, UI_COL_SEL_BG);
+        canvas.fillRect(2, y, 3, 17, UI_COL_SEL_EDGE);
         canvas.setTextColor(TFT_WHITE);
     } else {
         canvas.setTextColor(TFT_LIGHTGREY);
@@ -472,7 +441,7 @@ static void draw_list_row(M5Canvas& canvas, int row_vis, bool selected,
     if(value && value[0]) {
         canvas.setTextColor(value_col);
         int w = canvas.textWidth(value);
-        canvas.drawString(value, 234 - w, y + 1);
+        canvas.drawString(value, UI_SCREEN_W - 6 - w, y + 1);
     }
 }
 
@@ -489,13 +458,13 @@ static void draw_main_menu(M5Canvas& canvas) {
     } else if(batt_pct >= 0) {
         snprintf(right, sizeof(right), "%d%%", batt_pct);
     }
-    draw_header(canvas, "Bio Mapping", right, TFT_CYAN);
+    ui_draw_header(canvas, "Bio Mapping", right, TFT_CYAN);
 
     const int max_vis = 4;
     int top = scroll_window_top((int)g_main_sel, MAIN_MENU_COUNT, max_vis);
     for(int i = top; i < MAIN_MENU_COUNT && (i - top) < max_vis; i++) {
         const char* badge = nullptr;
-        uint16_t badge_col = COL_MUTED;
+        uint16_t badge_col = UI_COL_MUTED;
         if(i == MainGpsGsr || i == MainGsrOnly) {
             badge = g_settings.cal_active ? "CAL" : "";
             badge_col = TFT_GREEN;
@@ -515,20 +484,22 @@ static void draw_main_menu(M5Canvas& canvas) {
         draw_list_row(canvas, i - top, i == g_main_sel, MAIN_LABELS[i], badge, badge_col);
     }
 
-    // Status card above the footer: SD card state.
+    // Status card above the footer: SD card and GPS/clock state.
     int sy = 100;
-    canvas.drawFastHLine(6, sy - 2, 228, TFT_DARKGREY);
+    canvas.drawFastHLine(6, sy - 2, UI_SCREEN_W - 12, TFT_DARKGREY);
     if(!sd_card_ready()) {
         canvas.setTextColor(TFT_RED);
         canvas.drawString("No SD card", 6, sy);
-        draw_footer(canvas, "Enter: Select");
     } else {
         canvas.setTextColor(TFT_GREEN);
         canvas.drawString("SD card ready", 6, sy);
-        canvas.setTextColor(COL_MUTED);
-        canvas.drawString(clock_cardputer_is_set() ? "GPS clock set" : "GPS asleep", 136, sy);
-        draw_footer(canvas, "Enter: Select");
     }
+    const char* gps_text = gps_cardputer_is_asleep() ? "GPS asleep"
+                         : clock_cardputer_is_set()  ? "GPS clock set"
+                                                     : "No GPS time";
+    canvas.setTextColor(UI_COL_MUTED);
+    canvas.drawString(gps_text, 136, sy);
+    ui_draw_footer(canvas, "Enter: Select");
 }
 
 static void option_value(int idx, const char** out_text, uint16_t* out_col) {
@@ -541,11 +512,11 @@ static void option_value(int idx, const char** out_text, uint16_t* out_col) {
         break;
     case OptSuperS:
         *out_text = g_settings.super_s ? "AUTO" : "OFF";
-        *out_col = g_settings.super_s ? TFT_GREEN : COL_MUTED;
+        *out_col = g_settings.super_s ? TFT_GREEN : UI_COL_MUTED;
         break;
     case OptAutoZoom:
         *out_text = g_settings.zoom_enabled ? "ON" : "OFF";
-        *out_col = g_settings.zoom_enabled ? TFT_GREEN : COL_MUTED;
+        *out_col = g_settings.zoom_enabled ? TFT_GREEN : UI_COL_MUTED;
         break;
     case OptGsrCalibration:
         *out_text = g_settings.cal_active ? "YES >" : "NO >";
@@ -553,15 +524,15 @@ static void option_value(int idx, const char** out_text, uint16_t* out_col) {
         break;
     case OptBacklight:
         *out_text = g_settings.backlight_on ? "ON" : "DIM";
-        *out_col = g_settings.backlight_on ? TFT_GREEN : COL_MUTED;
+        *out_col = g_settings.backlight_on ? TFT_GREEN : UI_COL_MUTED;
         break;
     case OptSound:
         *out_text = g_settings.sound_enabled ? "ON" : "OFF";
-        *out_col = g_settings.sound_enabled ? TFT_GREEN : COL_MUTED;
+        *out_col = g_settings.sound_enabled ? TFT_GREEN : UI_COL_MUTED;
         break;
     case OptDebugFields:
         *out_text = g_settings.debug_fields_enabled ? "ON" : "OFF";
-        *out_col = g_settings.debug_fields_enabled ? TFT_YELLOW : COL_MUTED;
+        *out_col = g_settings.debug_fields_enabled ? TFT_YELLOW : UI_COL_MUTED;
         break;
     case OptDiagnostics:
         *out_text = ">";
@@ -575,7 +546,7 @@ static void option_value(int idx, const char** out_text, uint16_t* out_col) {
 static void draw_options(M5Canvas& canvas) {
     char pos[16];
     snprintf(pos, sizeof(pos), "%d/%d", (int)g_opt_sel + 1, OPTIONS_COUNT);
-    draw_header(canvas, "Options", pos, COL_MUTED);
+    ui_draw_header(canvas, "Options", pos, UI_COL_MUTED);
 
     const int max_vis = 5;
     int top = scroll_window_top((int)g_opt_sel, OPTIONS_COUNT, max_vis);
@@ -586,25 +557,25 @@ static void draw_options(M5Canvas& canvas) {
         draw_list_row(canvas, i - top, i == g_opt_sel, OPTIONS_LABELS[i], val, col);
     }
 
-    draw_footer(canvas, "Enter: Toggle/Open   Esc: Back");
+    ui_draw_footer(canvas, "Enter: Toggle/Open   Esc: Back");
 }
 
 static void draw_cal_submenu(M5Canvas& canvas) {
-    draw_header(canvas, "GSR Calibration",
-                g_settings.cal_active ? "Custom" : "Default",
-                g_settings.cal_active ? TFT_GREEN : COL_MUTED);
+    ui_draw_header(canvas, "GSR Calibration",
+                   g_settings.cal_active ? "Custom" : "Default",
+                   g_settings.cal_active ? TFT_GREEN : UI_COL_MUTED);
 
     for(int i = 0; i < CAL_SUB_COUNT; i++) {
         draw_list_row(canvas, i, i == g_cal_sel, CAL_SUB_LABELS[i]);
     }
-    draw_footer(canvas, "Enter: Select   Esc: Back");
+    ui_draw_footer(canvas, "Enter: Select   Esc: Back");
 }
 
 static void draw_cal_show_current(M5Canvas& canvas) {
     bool active = g_settings.cal_active;
-    draw_header(canvas, "GSR Calibration",
-                active ? "Custom" : "Default",
-                active ? TFT_GREEN : TFT_YELLOW);
+    ui_draw_header(canvas, "GSR Calibration",
+                   active ? "Custom" : "Default",
+                   active ? TFT_GREEN : TFT_YELLOW);
 
     char line[64];
     int y = 28;
@@ -631,7 +602,7 @@ static void draw_cal_show_current(M5Canvas& canvas) {
 
         uint32_t now = clock_cardputer_epoch_now();
         uint32_t saved = g_settings.cal_timestamp;
-        canvas.setTextColor(COL_MUTED);
+        canvas.setTextColor(UI_COL_MUTED);
         if(saved == 0 || now == 0 || now < saved) {
             canvas.drawString("Age: unknown", 8, y);
         } else {
@@ -648,7 +619,7 @@ static void draw_cal_show_current(M5Canvas& canvas) {
         canvas.drawString(line, 8, y);
     }
 
-    draw_footer(canvas, "Enter / Esc: Back");
+    ui_draw_footer(canvas, "Enter / Esc: Back");
 }
 
 static void draw_wizard_progress_bar(M5Canvas& canvas, int y, uint32_t seconds_left) {
@@ -669,18 +640,18 @@ static void draw_cal_wizard(M5Canvas& canvas) {
 
     switch(step) {
     case WizardStepPromptZero:
-        draw_header(canvas, "GSR Calibration", "Step 1/4", TFT_CYAN);
+        ui_draw_header(canvas, "GSR Calibration", "Step 1/4", TFT_CYAN);
         canvas.setTextColor(TFT_WHITE);
         canvas.drawString("Step 1/4: Open-Circuit Zero", 8, 30);
         canvas.setTextColor(TFT_YELLOW);
         canvas.drawString("Disconnect everything from cuffs", 8, 52);
-        canvas.setTextColor(COL_MUTED);
+        canvas.setTextColor(UI_COL_MUTED);
         canvas.drawString("Measures board & ADC zero offset", 8, 74);
-        draw_footer(canvas, "Enter: Measure   Esc: Cancel");
+        ui_draw_footer(canvas, "Enter: Measure   Esc: Cancel");
         break;
 
     case WizardStepMeasuringZero:
-        draw_header(canvas, "GSR Calibration", "Step 1/4", TFT_CYAN);
+        ui_draw_header(canvas, "GSR Calibration", "Step 1/4", TFT_CYAN);
         canvas.setTextColor(TFT_CYAN);
         canvas.drawString("Measuring zero...", 8, 28);
         canvas.setTextColor(TFT_LIGHTGREY);
@@ -690,7 +661,7 @@ static void draw_cal_wizard(M5Canvas& canvas) {
         canvas.setTextColor(TFT_WHITE);
         canvas.drawString(buf, 8, 68);
         draw_wizard_progress_bar(canvas, 92, g_wiz.seconds_left);
-        draw_footer(canvas, "Esc: Cancel");
+        ui_draw_footer(canvas, "Esc: Cancel");
         break;
 
     case WizardStepPrompt470k:
@@ -698,7 +669,7 @@ static void draw_cal_wizard(M5Canvas& canvas) {
     case WizardStepPrompt47k: {
         int idx = step / 2;
         snprintf(buf, sizeof(buf), "Step %d/4", idx + 2);
-        draw_header(canvas, "GSR Calibration", buf, TFT_CYAN);
+        ui_draw_header(canvas, "GSR Calibration", buf, TFT_CYAN);
         snprintf(buf, sizeof(buf), "Step %d/4: %s (%s)",
                  idx + 2, STEPS[idx].level, STEPS[idx].resistor);
         canvas.setTextColor(TFT_WHITE);
@@ -706,7 +677,7 @@ static void draw_cal_wizard(M5Canvas& canvas) {
         snprintf(buf, sizeof(buf), "Connect %s 0.1%% resistor", STEPS[idx].resistor);
         canvas.setTextColor(TFT_YELLOW);
         canvas.drawString(buf, 8, 52);
-        draw_footer(canvas, "Enter: Measure   Esc: Cancel");
+        ui_draw_footer(canvas, "Enter: Measure   Esc: Cancel");
         break;
     }
 
@@ -715,7 +686,7 @@ static void draw_cal_wizard(M5Canvas& canvas) {
     case WizardStepMeasuring47k: {
         int idx = step / 2;
         snprintf(buf, sizeof(buf), "Step %d/4", idx + 2);
-        draw_header(canvas, "GSR Calibration", buf, TFT_CYAN);
+        ui_draw_header(canvas, "GSR Calibration", buf, TFT_CYAN);
         snprintf(buf, sizeof(buf), "Measuring %s...", STEPS[idx].resistor);
         canvas.setTextColor(TFT_CYAN);
         canvas.drawString(buf, 8, 28);
@@ -726,12 +697,12 @@ static void draw_cal_wizard(M5Canvas& canvas) {
         canvas.setTextColor(TFT_WHITE);
         canvas.drawString(buf, 8, 68);
         draw_wizard_progress_bar(canvas, 92, g_wiz.seconds_left);
-        draw_footer(canvas, "Esc: Cancel");
+        ui_draw_footer(canvas, "Esc: Cancel");
         break;
     }
 
     case WizardStepSuccess: {
-        draw_header(canvas, "GSR Calibration", "Passed", TFT_GREEN);
+        ui_draw_header(canvas, "GSR Calibration", "Passed", TFT_GREEN);
         float worst_std = biomap_cal_worst_noise_std_dev(g_wiz.noise_std_dev);
         canvas.setTextColor(TFT_GREEN);
         canvas.drawString("Calibration Success!", 8, 28);
@@ -742,12 +713,12 @@ static void draw_cal_wizard(M5Canvas& canvas) {
         snprintf(buf, sizeof(buf), "Zero: %.1f cts   Noise: %.2f nS",
                  (double)g_wiz.zero_counts, (double)worst_std);
         canvas.drawString(buf, 8, 70);
-        draw_footer(canvas, "Enter: Save   Esc: Discard", TFT_GREEN);
+        ui_draw_footer(canvas, "Enter: Save   Esc: Discard", TFT_GREEN);
         break;
     }
 
     case WizardStepZeroFailed:
-        draw_header(canvas, "GSR Calibration", "Failed", TFT_RED);
+        ui_draw_header(canvas, "GSR Calibration", "Failed", TFT_RED);
         canvas.setTextColor(TFT_RED);
         canvas.drawString("Zero Check Failed!", 8, 28);
         canvas.setTextColor(TFT_WHITE);
@@ -764,22 +735,22 @@ static void draw_cal_wizard(M5Canvas& canvas) {
             canvas.setTextColor(TFT_YELLOW);
             canvas.drawString("Disconnect everything.", 8, 72);
         }
-        draw_footer(canvas, "Enter: Retry   Esc: Cancel");
+        ui_draw_footer(canvas, "Enter: Retry   Esc: Cancel");
         break;
 
     case WizardStepMeasureFailed:
-        draw_header(canvas, "GSR Calibration", "Failed", TFT_RED);
+        ui_draw_header(canvas, "GSR Calibration", "Failed", TFT_RED);
         canvas.setTextColor(TFT_RED);
         canvas.drawString("Calibration Failed!", 8, 28);
         canvas.setTextColor(TFT_WHITE);
         canvas.drawString(g_wiz.sensor_ok ? "Reading out of range." : "No GSR sensor found.", 8, 50);
         canvas.setTextColor(TFT_YELLOW);
         canvas.drawString("Check resistor & connections.", 8, 72);
-        draw_footer(canvas, "Enter: Retry   Esc: Cancel");
+        ui_draw_footer(canvas, "Enter: Retry   Esc: Cancel");
         break;
 
     case WizardStepFitFailed:
-        draw_header(canvas, "GSR Calibration", "Failed", TFT_RED);
+        ui_draw_header(canvas, "GSR Calibration", "Failed", TFT_RED);
         canvas.setTextColor(TFT_RED);
         canvas.drawString("Calibration Fit Failed!", 8, 28);
         canvas.setTextColor(TFT_WHITE);
@@ -788,11 +759,11 @@ static void draw_cal_wizard(M5Canvas& canvas) {
                  (double)g_wiz.gain, (double)g_wiz.r_squared);
         canvas.setTextColor(TFT_YELLOW);
         canvas.drawString(buf, 8, 72);
-        draw_footer(canvas, "Enter: Retry   Esc: Cancel");
+        ui_draw_footer(canvas, "Enter: Retry   Esc: Cancel");
         break;
 
     case WizardStepNoiseFailed:
-        draw_header(canvas, "GSR Calibration", "Failed", TFT_RED);
+        ui_draw_header(canvas, "GSR Calibration", "Failed", TFT_RED);
         canvas.setTextColor(TFT_RED);
         canvas.drawString("Pre-flight Check Failed!", 8, 28);
         snprintf(buf, sizeof(buf), "%s resistor too noisy/unstable.",
@@ -803,11 +774,11 @@ static void draw_cal_wizard(M5Canvas& canvas) {
                  (double)g_wiz.noise_std_dev[g_wiz.fail_idx], (double)CAL_NOISE_ACCEPTABLE_NS);
         canvas.setTextColor(TFT_YELLOW);
         canvas.drawString(buf, 8, 72);
-        draw_footer(canvas, "Enter: Retry   Esc: Cancel");
+        ui_draw_footer(canvas, "Enter: Retry   Esc: Cancel");
         break;
 
     case WizardStepBiasFailed:
-        draw_header(canvas, "GSR Calibration", "Failed", TFT_RED);
+        ui_draw_header(canvas, "GSR Calibration", "Failed", TFT_RED);
         canvas.setTextColor(TFT_RED);
         canvas.drawString("Bias Check Failed!", 8, 28);
         canvas.setTextColor(TFT_WHITE);
@@ -822,7 +793,7 @@ static void draw_cal_wizard(M5Canvas& canvas) {
         }
         canvas.setTextColor(TFT_YELLOW);
         canvas.drawString("Check 3.3 V supply.", 8, 72);
-        draw_footer(canvas, "Enter: Retry   Esc: Cancel");
+        ui_draw_footer(canvas, "Enter: Retry   Esc: Cancel");
         break;
 
     default:

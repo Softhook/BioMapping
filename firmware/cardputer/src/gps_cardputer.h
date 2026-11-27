@@ -27,6 +27,9 @@ bool gps_cardputer_port_open(GpsUtcTime* boot_utc = nullptr);
 // Files) or after a cold reset.
 void gps_cardputer_sleep(void);
 
+// True while the module has been put into software standby.
+bool gps_cardputer_is_asleep(void);
+
 // Starts a GPS session: reuses the awake module at 115200 (or wakes it from
 // standby if asleep) and applies configuration (core: gps_uart_create()).
 // Always returns a GpsUart; gps_uart_is_ready() is false only if the port

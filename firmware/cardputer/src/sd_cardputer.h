@@ -6,6 +6,9 @@
 
 #include "sd_logger.h"
 
+// Mounted folder on the SD card where recordings, settings and calibration live.
+#define SD_BIOMAP_DIR "/sd/biomapping"
+
 // Mounts the card if it isn't mounted yet, and makes /biomapping/. True
 // once the card is ready. Safe to call again.
 bool sd_card_mount(void);

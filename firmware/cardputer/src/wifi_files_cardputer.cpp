@@ -24,10 +24,11 @@
 #include "keys.h"
 #include "sd_cardputer.h"
 #include "settings_cardputer.h"
+#include "ui_theme.h"
+#include "wifi_files_html.h"
 #include "wifi_files_rules.h"
 #include "zip_stream.h"
 
-static const char* const DIR_PATH = "/sd/biomapping";
 static const size_t      IO_BUF_BYTES = 4096;
 static const size_t      MAX_LIST_FILES = 256;  // web page list only; the ZIP takes every file
 static const uint32_t    CLIENT_POLL_MS = 250;
@@ -35,11 +36,7 @@ static const uint32_t    WRITE_STALL_TIMEOUT_MS = 10000;
 static const int         SOCKET_WAIT_US = 50000;  // 50 ms so Esc responds quickly on stalls
 static const uint32_t    PROGRESS_UI_MS = 250;
 static const uint32_t    STATUS_FLASH_MS = 3000;
-static const uint8_t     QR_BRIGHTNESS = 128;
 static const uint32_t    IDLE_OFF_MS = 10UL * 60UL * 1000UL;  // turn off after 10 min with no device
-
-// Custom RGB565 theme colour matching menu_cardputer.cpp.
-static const uint16_t COL_MUTED = 0x8410;
 
 // Devices whose sign-in pop-up has opened: Apple's sign-in check is
 // answered "Success" for them (wifi_files_rules.h, "Apple's Wi-Fi sign-in
@@ -49,11 +46,9 @@ static WifiFilesReleased g_released;
 
 // Screen layout: the QR code fills the full 135 px height on the left; text
 // sits in the 101 px column on the right.
-static const int SCREEN_W = 240;
-static const int SCREEN_H = 135;
-static const int QR_SIZE  = SCREEN_H;
+static const int QR_SIZE  = UI_SCREEN_H;
 static const int PANEL_X  = QR_SIZE + 4;
-static const int PANEL_W  = SCREEN_W - PANEL_X - 2;
+static const int PANEL_W  = UI_SCREEN_W - PANEL_X - 2;
 static const int STATUS_Y = 96;
 
 static struct {
@@ -82,236 +77,6 @@ static struct {
     uint64_t   total_bytes = 0;
 } g_wf;
 
-// ── Embedded mobile-friendly web page (stored in flash) ──────────────────
-
-static const char INDEX_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BioMapping Files</title>
-<style>
-*{box-sizing:border-box}
-body{margin:0;padding:16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0d1321;color:#e8eef7;line-height:1.4}
-.wrap{max-width:680px;margin:0 auto}
-header{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;border-bottom:1px solid #243352;padding-bottom:12px;margin-bottom:14px}
-h1{margin:0;font-size:1.3rem;color:#fff}
-.meta{font-size:.9rem;color:#93a8c9}
-.bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
-.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 16px;border-radius:10px;border:0;font-size:.95rem;font-weight:600;text-decoration:none;cursor:pointer}
-.btn:disabled{opacity:.45;cursor:default}
-.btn-primary{background:#0ea5e9;color:#04121d;flex:1 1 200px}
-.btn-primary.disabled{opacity:.45;pointer-events:none}
-.btn-muted{background:#1e293b;color:#dce6f5}
-.btn-dl{background:#1d4ed8;color:#fff;padding:8px 14px;min-height:40px}
-.btn-del{background:#3b1822;color:#fca5a5;padding:8px 12px;min-height:40px}
-.btn-del.armed{background:#b91c1c;color:#fff}
-.msg{display:none;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:.9rem;background:#3b1822;color:#fecaca}
-.msg.warn{background:#3a2b12;color:#fde68a}
-#popBox .btn{width:100%}
-.note{font-size:.85rem;color:#93a8c9;margin:8px 0 16px}
-.msg.show{display:block}
-ul{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px}
-li{background:#152038;border:1px solid #243352;border-radius:12px;padding:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-.info{min-width:0;flex:1 1 180px}
-.name{font-weight:600;word-break:break-all;color:#f8fafc}
-.size{font-size:.85rem;color:#93a8c9;margin-top:2px}
-.acts{display:flex;gap:8px}
-.empty{background:#152038;border:1px solid #243352;border-radius:12px;padding:24px;text-align:center;color:#93a8c9}
-</style>
-</head>
-<body>
-<div class="wrap">
-<header>
-  <h1>BioMapping Files</h1>
-  <div class="meta" id="summary">Loading...</div>
-</header>
-<div id="popBox" hidden>
-  <a class="btn btn-primary" id="openBtn" href="/">Open in browser to download</a>
-  <p class="note">This pop-up can't save files. If your browser doesn't open, click <b>Done</b> and go to <b id="addr"></b> in it.</p>
-</div>
-<div class="bar">
-  <a class="btn btn-primary disabled" id="zipBtn" href="/download-all.zip" download>Download All as ZIP</a>
-  <button class="btn btn-muted" id="refreshBtn" type="button">Refresh</button>
-  <button class="btn btn-del" id="delAllBtn" type="button" disabled>Delete All</button>
-</div>
-<div class="msg warn" id="warnBox"></div>
-<div class="msg" id="errBox"></div>
-<ul id="list"></ul>
-</div>
-<script>
-// Apple's Wi-Fi sign-in pop-up (it opens by itself on joining) is a
-// cut-down browser: it can't save files, and it answers every confirm()
-// box with "no". Its user agent names AppleWebKit but not Safari
-// (wifi_files_client_kind() has the same rule). There the page has no
-// download buttons, just one plain link to itself: the Cardputer makes the
-// pop-up count as online as soon as it opens (handle_not_found()), and on
-// a Mac an online pop-up hands plain links to the normal browser. Apple
-// doesn't document this, so the note also says how to do it by hand.
-const ua = navigator.userAgent;
-const inSignIn = /AppleWebKit/.test(ua) && !/Safari\//.test(ua) &&
-                 /(Macintosh|iPhone|iPad|iPod)/.test(ua);
-const listEl = document.getElementById('list');
-const summaryEl = document.getElementById('summary');
-const zipBtn = document.getElementById('zipBtn');
-const errBox = document.getElementById('errBox');
-const warnBox = document.getElementById('warnBox');
-const delAllBtn = document.getElementById('delAllBtn');
-let fileTotal = 0;
-
-function showErr(text) {
-  errBox.textContent = text || '';
-  errBox.className = text ? 'msg show' : 'msg';
-}
-
-function showWarn(text) {
-  warnBox.textContent = text || '';
-  warnBox.className = text ? 'msg warn show' : 'msg warn';
-}
-
-function fmtSize(b) {
-  if (b < 1024) return b + ' B';
-  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
-  if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
-  return (b / 1073741824).toFixed(1) + ' GB';
-}
-
-// A delete asks for a second tap on the same button (within 4 s) rather
-// than a confirm() box, which the sign-in window can't show. True on the
-// second tap.
-function secondTap(btn, askText) {
-  if (btn.dataset.armed === '1') {
-    btn.dataset.armed = '';
-    btn.classList.remove('armed');
-    return true;
-  }
-  const label = btn.textContent;
-  btn.dataset.armed = '1';
-  btn.classList.add('armed');
-  btn.textContent = askText;
-  setTimeout(() => {
-    if (btn.dataset.armed !== '1') return;
-    btn.dataset.armed = '';
-    btn.classList.remove('armed');
-    btn.textContent = label;
-  }, 4000);
-  return false;
-}
-
-async function deleteFile(name, btn) {
-  if (!secondTap(btn, 'Tap again to delete')) return;
-  showErr('');
-  btn.disabled = true;
-  btn.textContent = '...';
-  try {
-    const r = await fetch('/api/delete?name=' + encodeURIComponent(name), { method: 'POST' });
-    if (!r.ok) throw new Error('Delete failed (' + r.status + ')');
-    await loadFiles();
-  } catch (e) {
-    btn.disabled = false;
-    btn.textContent = 'Delete';
-    showErr('Could not delete file. Check the Cardputer is still on Wi-Fi Files.');
-  }
-}
-
-async function deleteAll() {
-  const n = fileTotal;
-  if (!n) return;
-  if (!secondTap(delAllBtn, 'Tap again to delete all ' + n)) return;
-  showErr('');
-  delAllBtn.disabled = true;
-  delAllBtn.textContent = 'Deleting...';
-  try {
-    const r = await fetch('/api/delete-all', { method: 'POST' });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error('Delete failed (' + r.status + ')');
-    if (data.failed) showErr(data.failed + ' file(s) could not be deleted.');
-  } catch (e) {
-    showErr('Could not delete files. Check the Cardputer is still on Wi-Fi Files.');
-  }
-  delAllBtn.textContent = 'Delete All';
-  await loadFiles();
-}
-
-async function loadFiles() {
-  showErr('');
-  try {
-    const r = await fetch('/api/files', { cache: 'no-store' });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const data = await r.json();
-    const files = data.files || [];
-    const totalBytes = files.reduce((a, f) => a + f.size, 0);
-    summaryEl.textContent = files.length + (files.length === 1 ? ' file' : ' files') +
-      ' \u00b7 ' + fmtSize(totalBytes) + (data.ssid ? ' \u00b7 ' + data.ssid : '');
-    showWarn(data.truncated
-      ? 'Showing the newest ' + files.length + ' of ' + data.total +
-        ' recordings. Download All as ZIP still includes every file.'
-      : '');
-    zipBtn.className = files.length ? 'btn btn-primary' : 'btn btn-primary disabled';
-    fileTotal = data.truncated ? data.total : files.length;
-    delAllBtn.disabled = !fileTotal;
-    listEl.textContent = '';
-    if (!files.length) {
-      const div = document.createElement('div');
-      div.className = 'empty';
-      div.textContent = 'No recordings found on the SD card yet.';
-      listEl.appendChild(div);
-      return;
-    }
-    for (const f of files) {
-      const li = document.createElement('li');
-      const info = document.createElement('div');
-      info.className = 'info';
-      const nm = document.createElement('div');
-      nm.className = 'name';
-      nm.textContent = f.name;
-      const sz = document.createElement('div');
-      sz.className = 'size';
-      sz.textContent = fmtSize(f.size);
-      info.appendChild(nm);
-      info.appendChild(sz);
-
-      const acts = document.createElement('div');
-      acts.className = 'acts';
-      if (!inSignIn) {
-        const dl = document.createElement('a');
-        dl.className = 'btn btn-dl';
-        dl.href = '/download?name=' + encodeURIComponent(f.name);
-        dl.setAttribute('download', f.name);
-        dl.textContent = 'Download';
-        acts.appendChild(dl);
-      }
-      const del = document.createElement('button');
-      del.className = 'btn btn-del';
-      del.type = 'button';
-      del.textContent = 'Delete';
-      del.onclick = () => deleteFile(f.name, del);
-      acts.appendChild(del);
-
-      li.appendChild(info);
-      li.appendChild(acts);
-      listEl.appendChild(li);
-    }
-  } catch (e) {
-    summaryEl.textContent = 'Disconnected';
-    showErr('Could not load file list. Check you are still connected to the Cardputer Wi-Fi.');
-  }
-}
-
-if (inSignIn) {
-  document.getElementById('popBox').hidden = false;
-  document.getElementById('openBtn').href = location.origin + '/';
-  document.getElementById('addr').textContent = location.host;
-  zipBtn.style.display = 'none';
-}
-document.getElementById('refreshBtn').onclick = loadFiles;
-delAllBtn.onclick = deleteAll;
-loadFiles();
-</script>
-</body>
-</html>
-)HTML";
-
 // ── File scanning & path helpers ─────────────────────────────────────────
 
 struct CsvFileList {
@@ -330,7 +95,7 @@ struct CsvFileList {
 
 static bool build_csv_path(const char* name, char* out, size_t out_sz) {
     if(!wifi_files_name_valid(name)) return false;
-    int n = snprintf(out, out_sz, "%s/%s", DIR_PATH, name);
+    int n = snprintf(out, out_sz, "%s/%s", SD_BIOMAP_DIR, name);
     return n > 0 && (size_t)n < out_sz;
 }
 
@@ -375,7 +140,7 @@ static void scan_csv_dir(CsvFileList* out, size_t max_items) {
 
     size_t cap = 0;
     if(out) {
-        DIR* dir = opendir(DIR_PATH);
+        DIR* dir = opendir(SD_BIOMAP_DIR);
         if(!dir) return;
         size_t est = 0;
         for(struct dirent* ent; (ent = readdir(dir)) != nullptr;) {
@@ -395,7 +160,7 @@ static void scan_csv_dir(CsvFileList* out, size_t max_items) {
         }
     }
 
-    DIR* dir = opendir(DIR_PATH);
+    DIR* dir = opendir(SD_BIOMAP_DIR);
     if(!dir) return;
 
     size_t found = 0;
@@ -483,7 +248,7 @@ static void draw_fit(M5Canvas& canvas, const char* text, int y, uint16_t col) {
 // Redraws only the single status/file-count line in the right panel (no QR
 // re-encoding while streaming data).
 static void draw_status_line(M5Canvas& canvas) {
-    canvas.fillRect(PANEL_X, STATUS_Y, SCREEN_W - PANEL_X, 18, TFT_BLACK);
+    canvas.fillRect(PANEL_X, STATUS_Y, UI_SCREEN_W - PANEL_X, 18, TFT_BLACK);
     if(g_wf.status_line[0]) {
         draw_fit(canvas, g_wf.status_line, STATUS_Y, g_wf.status_col);
     } else if(g_wf.file_count == 0) {
@@ -1051,7 +816,7 @@ bool wifi_files_start(M5Canvas& canvas) {
     g_wf.idle_mins_shown = IDLE_OFF_MS / 60000UL;
 
     // Ensure the QR code is bright enough for phone cameras even when DIM.
-    M5Cardputer.Display.setBrightness(QR_BRIGHTNESS);
+    M5Cardputer.Display.setBrightness(UI_BRIGHTNESS_ON);
 
     Serial.printf("[WiFi] on: ap=%s ip=%u.%u.%u.%u files=%d (free heap %u)\n",
                   g_wf.ssid, ip[0], ip[1], ip[2], ip[3],
@@ -1182,12 +947,12 @@ void wifi_files_draw(M5Canvas& canvas) {
     if(!g_wf.show_url_qr) {
         draw_fit(canvas, "1. Join Wi-Fi", 2, TFT_CYAN);
         draw_fit(canvas, g_wf.ssid, 20, TFT_WHITE);
-        draw_fit(canvas, "No password", 40, COL_MUTED);
+        draw_fit(canvas, "No password", 40, UI_COL_MUTED);
     } else {
         draw_fit(canvas, "2. Open page", 2, TFT_CYAN);
         const char* host = strncmp(g_wf.qr_url, "http://", 7) == 0 ? g_wf.qr_url + 7 : g_wf.qr_url;
         draw_fit(canvas, host, 20, TFT_WHITE);
-        draw_fit(canvas, g_wf.ssid, 40, COL_MUTED);
+        draw_fit(canvas, g_wf.ssid, 40, UI_COL_MUTED);
     }
 
     char line[24];
@@ -1197,13 +962,13 @@ void wifi_files_draw(M5Canvas& canvas) {
         draw_fit(canvas, line, 78, TFT_GREEN);
     } else {
         snprintf(line, sizeof(line), "Off in %lu min", (unsigned long)g_wf.idle_mins_shown);
-        draw_fit(canvas, line, 78, COL_MUTED);
+        draw_fit(canvas, line, 78, UI_COL_MUTED);
     }
 
     draw_status_line(canvas);
 
     canvas.setFont(&fonts::Font0);
-    canvas.setTextColor(COL_MUTED);
-    canvas.drawString("<> QR  Esc stop", PANEL_X, SCREEN_H - 10);
+    canvas.setTextColor(UI_COL_MUTED);
+    canvas.drawString("<> QR  Esc stop", PANEL_X, UI_SCREEN_H - 10);
     canvas.setFont(&fonts::Font2);
 }

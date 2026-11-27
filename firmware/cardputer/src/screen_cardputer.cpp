@@ -7,13 +7,11 @@
 #include "bt_cardputer.h"
 #include "sd_cardputer.h"
 #include "session_cardputer.h"
-
-static const int DISP_W = 240;
-static const int DISP_H = 135;
+#include "ui_theme.h"
 
 // Stretch a 128 × 64 layout coordinate to 240 × 135.
-static inline int sx(int x) { return (x * DISP_W + SCREEN_W / 2) / SCREEN_W; }
-static inline int sy(int y) { return (y * DISP_H + SCREEN_H / 2) / SCREEN_H; }
+static inline int sx(int x) { return (x * UI_SCREEN_W + SCREEN_W / 2) / SCREEN_W; }
+static inline int sy(int y) { return (y * UI_SCREEN_H + SCREEN_H / 2) / SCREEN_H; }
 
 // One layout unit in device pixels (at least 1).
 static inline int sw(int x, int w) {
@@ -59,7 +57,7 @@ static void cp_draw_str(void* ctx, int x, int y, const char* text) {
     // top of the glyph). Font2 is 16 px tall; sy(y) - 14 aligns the baseline.
     int py = sy(y) - 14;
     if(py < 0) py = 0;
-    if(py > DISP_H - 16) py = DISP_H - 16;
+    if(py > UI_SCREEN_H - 16) py = UI_SCREEN_H - 16;
     int px = sx(x);
     uint16_t col = (c->inverted && c->write_stopped) ? TFT_WHITE : fg_color(c);
     c->canvas->setTextColor(col);
@@ -75,7 +73,7 @@ static int cp_str_width(void* ctx, const char* text) {
     if(c->font == ScreenFontPrimary && w_px > 0) w_px += 1;
     // Convert device pixel width back into 128-wide layout units, rounded up
     // so right-aligned text never clips past the right edge (biomap_screen.h).
-    return (w_px * SCREEN_W + DISP_W - 1) / DISP_W;
+    return (w_px * SCREEN_W + UI_SCREEN_W - 1) / UI_SCREEN_W;
 }
 
 static void cp_draw_dot(void* ctx, int x, int y) {
@@ -155,15 +153,13 @@ static void cp_draw_graph(void* ctx, const SessionCore* s, int layout_gx, int la
     const int cy = (y0 + y1) / 2;
 
     // Subtle background grid: centre zero-rate baseline + quarter lines.
-    static const uint16_t COL_FRAME     = 0x2965;  // slate border
-    static const uint16_t COL_GRID      = 0x10A2;  // subtle dark grid
     static const uint16_t COL_ZERO_LINE = 0x2124;  // centre baseline
     static const uint16_t COL_GLOW      = 0x0451;  // mid-cyan anti-alias halo
     static const uint16_t COL_CURVE     = 0x3FFF;  // bright cyan main trace
 
     int qh = (y1 - y0) / 4;
-    canvas.drawFastHLine(gx + 1, cy - qh, gw - 2, COL_GRID);
-    canvas.drawFastHLine(gx + 1, cy + qh, gw - 2, COL_GRID);
+    canvas.drawFastHLine(gx + 1, cy - qh, gw - 2, UI_COL_GRID);
+    canvas.drawFastHLine(gx + 1, cy + qh, gw - 2, UI_COL_GRID);
     for(int x = gx + 4; x < gx + gw - 2; x += 4) {
         canvas.drawPixel(x, cy, COL_ZERO_LINE);
         canvas.drawPixel(x + 1, cy, COL_ZERO_LINE);
@@ -262,7 +258,7 @@ static void cp_draw_graph(void* ctx, const SessionCore* s, int layout_gx, int la
     }
 
     // Outer frame drawn over the fill edges.
-    canvas.drawRect(gx, gy, gw, gh, COL_FRAME);
+    canvas.drawRect(gx, gy, gw, gh, UI_COL_FRAME);
 
     // Zoom label in the bottom-left corner of the graph.
     if(visible) {
@@ -309,7 +305,7 @@ void screen_cardputer_draw_session(M5Canvas& canvas) {
     // Cardputer-specific overlay: if Enter was pressed in GPS+GSR mode before
     // the GPS clock was set, show a brief banner at the top.
     if(session_cardputer_no_time_notice()) {
-        canvas.fillRect(0, 0, DISP_W, 20, TFT_YELLOW);
+        canvas.fillRect(0, 0, UI_SCREEN_W, 20, TFT_YELLOW);
         canvas.setFont(&fonts::Font2);
         canvas.setTextColor(TFT_BLACK);
         canvas.drawString("Waiting for GPS time...", 6, 2);

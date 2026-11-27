@@ -358,6 +358,10 @@ void gps_cardputer_sleep(void) {
     idle_watch_start();
 }
 
+bool gps_cardputer_is_asleep(void) {
+    return g_gps_asleep;
+}
+
 GpsUart* gps_cardputer_start(GpsNavModel nav_model, bool super_s) {
     auto* g = new GpsCardputer();
     g->mutex = xSemaphoreCreateMutex();

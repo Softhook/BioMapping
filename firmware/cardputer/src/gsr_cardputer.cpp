@@ -130,6 +130,7 @@ void gsr_cardputer_stop(GsrSensor* gsr) {
     auto* g = static_cast<GsrCardputer*>(gsr_sensor_platform_ctx(gsr));  // stops on NULL
     g->running = false;
     while(!g->finished) delay(1);
+    delay(2);  // lets FreeRTOS IDLE1 free the self-deleted GSR task's TCB & 4 KB stack
     gsr_sensor_destroy(gsr);  // powers the ADS1115 down
     vSemaphoreDelete(g->mutex);
     delete g;

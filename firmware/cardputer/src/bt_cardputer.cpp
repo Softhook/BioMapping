@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
+#include <atomic>
 
 #include "biomap_format.h"  // BT_STREAM_PACKET_SIZE
 
@@ -18,9 +19,9 @@ static const char* const BLE_RX_CHAR_UUID = "19ed82ae-ed21-4c9d-4145-228e61fe000
 static const uint32_t DISCONNECT_WAIT_MS = 500;
 
 static struct {
-    bool               on = false;         // Bluetooth switched on (BLEDevice::init() done)
-    volatile bool      active = false;     // true between bt_cardputer_start() and _stop()
-    volatile bool      connected = false;  // updated from the BLE stack's callback thread
+    bool               on = false;          // Bluetooth switched on (BLEDevice::init() done)
+    std::atomic<bool>  active{false};       // true between bt_cardputer_start() and _stop()
+    std::atomic<bool>  connected{false};    // updated from the BLE stack's callback thread
     BLEServer*         server = nullptr;
     BLEService*        svc = nullptr;
     BLECharacteristic* ch = nullptr;

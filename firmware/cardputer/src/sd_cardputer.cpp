@@ -18,7 +18,6 @@
 // fsync, lseek, ftruncate): Arduino's File has no truncate, and its own
 // buffering would split the whole-block writes back up.
 static const char* const MOUNT = "/sd";
-static const char* const DIR_PATH = "/sd/biomapping";
 // 25 MHz, the SD card's standard speed. The bench measured whole-block
 // writes at 15 ms typical, 57 ms worst at this speed; 40 MHz was faster
 // but not needed (docs/cardputer_port.md, section 5).
@@ -36,7 +35,7 @@ bool sd_card_mount(void) {
     SPI.begin(M5.getPin(m5::pin_name_t::sd_spi_sclk), M5.getPin(m5::pin_name_t::sd_spi_miso),
               M5.getPin(m5::pin_name_t::sd_spi_mosi), cs);
     if(!SD.begin(cs, SPI, SD_HZ, MOUNT)) return false;
-    if(mkdir(DIR_PATH, 0777) != 0 && errno != EEXIST) return false;
+    if(mkdir(SD_BIOMAP_DIR, 0777) != 0 && errno != EEXIST) return false;
     mounted = true;
     return true;
 }
@@ -201,7 +200,7 @@ static SdOpenResult plat_open_new(void* ctx, const char* name) {
     auto* c = static_cast<SdCardputer*>(ctx);
     if(!sd_card_mount()) return SdOpenFailed;
     char path[96];
-    snprintf(path, sizeof(path), "%s/%s", DIR_PATH, name);
+    snprintf(path, sizeof(path), "%s/%s", SD_BIOMAP_DIR, name);
     // O_EXCL: the card refuses a name that already exists.
     c->fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0666);
     if(c->fd >= 0) {

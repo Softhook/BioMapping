@@ -5,61 +5,7 @@
 #include <stdlib.h>
 
 #include "splash_anim.h"
-
-// ── RGB565 colour helpers ────────────────────────────────────────────────
-
-static inline uint8_t clamp_u8(int v) {
-    if(v < 0) return 0;
-    if(v > 255) return 255;
-    return (uint8_t)v;
-}
-
-static inline uint16_t pack565(uint8_t r, uint8_t g, uint8_t b) {
-    return (uint16_t)(((r & 0xF8U) << 8) | ((g & 0xFCU) << 3) | (b >> 3));
-}
-
-static inline uint16_t blend565(uint8_t r0, uint8_t g0, uint8_t b0,
-                                uint8_t r1, uint8_t g1, uint8_t b1,
-                                float a) {
-    if(a <= 0.0f) return pack565(r0, g0, b0);
-    if(a >= 1.0f) return pack565(r1, g1, b1);
-    uint8_t r = clamp_u8((int)((float)r0 + ((float)r1 - (float)r0) * a));
-    uint8_t g = clamp_u8((int)((float)g0 + ((float)g1 - (float)g0) * a));
-    uint8_t b = clamp_u8((int)((float)b0 + ((float)b1 - (float)b0) * a));
-    return pack565(r, g, b);
-}
-
-static inline uint16_t scale565(uint8_t r, uint8_t g, uint8_t b, float a) {
-    if(a <= 0.0f) return 0;
-    if(a >= 1.0f) return pack565(r, g, b);
-    return pack565(clamp_u8((int)((float)r * a)),
-                   clamp_u8((int)((float)g * a)),
-                   clamp_u8((int)((float)b * a)));
-}
-
-// Bio Mapping 2 arousal ramp (matching demo.css & visualiser):
-//   u = 0.0 -> calm green  (#2bd96b)
-//   u = 0.5 -> warm amber  (#ffd23f)
-//   u = 1.0 -> coral red   (#ff5a3c)
-static void spectrum_rgb(float u, uint8_t* out_r, uint8_t* out_g, uint8_t* out_b) {
-    if(u < 0.0f) u = 0.0f;
-    if(u > 1.0f) u = 1.0f;
-    float r, g, b;
-    if(u < 0.5f) {
-        float k = u * 2.0f;
-        r = 43.0f  + (255.0f - 43.0f)  * k;
-        g = 217.0f + (210.0f - 217.0f) * k;
-        b = 107.0f + (63.0f  - 107.0f) * k;
-    } else {
-        float k = (u - 0.5f) * 2.0f;
-        r = 255.0f;
-        g = 210.0f + (90.0f - 210.0f) * k;
-        b = 63.0f  + (60.0f - 63.0f)  * k;
-    }
-    *out_r = clamp_u8((int)r);
-    *out_g = clamp_u8((int)g);
-    *out_b = clamp_u8((int)b);
-}
+#include "ui_theme.h"
 
 // ── Deterministic 3-tier starfield (allocated on stack during splash only) ─
 
@@ -107,7 +53,7 @@ static void draw_stars(M5Canvas& canvas, const Star* stars,
         uint8_t r = (s.tier == 2) ? 240 : ((s.tier == 1) ? 175 : 105);
         uint8_t g = (s.tier == 2) ? 245 : ((s.tier == 1) ? 205 : 135);
         uint8_t b = 255;
-        uint16_t col = scale565(r, g, b, a);
+        uint16_t col = ui_scale565(r, g, b, a);
 
         if(st.star_warp > 0.04f && s.tier >= 1) {
             float dx = sx - cx;
@@ -125,7 +71,7 @@ static void draw_stars(M5Canvas& canvas, const Star* stars,
         int py = (int)sy;
         canvas.drawPixel(px, py, col);
         if(s.tier == 2 && tw > 0.88f) {
-            uint16_t halo = scale565(120, 190, 255, a * 0.40f);
+            uint16_t halo = ui_scale565(120, 190, 255, a * 0.40f);
             canvas.drawPixel(px - 1, py, halo);
             canvas.drawPixel(px + 1, py, halo);
             canvas.drawPixel(px, py - 1, halo);
@@ -208,7 +154,7 @@ static void draw_globe_body(M5Canvas& canvas, const SplashFrameState& st, float 
     if(dive_blend > 1.0f) dive_blend = 1.0f;
 
     if(R >= 175.0f) {
-        canvas.fillSprite(blend565((uint8_t)bg_r, (uint8_t)bg_g, (uint8_t)bg_b,
+        canvas.fillSprite(ui_blend565((uint8_t)bg_r, (uint8_t)bg_g, (uint8_t)bg_b,
                                    (uint8_t)oc_r, (uint8_t)oc_g, (uint8_t)oc_b, ga));
         return;
     }
@@ -228,17 +174,17 @@ static void draw_globe_body(M5Canvas& canvas, const SplashFrameState& st, float 
         };
         for(size_t i = 0; i < sizeof(HALO) / sizeof(HALO[0]); i++) {
             canvas.fillCircle(cx, cy, ri + HALO[i].dr,
-                              blend565((uint8_t)bg_r, (uint8_t)bg_g, (uint8_t)bg_b,
+                              ui_blend565((uint8_t)bg_r, (uint8_t)bg_g, (uint8_t)bg_b,
                                        HALO[i].r, HALO[i].g, HALO[i].b, halo_a));
         }
     }
 
     // Ocean base smoothly blends from night-side navy into the deep-dive ocean.
-    uint8_t base_r = clamp_u8((int)(6.0f  + (oc_r - 6.0f)  * dive_blend));
-    uint8_t base_g = clamp_u8((int)(20.0f + (oc_g - 20.0f) * dive_blend));
-    uint8_t base_b = clamp_u8((int)(42.0f + (oc_b - 42.0f) * dive_blend));
+    uint8_t base_r = ui_clamp_u8((int)(6.0f  + (oc_r - 6.0f)  * dive_blend));
+    uint8_t base_g = ui_clamp_u8((int)(20.0f + (oc_g - 20.0f) * dive_blend));
+    uint8_t base_b = ui_clamp_u8((int)(42.0f + (oc_b - 42.0f) * dive_blend));
     canvas.fillCircle(cx, cy, ri,
-                      blend565((uint8_t)bg_r, (uint8_t)bg_g, (uint8_t)bg_b,
+                      ui_blend565((uint8_t)bg_r, (uint8_t)bg_g, (uint8_t)bg_b,
                                base_r, base_g, base_b, ga));
 
     // Sunlit inner shading circles converge to the uniform dive ocean colour
@@ -259,16 +205,16 @@ static void draw_globe_body(M5Canvas& canvas, const SplashFrameState& st, float 
             int sy = cy - (int)lroundf(margin * 0.52f);
             int rsi = (int)lroundf(rs);
             if(rsi >= 1) {
-                uint8_t sr = clamp_u8((int)(SHADE[i].r + (oc_r - SHADE[i].r) * dive_blend));
-                uint8_t sg = clamp_u8((int)(SHADE[i].g + (oc_g - SHADE[i].g) * dive_blend));
-                uint8_t sb = clamp_u8((int)(SHADE[i].b + (oc_b - SHADE[i].b) * dive_blend));
+                uint8_t sr = ui_clamp_u8((int)(SHADE[i].r + (oc_r - SHADE[i].r) * dive_blend));
+                uint8_t sg = ui_clamp_u8((int)(SHADE[i].g + (oc_g - SHADE[i].g) * dive_blend));
+                uint8_t sb = ui_clamp_u8((int)(SHADE[i].b + (oc_b - SHADE[i].b) * dive_blend));
                 canvas.fillCircle(sx, sy, rsi,
-                                  blend565((uint8_t)bg_r, (uint8_t)bg_g, (uint8_t)bg_b,
+                                  ui_blend565((uint8_t)bg_r, (uint8_t)bg_g, (uint8_t)bg_b,
                                            sr, sg, sb, ga));
             }
         }
         canvas.drawCircle(cx, cy, ri,
-                          blend565((uint8_t)bg_r, (uint8_t)bg_g, (uint8_t)bg_b,
+                          ui_blend565((uint8_t)bg_r, (uint8_t)bg_g, (uint8_t)bg_b,
                                    96, 222, 255, halo_a));
     }
 }
@@ -295,7 +241,7 @@ static void draw_graticule_arc(M5Canvas& canvas,
                 float a = alpha * (0.25f + 0.75f * zm);
                 canvas.drawLine((int)lroundf(px), (int)lroundf(py),
                                 (int)lroundf(sx), (int)lroundf(sy),
-                                blend565(br, bg, bb, r, g, b, a));
+                                ui_blend565(br, bg, bb, r, g, b, a));
             }
         }
         px = sx;
@@ -307,9 +253,9 @@ static void draw_graticule_arc(M5Canvas& canvas,
 
 static void draw_graticule(M5Canvas& canvas, const SplashFrameState& st, float ga) {
     // Blend graticule lines over the ocean tone so faint lines never turn dark/black.
-    uint8_t br = clamp_u8((int)(4.0f  + (10.0f - 4.0f)  * ga));
-    uint8_t bg = clamp_u8((int)(6.0f  + (38.0f - 6.0f)  * ga));
-    uint8_t bb = clamp_u8((int)(12.0f + (68.0f - 12.0f) * ga));
+    uint8_t br = ui_clamp_u8((int)(4.0f  + (10.0f - 4.0f)  * ga));
+    uint8_t bg = ui_clamp_u8((int)(6.0f  + (38.0f - 6.0f)  * ga));
+    uint8_t bb = ui_clamp_u8((int)(12.0f + (68.0f - 12.0f) * ga));
 
     for(int lat = -60; lat <= 60; lat += 30) {
         float a = (lat == 0) ? (ga * 0.42f) : (ga * 0.26f);
@@ -329,9 +275,9 @@ static void draw_continents(M5Canvas& canvas, const SplashFrameState& st, float 
 
     // Blend continents toward the #04060c deep-space background (never pure black)
     // so fading landmasses dissolve invisibly instead of turning into dark cutouts.
-    uint8_t bg_r = clamp_u8((int)(4.0f  * st.global_alpha));
-    uint8_t bg_g = clamp_u8((int)(6.0f  * st.global_alpha));
-    uint8_t bg_b = clamp_u8((int)(12.0f * st.global_alpha));
+    uint8_t bg_r = ui_clamp_u8((int)(4.0f  * st.global_alpha));
+    uint8_t bg_g = ui_clamp_u8((int)(6.0f  * st.global_alpha));
+    uint8_t bg_b = ui_clamp_u8((int)(12.0f * st.global_alpha));
 
     for(size_t c = 0; c < count; c++) {
         const SplashContinent& cont = list[c];
@@ -341,14 +287,14 @@ static void draw_continents(M5Canvas& canvas, const SplashFrameState& st, float 
         if(cn < 3) continue;
 
         uint16_t fill_col = cont.is_focus
-            ? blend565(bg_r, bg_g, bg_b, 22, 108, 92, ga)
-            : blend565(bg_r, bg_g, bg_b, 16,  82, 74, ga);
+            ? ui_blend565(bg_r, bg_g, bg_b, 22, 108, 92, ga)
+            : ui_blend565(bg_r, bg_g, bg_b, 16,  82, 74, ga);
         fill_polygon_clipped(canvas, clipped, cn, fill_col);
 
         uint8_t cr = cont.is_focus ? 82  : 46;
         uint8_t cg = cont.is_focus ? 245 : 212;
         uint8_t cb = cont.is_focus ? 175 : 148;
-        uint16_t edge_col = blend565(bg_r, bg_g, bg_b, cr, cg, cb, ga);
+        uint16_t edge_col = ui_blend565(bg_r, bg_g, bg_b, cr, cg, cb, ga);
 
         for(size_t i = 0; i < cont.count; i++) {
             size_t j = (i + 1) % cont.count;
@@ -396,9 +342,9 @@ static void draw_beacon(M5Canvas& canvas, const SplashFrameState& st) {
     // Blend beacon rings over the current underlying ocean/space tone so fading
     // rings dissolve invisibly instead of painting dark rings over bright land.
     float ga = st.globe_alpha * st.global_alpha;
-    uint8_t br_bg = clamp_u8((int)(4.0f  + (14.0f - 4.0f)  * ga));
-    uint8_t bg_bg = clamp_u8((int)(6.0f  + (56.0f - 6.0f)  * ga));
-    uint8_t bb_bg = clamp_u8((int)(12.0f + (78.0f - 12.0f) * ga));
+    uint8_t br_bg = ui_clamp_u8((int)(4.0f  + (14.0f - 4.0f)  * ga));
+    uint8_t bg_bg = ui_clamp_u8((int)(6.0f  + (56.0f - 6.0f)  * ga));
+    uint8_t bb_bg = ui_clamp_u8((int)(12.0f + (78.0f - 12.0f) * ga));
 
     for(int ring = 0; ring < 2; ring++) {
         float p = fmodf(st.beacon_phase + (float)ring * 0.5f, 1.0f);
@@ -406,14 +352,14 @@ static void draw_beacon(M5Canvas& canvas, const SplashFrameState& st) {
         float ra = ba * (1.0f - p) * (1.0f - p);
         if(ra < 0.08f) continue;  // stop before ring fades below background
         uint8_t cr, cg, cb;
-        spectrum_rgb(1.0f - p, &cr, &cg, &cb);
+        ui_spectrum_rgb(1.0f - p, &cr, &cg, &cb);
         canvas.drawCircle(ix, iy, (int)lroundf(rr),
-                          blend565(br_bg, bg_bg, bb_bg, cr, cg, cb, ra));
+                          ui_blend565(br_bg, bg_bg, bb_bg, cr, cg, cb, ra));
     }
 
     int br = (int)lroundf(13.0f - zoom_norm * 4.0f);
     int arm = 4;
-    uint16_t bcol = blend565(br_bg, bg_bg, bb_bg, 255, 195, 95, ba * 0.85f);
+    uint16_t bcol = ui_blend565(br_bg, bg_bg, bb_bg, 255, 195, 95, ba * 0.85f);
     canvas.drawFastHLine(ix - br, iy - br, arm, bcol);
     canvas.drawFastVLine(ix - br, iy - br, arm, bcol);
     canvas.drawFastHLine(ix + br - arm + 1, iy - br, arm, bcol);
@@ -423,8 +369,8 @@ static void draw_beacon(M5Canvas& canvas, const SplashFrameState& st) {
     canvas.drawFastHLine(ix + br - arm + 1, iy + br, arm, bcol);
     canvas.drawFastVLine(ix + br, iy + br - arm + 1, arm, bcol);
 
-    canvas.fillCircle(ix, iy, 4, blend565(br_bg, bg_bg, bb_bg, 255, 90, 60, ba * 0.60f));
-    canvas.fillCircle(ix, iy, 2, blend565(br_bg, bg_bg, bb_bg, 255, 248, 240, ba));
+    canvas.fillCircle(ix, iy, 4, ui_blend565(br_bg, bg_bg, bb_bg, 255, 90, 60, ba * 0.60f));
+    canvas.fillCircle(ix, iy, 2, ui_blend565(br_bg, bg_bg, bb_bg, 255, 248, 240, ba));
 }
 
 // ── Stage 3: Zooming directly into the Person's Body ─────────────────────
@@ -441,8 +387,8 @@ static void draw_human_body(M5Canvas& canvas, const SplashFrameState& st) {
 
     // Always draw the full silhouette (head + torso + arms) together from the
     // very first frame so arms never suddenly pop into view mid-zoom.
-    uint16_t fill_col = blend565(4, 6, 12, 14, 34, 48, ba);
-    uint16_t rim_col  = blend565(4, 6, 12, 96, 224, 218, ba * 0.92f);
+    uint16_t fill_col = ui_blend565(4, 6, 12, 14, 34, 48, ba);
+    uint16_t rim_col  = ui_blend565(4, 6, 12, 96, 224, 218, ba * 0.92f);
 
     int head_r  = (int)lroundf(8.5f * sc);
     int head_y  = (int)lroundf(cy - 25.0f * sc);
@@ -512,8 +458,8 @@ static void draw_biomapping_symbol(M5Canvas& canvas, const SplashFrameState& st)
 
     float target_dist = st.symbol_progress * total_len;
     // Soft glow blends smoothly from the dark backdrop (no abrupt pad-size jump).
-    uint16_t glow_col = blend565(4, 6, 12, 48, 210, 195, sa * st.symbol_glow * 0.42f);
-    uint16_t bar_col  = blend565(4, 6, 12, 244, 241, 234, sa);
+    uint16_t glow_col = ui_blend565(4, 6, 12, 48, 210, 195, sa * st.symbol_glow * 0.42f);
+    uint16_t bar_col  = ui_blend565(4, 6, 12, 244, 241, 234, sa);
 
     float tip_x = origin_x + (float)path[0].x * cell + cell * 0.5f;
     float tip_y = origin_y + (float)path[0].y * cell + cell * 0.5f;
@@ -556,8 +502,8 @@ static void draw_biomapping_symbol(M5Canvas& canvas, const SplashFrameState& st)
     if(st.symbol_progress > 0.02f && st.symbol_progress < 0.99f) {
         int tx = (int)lroundf(tip_x);
         int ty = (int)lroundf(tip_y);
-        canvas.fillCircle(tx, ty, 3, blend565(4, 6, 12, 255, 110, 72, sa * 0.65f));
-        canvas.fillCircle(tx, ty, 2, blend565(4, 6, 12, 255, 245, 200, sa));
+        canvas.fillCircle(tx, ty, 3, ui_blend565(4, 6, 12, 255, 110, 72, sa * 0.65f));
+        canvas.fillCircle(tx, ty, 2, ui_blend565(4, 6, 12, 255, 245, 200, sa));
     }
 }
 
@@ -578,14 +524,14 @@ static void draw_title_lockup(M5Canvas& canvas, uint32_t t_ms,
         int x0 = (SPLASH_W - total_w) / 2;
         int y0 = 60 + (int)lroundf(st.title_y_offset);
 
-        uint16_t shadow = scale565(4, 8, 16, ta * 0.85f);
+        uint16_t shadow = ui_scale565(4, 8, 16, ta * 0.85f);
         canvas.setTextColor(shadow);
         canvas.drawString(prefix, x0 + 1, y0 + 1);
         canvas.drawString(digit,  x0 + w_pre + 1, y0 + 1);
 
-        canvas.setTextColor(scale565(244, 241, 234, ta));
+        canvas.setTextColor(ui_scale565(244, 241, 234, ta));
         canvas.drawString(prefix, x0, y0);
-        canvas.setTextColor(scale565(255, 102, 68, ta));
+        canvas.setTextColor(ui_scale565(255, 102, 68, ta));
         canvas.drawString(digit, x0 + w_pre, y0);
     }
 
@@ -602,19 +548,19 @@ static void draw_title_lockup(M5Canvas& canvas, uint32_t t_ms,
         for(int dx = 0; dx < bw; dx++) {
             float u = (bw > 1) ? ((float)dx / (float)(bw - 1)) : 0.5f;
             uint8_t r, g, b;
-            spectrum_rgb(u, &r, &g, &b);
+            ui_spectrum_rgb(u, &r, &g, &b);
             float glint = 0.0f;
             if(st.bar_progress > 0.85f) {
                 float d = fabsf(u - shimmer_pos);
                 if(d < 0.14f) glint = (1.0f - d / 0.14f) * 0.55f;
             }
-            uint16_t col = blend565(
-                clamp_u8((int)((float)r * ba)),
-                clamp_u8((int)((float)g * ba)),
-                clamp_u8((int)((float)b * ba)),
-                clamp_u8((int)(255.0f * ba)),
-                clamp_u8((int)(255.0f * ba)),
-                clamp_u8((int)(255.0f * ba)),
+            uint16_t col = ui_blend565(
+                ui_clamp_u8((int)((float)r * ba)),
+                ui_clamp_u8((int)((float)g * ba)),
+                ui_clamp_u8((int)((float)b * ba)),
+                ui_clamp_u8((int)(255.0f * ba)),
+                ui_clamp_u8((int)(255.0f * ba)),
+                ui_clamp_u8((int)(255.0f * ba)),
                 glint);
             canvas.drawFastVLine(bx0 + dx, by, 3, col);
         }
@@ -626,10 +572,10 @@ static void draw_title_lockup(M5Canvas& canvas, uint32_t t_ms,
         canvas.setTextDatum(textdatum_t::top_center);
         if(gps_waiting) {
             float pulse = 0.70f + 0.30f * sinf((float)t_ms * 0.007f);
-            canvas.setTextColor(scale565(255, 210, 63, ca * pulse));
+            canvas.setTextColor(ui_scale565(255, 210, 63, ca * pulse));
             canvas.drawString("Starting GPS...", SPLASH_W / 2, 102);
         } else {
-            canvas.setTextColor(scale565(198, 224, 240, ca));
+            canvas.setTextColor(ui_scale565(198, 224, 240, ca));
             canvas.drawString("Christian Nold 2004-2026", SPLASH_W / 2, 102);
         }
         canvas.setTextDatum(textdatum_t::top_left);
@@ -642,7 +588,7 @@ static void render_frame(M5Canvas& canvas, const Star* stars, uint32_t t_ms,
     splash_eval_frame(t_ms, &st);
     st.global_alpha *= extra_fade;
 
-    canvas.fillSprite(scale565(4, 6, 12, st.global_alpha));
+    canvas.fillSprite(ui_scale565(4, 6, 12, st.global_alpha));
 
     draw_stars(canvas, stars, t_ms, st);
 

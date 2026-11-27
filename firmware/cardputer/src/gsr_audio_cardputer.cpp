@@ -11,6 +11,7 @@
 #include "gsr_audio.h"
 #include "gsr_cardputer.h"
 #include "settings_cardputer.h"
+#include "ui_theme.h"
 
 // Dedicated virtual speaker channel while GSR Audio is open.
 static const uint8_t AUDIO_CHANNEL = 6;
@@ -33,15 +34,7 @@ static const int VOL_STEP_PCT = 10;
 static const int VOL_MIN_PCT  = 0;
 static const int VOL_MAX_PCT  = 100;
 
-static const int      DISP_W        = 240;
-static const int      DISP_H        = 135;
-static const uint16_t COL_HEADER_BG = 0x10A4;
-static const uint16_t COL_SEL_EDGE  = 0x07FF;
-static const uint16_t COL_FOOTER_BG = 0x1082;
-static const uint16_t COL_MUTED     = 0x8410;
-static const uint16_t COL_FRAME     = 0x2965;
-static const uint16_t COL_GRID      = 0x10A2;
-static const uint16_t COL_REST_LINE = 0x2965;
+static const uint16_t COL_REST_LINE = UI_COL_FRAME;
 
 static const int      HIST_LEN       = 112;
 static const uint32_t ANIM_MS        = 33;    // 30 FPS redraw
@@ -172,7 +165,6 @@ bool gsr_audio_cardputer_start(void) {
         rt->task_running.store(false, std::memory_order_release);
         if(rt->gsr) {
             gsr_cardputer_stop(rt->gsr);
-            delay(2);
         }
         vSemaphoreDelete(rt->mutex);
         rt->~AudioRuntime();
@@ -239,7 +231,6 @@ void gsr_audio_cardputer_stop(void) {
     // Step 3 in reverse: stop and power down the ADS1115.
     if(rt->gsr) {
         gsr_cardputer_stop(rt->gsr);
-        delay(2);  // lets FreeRTOS IDLE1 free the GSR task's TCB & 4 KB stack
         rt->gsr = nullptr;
     }
 
@@ -425,30 +416,6 @@ bool gsr_audio_cardputer_poll(void) {
     return redraw;
 }
 
-static uint16_t spectrum_color565(float u, float brightness = 1.0f) {
-    if(u < 0.0f) u = 0.0f;
-    if(u > 1.0f) u = 1.0f;
-    float r, g, b;
-    if(u < 0.5f) {
-        float k = u * 2.0f;
-        r = 43.0f  + (255.0f - 43.0f)  * k;
-        g = 217.0f + (210.0f - 217.0f) * k;
-        b = 107.0f + (63.0f  - 107.0f) * k;
-    } else {
-        float k = (u - 0.5f) * 2.0f;
-        r = 255.0f;
-        g = 210.0f + (90.0f - 210.0f) * k;
-        b = 63.0f  + (60.0f - 63.0f)  * k;
-    }
-    int ri = (int)(r * brightness);
-    int gi = (int)(g * brightness);
-    int bi = (int)(b * brightness);
-    if(ri > 255) ri = 255;
-    if(gi > 255) gi = 255;
-    if(bi > 255) bi = 255;
-    return (uint16_t)(((ri & 0xF8) << 8) | ((gi & 0xFC) << 3) | (bi >> 3));
-}
-
 static uint16_t mode_accent_color(GsrAudioMode m) {
     switch(m) {
     case GsrAudioBreath: return TFT_GREEN;
@@ -469,24 +436,17 @@ void gsr_audio_cardputer_draw(M5Canvas& canvas) {
     canvas.setFont(&fonts::Font2);
     canvas.setTextDatum(textdatum_t::top_left);
 
-    // Header bar
-    canvas.fillRect(0, 0, DISP_W, 22, COL_HEADER_BG);
-    canvas.drawFastHLine(0, 22, DISP_W, COL_SEL_EDGE);
-    canvas.setTextColor(TFT_WHITE);
-    canvas.drawString("GSR Audio", 6, 3);
-    canvas.drawString("GSR Audio", 7, 3);
-
     char right_hdr[32];
+    uint16_t right_col;
     if(rt->muted) {
         snprintf(right_hdr, sizeof(right_hdr), "MUTED  %d%%", g_vol_pct);
-        canvas.setTextColor(TFT_YELLOW);
+        right_col = TFT_YELLOW;
     } else {
         snprintf(right_hdr, sizeof(right_hdr), "%s  %d%%",
                  gsr_audio_mode_label(g_voice_mode), g_vol_pct);
-        canvas.setTextColor(mode_accent_color(g_voice_mode));
+        right_col = mode_accent_color(g_voice_mode);
     }
-    int rhw = canvas.textWidth(right_hdr);
-    canvas.drawString(right_hdr, DISP_W - rhw - 6, 3);
+    ui_draw_header(canvas, "GSR Audio", right_hdr, right_col);
 
     // Info row: live conductance (left), GSR sensitivity (centre), note/Hz (right)
     const bool contact = snap.has_contact;
@@ -508,9 +468,9 @@ void gsr_audio_cardputer_draw(M5Canvas& canvas) {
     snprintf(sens_info, sizeof(sens_info), "Sens %d%%", g_sens_pct);
     bool sens_flash = (rt->sens_flash_until != 0) &&
                       ((int32_t)(rt->sens_flash_until - millis()) > 0);
-    canvas.setTextColor(sens_flash ? TFT_CYAN : COL_MUTED);
+    canvas.setTextColor(sens_flash ? TFT_CYAN : UI_COL_MUTED);
     int sw = canvas.textWidth(sens_info);
-    canvas.drawString(sens_info, (DISP_W - sw) / 2, 26);
+    canvas.drawString(sens_info, (UI_SCREEN_W - sw) / 2, 26);
 
     char note[8];
     char right_info[24];
@@ -518,10 +478,10 @@ void gsr_audio_cardputer_draw(M5Canvas& canvas) {
                             : gsr_audio_norm_to_hz(g_voice_mode, GSR_AUDIO_REST_NORM);
     gsr_audio_hz_note_name(show_hz, note, sizeof(note));
     snprintf(right_info, sizeof(right_info), "%s %dHz", note, (int)lroundf(show_hz));
-    uint16_t pitch_col = contact ? spectrum_color565(snap.cur_u) : COL_MUTED;
+    uint16_t pitch_col = contact ? ui_spectrum565(snap.cur_u) : UI_COL_MUTED;
     canvas.setTextColor(pitch_col);
     int riw = canvas.textWidth(right_info);
-    canvas.drawString(right_info, DISP_W - riw - 6, 26);
+    canvas.drawString(right_info, UI_SCREEN_W - riw - 6, 26);
 
     // Scrolling tension graph (x = 6..233, y = 45..111)
     const int gx = 6;
@@ -532,7 +492,7 @@ void gsr_audio_cardputer_draw(M5Canvas& canvas) {
     const int y_bot = gy + gh - 4;
     const int plot_h = y_bot - y_top;
 
-    canvas.drawFastHLine(gx + 1, y_top + plot_h / 2, gw - 2, COL_GRID);
+    canvas.drawFastHLine(gx + 1, y_top + plot_h / 2, gw - 2, UI_COL_GRID);
     int y_rest = y_bot - (int)lroundf(GSR_AUDIO_REST_NORM * (float)plot_h);
     for(int x = gx + 3; x < gx + gw - 3; x += 5) {
         canvas.drawPixel(x, y_rest, COL_REST_LINE);
@@ -563,20 +523,20 @@ void gsr_audio_cardputer_draw(M5Canvas& canvas) {
             int y_lo = prev_y < y_cur ? prev_y : y_cur;
             int y_hi = prev_y > y_cur ? prev_y : y_cur;
 
-            uint16_t col  = spectrum_color565(u, rt->muted ? 0.45f : 1.0f);
-            uint16_t glow = spectrum_color565(u, rt->muted ? 0.18f : 0.38f);
+            uint16_t col  = ui_spectrum565(u, rt->muted ? 0.45f : 1.0f);
+            uint16_t glow = ui_spectrum565(u, rt->muted ? 0.18f : 0.38f);
             if(y_lo > y_top) canvas.drawPixel(x_cur, y_lo - 1, glow);
             if(y_hi < y_bot) canvas.drawPixel(x_cur, y_hi + 1, glow);
             canvas.drawFastVLine(x_cur, y_lo, y_hi - y_lo + 1, col);
             prev_y = y_cur;
         }
     }
-    canvas.drawRect(gx, gy, gw, gh, COL_FRAME);
+    canvas.drawRect(gx, gy, gw, gh, UI_COL_FRAME);
 
     if(g_voice_mode == GsrAudioBreath) {
         const int by = 104;
         const int bh = 8;
-        canvas.drawRect(gx, by, gw, bh, COL_FRAME);
+        canvas.drawRect(gx, by, gw, bh, UI_COL_FRAME);
         if(contact && !rt->muted) {
             int fill_w = (int)lroundf(snap.breath_level * (float)(gw - 2));
             if(fill_w > 1) {
@@ -586,9 +546,5 @@ void gsr_audio_cardputer_draw(M5Canvas& canvas) {
         }
     }
 
-    // Footer hints
-    canvas.fillRect(0, 117, DISP_W, 18, COL_FOOTER_BG);
-    canvas.drawFastHLine(0, 116, DISP_W, TFT_DARKGREY);
-    canvas.setTextColor(TFT_LIGHTGREY);
-    canvas.drawString("<>:Sound  ^v:Sens  -/+:Vol  Esc", 6, 118);
+    ui_draw_footer(canvas, "<>:Sound  ^v:Sens  -/+:Vol  Esc");
 }
