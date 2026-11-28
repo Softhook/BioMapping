@@ -231,6 +231,16 @@ are done; these are the optional follow-ups still worth doing.
   - No test for the reverse direction (a slow I2C read blocking RF's snapshot
     read). Writable without new hooks; I2C was never part of the reported bug
     and isn't under any RF mutex anyway, so it's a coverage gap only.
+- **Cardputer Wi-Fi Files: error line when leaving with a device still
+  connected.** Pressing Esc while a Mac is still on the hotspot sometimes
+  prints `E (…) wifi_init_default: netstack cb reg failed with 12308` just
+  before `[WiFi] off` (3 of 9 tries on 28 Nov 2026). 12308 is
+  `ESP_ERR_WIFI_STOP_STATE` ("Wi-Fi is stopping"): something seems to set up
+  the network interface again while `wifi_files_stop()` runs
+  `WiFi.softAPdisconnect(true)` then `WiFi.mode(WIFI_OFF)`. Harmless so far:
+  Wi-Fi still goes off and the free heap comes back. To check: whether
+  opening Wi-Fi Files or Live Stream straight afterwards still works, and
+  whether disconnecting the connected devices first stops the error.
 
 ### Visualiser
 
