@@ -15,6 +15,9 @@
 // Helpers
 // ==========================================================================
 
+#define GPS_HACC_DISPLAY_MAX_M 50.0f
+#define GPS_HDOP_TO_M          2.5f
+
 static const char* gps_fix_label(int fix_type) {
     if(fix_type == 3) return "3D";
     if(fix_type == 2) return "2D";
@@ -22,9 +25,11 @@ static const char* gps_fix_label(int fix_type) {
 }
 
 // Prefer u-blox's own hAcc; fall back to HDOP*2.5 (rough metres estimate)
-// when hAcc isn't available/valid, else 99.9 to mean "no usable accuracy".
+// when hAcc isn't available/valid, else GPS_UNKNOWN_DOP to mean "no usable accuracy".
 static float gps_hacc_display(const GpsStatus* g) {
-    return (g->hacc < 50.0f) ? g->hacc : ((g->hdop < 50.0f) ? g->hdop * 2.5f : 99.9f);
+    if(g->hacc < GPS_HACC_DISPLAY_MAX_M) return g->hacc;
+    if(g->hdop < GPS_HACC_DISPLAY_MAX_M) return g->hdop * GPS_HDOP_TO_M;
+    return GPS_UNKNOWN_DOP;
 }
 
 // Format + draw at (x, y) in one call, returning y + 10 for the next line.
@@ -43,7 +48,8 @@ static int draw_fmt(const ScreenDraw* d, int x, int y, const char* fmt, ...) {
 
 void screen_cache_init(ScreenCache* cache) {
     *cache = (ScreenCache){
-        .ns_label_last = -1.0f,  // forces the first frame to format it (nS ≥ 0 always)
+        .zoom_label_last = -1.0f,
+        .ns_label_last   = -1.0f,  // forces the first frame to format it (nS ≥ 0 always)
     };
 }
 
@@ -59,12 +65,6 @@ void screen_cache_init(ScreenCache* cache) {
 // y is clipped to the graph frame's inside (gy+1 .. gy+gh-2) so zoomed-out
 // values can't bleed into the top bar or over the zoom label. x is always
 // inside the frame (gx+1+i, with i bounded by gw).
-
-static inline int clamp_y(int v, int lo, int hi) {
-    if(v < lo) return lo;
-    if(v > hi) return hi;
-    return v;
-}
 
 static void draw_graph(const ScreenDraw* d, const SessionCore* s, int gx, int gy, int gw, int gh) {
     int n  = gw - 2;
@@ -96,7 +96,7 @@ static void draw_graph(const ScreenDraw* d, const SessionCore* s, int gx, int gy
     int y_prev = cy - (int)v0;
 
     // First column: the first sample, clipped to the inside.
-    d->draw_dot(d->ctx, gx + 1, clamp_y(y_prev, y0, y1));
+    d->draw_dot(d->ctx, gx + 1, clampi(y_prev, y0, y1));
 
     for(int i = 1; i < n; i++) {
         if(++idx >= GRAPH_N) idx = 0;
@@ -104,16 +104,16 @@ static void draw_graph(const ScreenDraw* d, const SessionCore* s, int gx, int gy
         float v1 = ring->buf[idx] * combined_scale;
         int y_cur = cy - (int)v1;
 
-        d->draw_dot(d->ctx, gx + 1 + i, clamp_y(y_cur, y0, y1));
+        d->draw_dot(d->ctx, gx + 1 + i, clampi(y_cur, y0, y1));
 
         // Fill the gap between this dot and the last with one vertical
         // line in this column. Only when |dy| > 1: rare for normal GSR.
         if(y_prev < y_cur - 1) {
-            d->draw_line(d->ctx, gx + 1 + i, clamp_y(y_prev + 1, y0, y1),
-                         gx + 1 + i, clamp_y(y_cur - 1, y0, y1));
+            d->draw_line(d->ctx, gx + 1 + i, clampi(y_prev + 1, y0, y1),
+                         gx + 1 + i, clampi(y_cur - 1, y0, y1));
         } else if(y_prev > y_cur + 1) {
-            d->draw_line(d->ctx, gx + 1 + i, clamp_y(y_cur + 1, y0, y1),
-                         gx + 1 + i, clamp_y(y_prev - 1, y0, y1));
+            d->draw_line(d->ctx, gx + 1 + i, clampi(y_cur + 1, y0, y1),
+                         gx + 1 + i, clampi(y_prev - 1, y0, y1));
         }
 
         y_prev = y_cur;
@@ -153,16 +153,31 @@ static void render_zoom_label(const ScreenDraw* d, const SessionCore* s, ScreenC
 // y 16..63.
 #define RF_PANEL_W        43
 
+static bool is_ascii_digit(char c) {
+    return c >= '0' && c <= '9';
+}
+
 // The recording's file name, top left in the top bar (GPS+RF mode, while
 // recording), where the GSR modes have their GPS badge or time span. The
-// full name ("biomap_2026-11-19_14-32-05.csv") is too wide, so only the
-// start time part ("14-32-05", plus any "_2" suffix) is shown: that is
-// what tells recordings from one day apart.
+// full name ("biomap_2026-11-19_14-32-05.csv") is too wide, so strip
+// "biomap_", any "NNNN_" recording number, and any "YYYY-MM-DD_" date
+// prefix to show just the start-time / "nodate" stem (plus any "_2" suffix).
 static void render_file_name(const ScreenDraw* d, const SessionCore* s,
-                             const ScreenExtras* extras) {
-    if(!s->recording.active || !extras->file_name) return;
-    const char* fn = extras->file_name;
-    const char* t = (strlen(fn) > 18) ? fn + 18 : fn;
+                             const char* file_name) {
+    if(!s->recording.active || !file_name) return;
+    const char* t = file_name;
+    if(strncmp(t, "biomap_", 7) == 0) t += 7;
+    size_t digits = 0;
+    while(digits < 8 && is_ascii_digit(t[digits])) digits++;
+    if(digits > 0 && t[digits] == '_') {
+        t += digits + 1;
+    }
+    if(is_ascii_digit(t[0]) && is_ascii_digit(t[1]) &&
+       is_ascii_digit(t[2]) && is_ascii_digit(t[3]) && t[4] == '-' &&
+       is_ascii_digit(t[5]) && is_ascii_digit(t[6]) && t[7] == '-' &&
+       is_ascii_digit(t[8]) && is_ascii_digit(t[9]) && t[10] == '_') {
+        t += 11;
+    }
     const char* ext = strstr(t, ".csv");
     int tlen = ext ? (int)(ext - t) : (int)strlen(t);
     draw_fmt(d, 1, 10, "%.*s", tlen, t);
@@ -189,7 +204,7 @@ static void render_gps_compact(const ScreenDraw* d, const SessionCore* s) {
 
         const char* fix_str = gps_fix_label(g.fix_type);
         float hacc_disp = gps_hacc_display(&g);
-        if(hacc_disp < 50.0f) {
+        if(hacc_disp < GPS_HACC_DISPLAY_MAX_M) {
             draw_fmt(d, x, y, "%.1fm  %s%s",
                      (double)hacc_disp, fix_str, g.sbas_active ? " SBAS" : "");
         } else {
@@ -287,7 +302,7 @@ static int render_gps_badge(const ScreenDraw* d, const SessionCore* s, ScreenCac
     float hacc_disp = gps_hacc_display(&g);
     if(!s->gps || !gps_status_has_fix(&g)) {
         strcpy(badge, "No fix");
-    } else if(hacc_disp < 50.0f) {
+    } else if(hacc_disp < GPS_HACC_DISPLAY_MAX_M) {
         snprintf(badge, sizeof(badge), "%.1fm", (double)hacc_disp);
     } else {
         strcpy(badge, "3D Fix");
@@ -449,10 +464,11 @@ static void render_diagnostics(const ScreenDraw* d, const SessionCore* s) {
 }
 
 // ── GPS + RF ──────────────────────────────────────────────────────────
-static void render_gps_rf(const ScreenDraw* d, const SessionCore* s, const ScreenExtras* extras) {
+static void render_gps_rf(const ScreenDraw* d, const SessionCore* s, const char* file_name,
+                          const float* rf_dbm) {
     d->draw_frame(d->ctx, RF_PANEL_W, 16, SCREEN_W - RF_PANEL_W, 48);
-    if(extras->rf_dbm) draw_rf_panel_left(d, s, extras->rf_dbm);
-    render_file_name(d, s, extras);
+    if(rf_dbm) draw_rf_panel_left(d, s, rf_dbm);
+    render_file_name(d, s, file_name);
     render_gps_compact(d, s);
 }
 
@@ -510,24 +526,19 @@ void screen_draw_session(const ScreenDraw* d, const SessionCore* s, const Screen
     d->clear(d->ctx);
     d->set_font(d->ctx, ScreenFontSecondary);
 
-    bool is_diag   = (s->mode == BioMapModeDiagnostics);
-    bool has_graph = has_gsr(s->mode) && !is_diag;
-
     // The radio reading, in the radio modes. Diagnostics runs the radio
     // (has_rf()) but its screen has no radio panel.
-    const float* rf_dbm = (has_rf(s->mode) && !is_diag) ? extras->rf_dbm : NULL;
+    const float* rf_dbm = mode_has_rf_panel(s->mode) ? extras->rf_dbm : NULL;
 
     if(s->mode == BioMapModeLiveStream) {
         render_live_stream(d, s, extras);
-    } else if(is_diag) {
+    } else if(s->mode == BioMapModeDiagnostics) {
         render_diagnostics(d, s);
-    } else if(has_graph) {
+    } else if(mode_has_graph(s->mode)) {
         bool gsr_visible = s->gsr && gsr_sensor_available(s->gsr) && gsr_sensor_is_connected(s->gsr);
         render_gsr_session(d, s, cache, gsr_visible, rf_dbm);
     } else if(s->gps) {
-        ScreenExtras x = *extras;
-        x.rf_dbm = rf_dbm;
-        render_gps_rf(d, s, &x);
+        render_gps_rf(d, s, extras->file_name, rf_dbm);
     } else {
         d->draw_str(d->ctx, 0, 20, "GPS unavailable");
     }
@@ -536,7 +547,8 @@ void screen_draw_session(const ScreenDraw* d, const SessionCore* s, const Screen
     // while an SD write failure is being ridden out (flush_fail_streak > 0)
     // so a struggling recording looks different from a healthy one.
     if(s->recording.active) {
-        bool blink_gap = s->recording.flush_fail_streak > 0 && ((s->recording.total_ticks / 5) % 2);
+        bool blink_gap = s->recording.flush_fail_streak > 0 &&
+                         ((s->recording.total_ticks / REFRESH_EVERY) % 2);
         if(!blink_gap) {
             d->draw_box(d->ctx, SCREEN_REC_MARK_X, SCREEN_REC_MARK_Y, SCREEN_REC_MARK_SIZE,
                         SCREEN_REC_MARK_SIZE);

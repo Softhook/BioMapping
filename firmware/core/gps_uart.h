@@ -5,8 +5,8 @@
 //
 // Everything that touches hardware (the serial port, collecting received
 // bytes, the clock, waits, the lock) goes through the GpsPlatform functions
-// the device hands to gps_uart_create(). The Flipper's functions, and its
-// app-lifetime port handling, are in flipper/gps_uart_flipper.c.
+// the device hands to gps_uart_create() (flipper/gps_uart_flipper.c on the
+// Flipper, cardputer/src/gps_cardputer.cpp on the Cardputer).
 //
 // Everything here runs on one thread (the device's main loop): create(),
 // destroy(), gps_uart_handle_rx(), gps_uart_send_cold_start(),
@@ -33,8 +33,10 @@
 extern "C" {
 #endif
 
-#define GPS_BAUD_RATE      9600
-#define GPS_BAUD_RATE_FAST 115200
+#define GPS_BAUD_RATE            9600
+#define GPS_BAUD_RATE_FAST       115200
+#define GPS_COLD_START_SETTLE_MS 300   // wait after UBX-CFG-RST before putting module to sleep
+#define GPS_IDLE_SETTLE_MS       1000  // ignore trailing in-flight bytes right after standby
 
 typedef struct GpsStatus {
     double latitude;            // NaN = no fix yet (double for sub-metre precision)
@@ -195,14 +197,18 @@ const char* gps_uart_get_chip_id(const GpsUart* gps);
 // Interface Description §3.15.24). Used at boot on devices without a hardware
 // RTC (Cardputer) to grab the module's battery-backed clock before putting it
 // to sleep.
+#define GPS_UTC_MIN_YEAR 2025
+#define GPS_UTC_MAX_YEAR 2099
+#define GPS_UTC_MAX_NANO 1000000000
+
 typedef struct {
-    uint16_t year;       // 2025..2099
+    uint16_t year;       // GPS_UTC_MIN_YEAR..GPS_UTC_MAX_YEAR
     uint8_t  month;      // 1..12
     uint8_t  day;        // 1..31
     uint8_t  hour;       // 0..23
     uint8_t  minute;     // 0..59
     uint8_t  second;     // 0..60
-    int32_t  nano;       // fractional second, -1e9..+1e9 ns
+    int32_t  nano;       // fractional second, -GPS_UTC_MAX_NANO..+GPS_UTC_MAX_NANO ns
     uint32_t read_at_ms; // platform now_ms() when the reply arrived
 } GpsUtcTime;
 

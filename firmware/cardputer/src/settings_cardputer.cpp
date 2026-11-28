@@ -100,13 +100,8 @@ void settings_cardputer_load(void) {
     if(read_file_exact(CAL_PATH, &cal, sizeof(cal))) {
         CalRecordStatus status = biomap_calibration_check(&cal);
         if(status == CalRecordOk) {
-            g_settings.cal_active = true;
-            g_settings.cal_gain = cal.gain;
-            g_settings.cal_zero_counts = cal.zero_counts;
-            g_settings.cal_timestamp = cal.timestamp;
-            g_settings.cal_r_squared = cal.r_squared;
-            memcpy(g_settings.cal_noise_std_dev, cal.noise_std_dev,
-                   sizeof(g_settings.cal_noise_std_dev));
+            g_settings.set_calibration(cal.gain, cal.zero_counts, cal.timestamp,
+                                       cal.r_squared, cal.noise_std_dev);
             Serial.printf("[Settings] Loaded calibration v%lu: gain=%.4f zero=%.1f r2=%.4f time=%lu\n",
                           (unsigned long)cal.version, (double)cal.gain, (double)cal.zero_counts,
                           (double)cal.r_squared, (unsigned long)cal.timestamp);
@@ -120,34 +115,20 @@ void settings_cardputer_load(void) {
 }
 
 bool settings_cardputer_save(void) {
-    BioMapSettings s = {};
-    s.magic                = BIOMAP_SETTINGS_MAGIC;
-    s.version              = BIOMAP_SETTINGS_VERSION;
-    s.zoom_enabled         = g_settings.zoom_enabled;
-    s.backlight_on         = g_settings.backlight_on;
-    s.sound_enabled        = g_settings.sound_enabled;
-    s.nav_model            = (uint32_t)g_settings.nav_model;
-    s.super_s              = g_settings.super_s;
-    s.debug_fields_enabled = g_settings.debug_fields_enabled;
-    s.checksum             = biomap_settings_checksum(&s);
+    BioMapSettings s = biomap_settings_make(
+        g_settings.zoom_enabled, g_settings.backlight_on, g_settings.sound_enabled,
+        g_settings.nav_model, g_settings.super_s, g_settings.debug_fields_enabled);
     return write_file_atomic(SETTINGS_PATH_TMP, SETTINGS_PATH, &s, sizeof(s), "Settings");
 }
 
 bool settings_cardputer_save_cal(float gain, float zero_counts, float r_squared,
                                  const float noise_std_dev[CAL_POINTS]) {
     uint32_t timestamp = clock_cardputer_epoch_now();
-
-    g_settings.cal_active = true;
-    g_settings.cal_gain = gain;
-    g_settings.cal_zero_counts = zero_counts;
-    g_settings.cal_timestamp = timestamp;
-    g_settings.cal_r_squared = r_squared;
-    memcpy(g_settings.cal_noise_std_dev, noise_std_dev, sizeof(g_settings.cal_noise_std_dev));
-
     BioMapCalibration cal =
         biomap_calibration_make(gain, zero_counts, timestamp, r_squared, noise_std_dev);
     bool ok = write_file_atomic(CAL_PATH_TMP, CAL_PATH, &cal, sizeof(cal), "Calibration");
     if(ok) {
+        g_settings.set_calibration(gain, zero_counts, timestamp, r_squared, noise_std_dev);
         Serial.printf("[Settings] Saved calibration v%d: gain=%.4f zero=%.1f r2=%.4f time=%lu\n",
                       BIOMAP_CAL_VERSION, (double)gain, (double)zero_counts,
                       (double)r_squared, (unsigned long)timestamp);
@@ -160,13 +141,6 @@ void settings_cardputer_reset_cal(void) {
         unlink(CAL_PATH);
         unlink(CAL_PATH_TMP);
     }
-    const CardputerSettings defaults;
-    g_settings.cal_active = defaults.cal_active;
-    g_settings.cal_gain = defaults.cal_gain;
-    g_settings.cal_zero_counts = defaults.cal_zero_counts;
-    g_settings.cal_timestamp = defaults.cal_timestamp;
-    g_settings.cal_r_squared = defaults.cal_r_squared;
-    memcpy(g_settings.cal_noise_std_dev, defaults.cal_noise_std_dev,
-           sizeof(g_settings.cal_noise_std_dev));
+    g_settings.clear_calibration();
     Serial.println("[Settings] Reset calibration to default");
 }

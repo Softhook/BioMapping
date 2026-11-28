@@ -19,7 +19,6 @@
 #include "cues_cardputer.h"
 #include "gps_cardputer.h"
 #include "gsr_audio_cardputer.h"
-#include "gsr_cardputer.h"
 #include "key_map.h"
 #include "keys.h"
 #include "menu_cardputer.h"
@@ -36,9 +35,6 @@ static M5Canvas canvas(&M5Cardputer.Display);
 static uint32_t key_count = 0;     // every key press, for the typing test
 static uint32_t last_log_ms = 0;
 static uint32_t last_anim_ms = 0;
-// Smooth 30 FPS screen updates while a GSR graph session is open, so the
-// spline waveform glides continuously across the screen.
-static const uint32_t GRAPH_ANIM_MS = 33;
 
 static void draw_screen(void) {
     if(g_session.open && g_session.core.running) {
@@ -54,15 +50,17 @@ static void log_second(void) {
     session_cardputer_lock();
     const SessionCore& s = g_session.core;
     bool open = g_session.open && s.running;
-    bool recording = s.recording.active;
-    float ns = s.pipeline.display.filtered_ns;
-    if(s.mode == BioMapModeLiveStream && s.gsr) {
+    bool recording = open && s.recording.active;
+    bool bt_active = open && g_session.bt_active;
+    float ns = open ? s.pipeline.display.filtered_ns : 0.0f;
+    if(open && s.mode == BioMapModeLiveStream && s.gsr) {
         ns = gsr_sensor_get_raw(s.gsr);
     }
     float hz = 0.0f, dup_pct = 0.0f, ok_pct = 0.0f;
     uint32_t i2c_peak_ms = 0;
-    const GsrSensor* active_gsr = s.gsr ? s.gsr : gsr_audio_cardputer_sensor();
-    if(!s.gsr && active_gsr) {
+    const GsrSensor* session_gsr = open ? s.gsr : nullptr;
+    const GsrSensor* active_gsr = session_gsr ? session_gsr : gsr_audio_cardputer_sensor();
+    if(!session_gsr && active_gsr) {
         ns = gsr_sensor_get_raw(active_gsr);
     }
     if(active_gsr) {
@@ -93,7 +91,7 @@ static void log_second(void) {
                       fix, st.satellites_tracked, st.hacc, st.latitude, st.longitude,
                       (unsigned long)lost, (unsigned long)full);
     }
-    if(g_session.bt_active) {
+    if(bt_active) {
         Serial.printf(" ble=%d ble_drop=%lu ble_peak=%lu",
                       (int)bt_cardputer_get_link(),
                       (unsigned long)bt_cardputer_get_drop_count(),
@@ -133,16 +131,12 @@ static bool keys_poll(void) {
 }
 
 // Keys typed into a serial monitor (key_map.h). A terminal's Enter can send
-// "\r\n" (pio device monitor does by default), "\r" or "\n": each is one OK,
-// so a "\n" straight after a "\r" is skipped.
+// "\r\n" (pio device monitor does by default), "\r" or "\n": keys_serial_read_char()
+// folds "\r\n" into one Enter across both the main loop and Wi-Fi transfers.
 static bool serial_keys_poll(void) {
-    static int prev_ch = -1;
     bool redraw = false;
-    while(Serial.available() > 0) {
-        int ch = Serial.read();
-        bool crlf_tail = (ch == '\n' && prev_ch == '\r');
-        prev_ch = ch;
-        if(crlf_tail) continue;
+    int ch = 0;
+    while(keys_serial_read_char(&ch)) {
         if(gsr_audio_cardputer_char(ch)) {  // GSR Audio's extra keys only
             redraw = true;
             continue;
@@ -223,9 +217,8 @@ void loop() {
         redraw = true;
     }
     if(g_session.open && g_session.core.running &&
-       has_gsr(g_session.core.mode) && g_session.core.mode != BioMapModeDiagnostics &&
-       millis() - last_anim_ms >= GRAPH_ANIM_MS) {
-        last_anim_ms = millis();
+       mode_has_graph(g_session.core.mode) &&
+       millis() - last_anim_ms >= UI_ANIM_MS) {
         redraw = true;
     }
     if(redraw) {

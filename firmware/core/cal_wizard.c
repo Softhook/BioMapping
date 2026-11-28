@@ -6,10 +6,19 @@
 
 #include "cal_wizard.h"
 
+#include "core_check.h"
+
 #include <math.h>
 #include <stdio.h>
 
+static float wizard_read_current(const CalWizardCore* w) {
+    return w->zero_step
+        ? (float)gsr_sensor_get_mean_count(w->gsr)
+        : gsr_sensor_get_raw(w->gsr);
+}
+
 void cal_wizard_init(CalWizardCore* w, GsrSensor* gsr) {
+    CORE_CHECK(w, "CalWizard: NULL in init()");
     *w = (CalWizardCore){
         .gsr             = gsr,
         .sensor_ok       = gsr && gsr_sensor_available(gsr),
@@ -40,6 +49,7 @@ static void cal_wizard_start_dwell(CalWizardCore* w, bool zero_step, int resisto
 }
 
 CalKeyOutcome cal_wizard_key(CalWizardCore* w, bool is_ok, BioMapCue* out_cue) {
+    CORE_CHECK(w, "CalWizard: NULL in key()");
     if(!is_ok) {
         // Back cancels from any prompt, active measurement dwell, or result screen.
         w->phase = CalDwellPhaseIdle;
@@ -84,6 +94,7 @@ CalKeyOutcome cal_wizard_key(CalWizardCore* w, bool is_ok, BioMapCue* out_cue) {
 }
 
 bool cal_wizard_check_sensor(CalWizardCore* w, BioMapCue* out_cue) {
+    CORE_CHECK(w, "CalWizard: NULL in check_sensor()");
     if(w->sensor_ok) return false;
     if(w->step == WizardStepMeasuringZero) {
         w->fail_idx = 0;
@@ -148,12 +159,11 @@ static BioMapCue cal_wizard_finish_dwell(CalWizardCore* w) {
 }
 
 bool cal_wizard_tick(CalWizardCore* w, BioMapCue* out_cue) {
+    CORE_CHECK(w, "CalWizard: NULL in tick()");
     switch(w->phase) {
     case CalDwellPhaseFlushBefore:
         gsr_sensor_tick(w->gsr);
-        w->live_reading = w->zero_step
-            ? (float)gsr_sensor_get_mean_count(w->gsr)
-            : gsr_sensor_get_raw(w->gsr);
+        w->live_reading = wizard_read_current(w);
         if(++w->phase_ticks >= w->phase_target) {
             if(w->zero_step) {
                 w->phase = CalDwellPhaseSampling;
@@ -184,6 +194,7 @@ bool cal_wizard_tick(CalWizardCore* w, BioMapCue* out_cue) {
 
     case CalDwellPhaseFlushAfterBias:
         gsr_sensor_tick(w->gsr);
+        w->live_reading = wizard_read_current(w);
         if(++w->phase_ticks >= w->phase_target) {
             w->phase = CalDwellPhaseSampling;
             w->phase_ticks = 0;
@@ -193,9 +204,7 @@ bool cal_wizard_tick(CalWizardCore* w, BioMapCue* out_cue) {
 
     case CalDwellPhaseSampling: {
         gsr_sensor_tick(w->gsr);
-        float v = w->zero_step
-            ? (float)gsr_sensor_get_mean_count(w->gsr)
-            : gsr_sensor_get_raw(w->gsr);
+        float v = wizard_read_current(w);
         w->live_reading = v;
         if(w->phase_ticks == 0) w->first_raw = v;
         float lo = w->zero_step ? -CAL_ZERO_MAX_COUNTS : biomap_cal_gates[w->resistor_idx][0];
@@ -216,11 +225,12 @@ bool cal_wizard_tick(CalWizardCore* w, BioMapCue* out_cue) {
     return false;
 }
 
-static const char* const RESISTOR_NAME[CAL_POINTS] = {"470k", "100k", "47k"};
-
 bool cal_wizard_fail_reason(const CalWizardCore* w, char* out, size_t cap) {
+    CORE_CHECK(w, "CalWizard: NULL in fail_reason()");
+    CORE_CHECK(out || cap == 0, "CalWizard: NULL out in fail_reason()");
     const CalDwell* d = &w->dwell;
-    int idx = (w->fail_idx >= 0 && w->fail_idx < CAL_POINTS) ? w->fail_idx : 0;
+    int idx = cal_wizard_fail_step_index(w);
+    const char* r_name = biomap_cal_steps[idx].resistor;
     int n;
     switch(w->step) {
     case WizardStepBiasFailed:
@@ -239,11 +249,11 @@ bool cal_wizard_fail_reason(const CalWizardCore* w, char* out, size_t cap) {
             break;
         }
         n = snprintf(out, cap, "%s failed: first=%.1f in=%d below=%d above=%d gate=[%.0f, %.0f]",
-                     RESISTOR_NAME[idx], (double)w->first_raw, d->in_gate, d->below, d->above,
+                     r_name, (double)w->first_raw, d->in_gate, d->below, d->above,
                      (double)biomap_cal_gates[idx][0], (double)biomap_cal_gates[idx][1]);
         break;
     case WizardStepNoiseFailed:
-        n = snprintf(out, cap, "%s too noisy: %.2f nS (max %.0f)", RESISTOR_NAME[idx],
+        n = snprintf(out, cap, "%s too noisy: %.2f nS (max %.0f)", r_name,
                      (double)w->noise_std_dev[idx], (double)CAL_NOISE_ACCEPTABLE_NS);
         break;
     case WizardStepFitFailed:
@@ -253,5 +263,5 @@ bool cal_wizard_fail_reason(const CalWizardCore* w, char* out, size_t cap) {
     default:
         return false;
     }
-    return n > 0;
+    return n > 0 && (size_t)n < cap;
 }

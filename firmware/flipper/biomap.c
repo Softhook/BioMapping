@@ -2,8 +2,22 @@
 // Licensed under the Bio Mapping Community Licence 1.0.
 // See LICENCE.md in the project root for terms.
 
-// Bio Mapping — app entry, GPS cold start, and timestamp formatting.
+// Bio Mapping — app entry, GPS cold start, backlight helpers, and
+// calibration/settings SD persistence.
 #include "biomap.h"
+
+static bool biomap_load_calibration(BioMapApp* app);
+static bool biomap_load_rf_calibration(BioMapApp* app);
+static bool biomap_load_settings(BioMapApp* app);
+
+static void reset_cal_state(BioMapApp* app) {
+    app->cal_active = false;
+    app->cal_gain = 1.0f;
+    app->cal_zero_counts = 0.0f;
+    app->cal_timestamp = 0;
+    app->cal_r_squared = 0.0f;
+    memset(app->cal_noise_std_dev, 0, sizeof(app->cal_noise_std_dev));
+}
 
 uint32_t biomap_rtc_now_epoch(void) {
     DateTime dt;
@@ -17,7 +31,10 @@ uint32_t biomap_rtc_now_epoch(void) {
 void run_gps_cold_start(BioMapApp* app) {
     GpsUart* g = gps_uart_alloc(app->event_queue, app->nav_model, app->super_s);
     bool ok = g && gps_uart_is_ready(g);
-    if(ok) { gps_uart_send_cold_start(g); furi_delay_ms(300); }
+    if(ok) {
+        gps_uart_send_cold_start(g);
+        furi_delay_ms(GPS_COLD_START_SETTLE_MS);
+    }
     biomap_app_cue(app, ok ? BioMapCueGpsColdStartDone : BioMapCueGpsColdStartFailed);
     if(g) gps_uart_free(g);
     if(ok) gps_uart_sleep();
@@ -53,20 +70,16 @@ int32_t biomap_app(void* p) {
         .sound_enabled = true,
         .nav_model = GpsNavModelPedestrian,
         .super_s = true,
-        .cal_active = false,
-        .cal_gain = 1.0f,
-        .cal_zero_counts = 0.0f,
-        .cal_timestamp = 0,
-        .cal_r_squared = 0.0f,
         .debug_fields_enabled = false,
     };
+    reset_cal_state(app);
 
     app->event_queue   = furi_message_queue_alloc(EVENT_QUEUE_DEPTH, sizeof(BioMapEvent));
     app->mutex         = furi_mutex_alloc(FuriMutexTypeNormal);
     app->notifications = furi_record_open(RECORD_NOTIFICATION);
     app->storage       = furi_record_open(RECORD_STORAGE);
     app->gui           = furi_record_open(RECORD_GUI);
-    storage_common_mkdir(app->storage, "/ext/biomapping");
+    storage_common_mkdir(app->storage, BIOMAP_EXT_DIR);
     biomap_load_calibration(app);
     biomap_load_rf_calibration(app);
     biomap_load_settings(app);
@@ -88,8 +101,6 @@ int32_t biomap_app(void* p) {
     // Held until exit: brings the GPS up awake at 115200 so it starts
     // acquiring satellites on the menu; non-GPS modes call gps_uart_sleep().
     gps_uart_port_open();
-
-    _Static_assert(MenuOptions == MENU_COUNT - 1, "MENU_COUNT mismatch with MenuOptions enum");
 
     bool running = true;
     while(running) {
@@ -158,7 +169,7 @@ static bool write_file_atomic(Storage* storage, const char* tmp_path, const char
     return ok;
 }
 
-bool biomap_load_calibration(BioMapApp* app) {
+static bool biomap_load_calibration(BioMapApp* app) {
     furi_check(app, "BioMapApp: NULL app pointer");
     File* file = storage_file_alloc(app->storage);
     if(!file) return false;
@@ -195,7 +206,7 @@ bool biomap_load_calibration(BioMapApp* app) {
     return success;
 }
 
-void biomap_save_calibration(BioMapApp* app, float gain, float zero_counts, float r_squared,
+bool biomap_save_calibration(BioMapApp* app, float gain, float zero_counts, float r_squared,
                              const float noise_std_dev[CAL_POINTS]) {
     furi_check(app, "BioMapApp: NULL app pointer");
 
@@ -203,30 +214,31 @@ void biomap_save_calibration(BioMapApp* app, float gain, float zero_counts, floa
     // header's RecordingStartTime uses). Recorded so show_current_
     // calibration_render() and the next load can report the calibration's age.
     uint32_t timestamp = biomap_rtc_now_epoch();
-
-    furi_mutex_acquire(app->mutex, FuriWaitForever);
-    app->cal_active = true;
-    app->cal_gain = gain;
-    app->cal_zero_counts = zero_counts;
-    app->cal_timestamp = timestamp;
-    app->cal_r_squared = r_squared;
-    memcpy(app->cal_noise_std_dev, noise_std_dev, sizeof(app->cal_noise_std_dev));
-    furi_mutex_release(app->mutex);
-
     BioMapCalibration cal =
         biomap_calibration_make(gain, zero_counts, timestamp, r_squared, noise_std_dev);
-    if(write_file_atomic(app->storage, BIOMAP_CAL_PATH_TMP, BIOMAP_CAL_PATH,
-                         &cal, sizeof(cal), "Calibration")) {
+    bool ok = write_file_atomic(app->storage, BIOMAP_CAL_PATH_TMP, BIOMAP_CAL_PATH,
+                                &cal, sizeof(cal), "Calibration");
+    if(ok) {
+        furi_mutex_acquire(app->mutex, FuriWaitForever);
+        app->cal_active = true;
+        app->cal_gain = gain;
+        app->cal_zero_counts = zero_counts;
+        app->cal_timestamp = timestamp;
+        app->cal_r_squared = r_squared;
+        memcpy(app->cal_noise_std_dev, noise_std_dev, sizeof(app->cal_noise_std_dev));
+        furi_mutex_release(app->mutex);
+
         FURI_LOG_I("BioMap",
                    "Saved calibration v%d: gain=%.4f zero=%.1f timestamp=%lu r2=%.4f",
                    BIOMAP_CAL_VERSION, (double)gain, (double)zero_counts,
                    (unsigned long)timestamp, (double)r_squared);
     }
+    return ok;
 }
 
 void biomap_reset_calibration(BioMapApp* app) {
     furi_check(app, "BioMapApp: NULL app pointer");
-    
+
     // Delete the file FIRST, then clear the in-memory state.  This order
     // is important for crash resilience: if power is lost between the
     // delete and the state update, the file is already gone and the next
@@ -238,12 +250,7 @@ void biomap_reset_calibration(BioMapApp* app) {
     storage_simply_remove(app->storage, BIOMAP_CAL_PATH_TMP);
 
     furi_mutex_acquire(app->mutex, FuriWaitForever);
-    app->cal_active = false;
-    app->cal_gain = 1.0f;
-    app->cal_zero_counts = 0.0f;
-    app->cal_timestamp = 0;
-    app->cal_r_squared = 0.0f;
-    memset(app->cal_noise_std_dev, 0, sizeof(app->cal_noise_std_dev));
+    reset_cal_state(app);
     furi_mutex_release(app->mutex);
 
     FURI_LOG_I("BioMap", "Deleted calibration file");
@@ -257,7 +264,7 @@ void biomap_reset_calibration(BioMapApp* app) {
 // — see em_scan_cal.h) internally, so there's no separate checksum helper
 // needed here.
 
-bool biomap_load_rf_calibration(BioMapApp* app) {
+static bool biomap_load_rf_calibration(BioMapApp* app) {
     furi_check(app, "BioMapApp: NULL app pointer");
     EmScanCal cal;
     bool ok = em_scan_cal_load(&cal, app->storage);
@@ -270,7 +277,7 @@ bool biomap_load_rf_calibration(BioMapApp* app) {
     return ok;
 }
 
-void biomap_save_rf_calibration(BioMapApp* app, const EmScanCal* cal) {
+bool biomap_save_rf_calibration(BioMapApp* app, const EmScanCal* cal) {
     furi_check(app, "BioMapApp: NULL app pointer");
     bool ok = em_scan_cal_save(cal, app->storage);
     if(ok) {
@@ -279,6 +286,7 @@ void biomap_save_rf_calibration(BioMapApp* app, const EmScanCal* cal) {
         app->rf_calibrated = true;
         furi_mutex_release(app->mutex);
     }
+    return ok;
 }
 
 void biomap_reset_rf_calibration(BioMapApp* app) {
@@ -295,7 +303,7 @@ void biomap_reset_rf_calibration(BioMapApp* app) {
 // as a separate file/struct since these are independent settings with their
 // own versioning needs (see BioMapSettings in biomap_format.h).
 
-bool biomap_load_settings(BioMapApp* app) {
+static bool biomap_load_settings(BioMapApp* app) {
     furi_check(app, "BioMapApp: NULL app pointer");
     File* file = storage_file_alloc(app->storage);
     if(!file) return false;
@@ -331,18 +339,10 @@ void biomap_save_settings(BioMapApp* app) {
     furi_check(app, "BioMapApp: NULL app pointer");
 
     furi_mutex_acquire(app->mutex, FuriWaitForever);
-    BioMapSettings s = {
-        .magic           = BIOMAP_SETTINGS_MAGIC,
-        .version         = BIOMAP_SETTINGS_VERSION,
-        .zoom_enabled    = app->zoom_enabled,
-        .backlight_on    = app->backlight_on,
-        .sound_enabled   = app->sound_enabled,
-        .nav_model       = (uint32_t)app->nav_model,
-        .super_s         = app->super_s,
-        .debug_fields_enabled = app->debug_fields_enabled,
-    };
+    BioMapSettings s = biomap_settings_make(
+        app->zoom_enabled, app->backlight_on, app->sound_enabled,
+        app->nav_model, app->super_s, app->debug_fields_enabled);
     furi_mutex_release(app->mutex);
-    s.checksum = biomap_settings_checksum(&s);
 
     write_file_atomic(app->storage, BIOMAP_SETTINGS_PATH_TMP, BIOMAP_SETTINGS_PATH,
                       &s, sizeof(s), "Settings");

@@ -1,13 +1,15 @@
 #include "clock_rule.h"
 
 #include "biomap_pipeline.h"
-#include "../../vendor/minmea/minmea.h"
+#include "gps_uart.h"
+#include "minmea.h"
 
 bool clock_rule_utc_ms(uint16_t year, uint8_t month, uint8_t day,
                        uint8_t hour, uint8_t minute, uint8_t second,
                        int32_t nano, int64_t* out) {
     if(!out) return false;
-    if(year < 2025 || year > 2099 || nano < -1000000000 || nano > 1000000000) {
+    if(year < GPS_UTC_MIN_YEAR || year > GPS_UTC_MAX_YEAR ||
+       nano < -GPS_UTC_MAX_NANO || nano > GPS_UTC_MAX_NANO) {
         return false;
     }
     uint32_t utc = pipeline_unix_epoch(year, month, day, hour, minute, second);
@@ -18,6 +20,7 @@ bool clock_rule_utc_ms(uint16_t year, uint8_t month, uint8_t day,
 
 bool clock_rule_gps_time_ms(const struct minmea_date* d, const struct minmea_time* t,
                             int64_t* out) {
+    if(!d || !t) return false;
     // minmea gives -1 for an empty field, so a missing date or time fails here.
     if(d->month < 1 || d->month > 12 || d->day < 1 || d->day > 31 || d->year < 0 ||
        d->year > 99 || t->hours < 0 || t->hours > 23 || t->minutes < 0 || t->minutes > 59 ||

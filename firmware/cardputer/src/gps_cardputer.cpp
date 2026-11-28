@@ -278,10 +278,8 @@ static GpsPlatform platform_for(GpsCardputer* g) {
 // Between GPS sessions, bytes from the module are counted. A sleeping
 // module sends nothing, so a count above 0 means it woke: the check on
 // real hardware that the sleep held, logged when the next session starts.
-// As on the Flipper, bytes in the first second aren't counted (a few stray
-// bytes follow the sleep command).
-static const uint32_t IDLE_SETTLE_MS = 1000;
-
+// As on the Flipper, bytes in the first GPS_IDLE_SETTLE_MS (core/gps_uart.h)
+// aren't counted (a few stray bytes follow the sleep command).
 static bool     g_idle_watching = false;
 static uint32_t g_idle_start_ms = 0;
 static uint32_t g_idle_bytes = 0;
@@ -297,7 +295,7 @@ static void idle_watch_poll(void) {
     if(!g_idle_watching) return;
     while(port.available() > 0) {
         port.read();
-        if(millis() - g_idle_start_ms >= IDLE_SETTLE_MS) g_idle_bytes++;
+        if(millis() - g_idle_start_ms >= GPS_IDLE_SETTLE_MS) g_idle_bytes++;
     }
 }
 
@@ -311,10 +309,10 @@ static void idle_watch_stop(void) {
     // sleep any report is from bytes long read and thrown away (the stray
     // bytes after the sleep command, say), and would only make the wake
     // watch ignore its first 30 ms for nothing.
-    if(watched_ms >= IDLE_SETTLE_MS && g_idle_bytes == 0) g_rx_error = false;
-    if(watched_ms < IDLE_SETTLE_MS + 1000) {
-        // At power-up the first session starts straight after the sleep
-        // command, before anything is counted: nothing to say.
+    if(watched_ms >= GPS_IDLE_SETTLE_MS && g_idle_bytes == 0) g_rx_error = false;
+    if(watched_ms < GPS_IDLE_SETTLE_MS + 1000) {
+        // Too short a sleep (e.g. entering and leaving a non-GPS mode in
+        // under 2 s) to judge whether standby held.
         Serial.printf("[GPS] Idle: not checked (asleep only %lu ms)\n", (unsigned long)watched_ms);
     } else if(g_idle_bytes == 0) {
         Serial.println("[GPS] Idle: GPS silent (stayed asleep)");
@@ -407,7 +405,7 @@ bool gps_cardputer_cold_reset(GpsNavModel nav_model, bool super_s) {
     bool ok = gps && gps_uart_is_ready(gps);
     if(ok) {
         gps_uart_send_cold_start(gps);
-        delay(300);
+        delay(GPS_COLD_START_SETTLE_MS);
     }
     if(gps) gps_cardputer_stop(gps);
     if(ok) gps_cardputer_sleep();

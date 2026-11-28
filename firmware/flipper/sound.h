@@ -12,14 +12,14 @@
 // Every call site is a discrete, user-initiated key event or state-change
 // edge (menu nav, mode select, recording start/stop, calibration steps,
 // SD/GSR alerts, ...) handled synchronously in the same thread that already
-// does other blocking calls (furi_delay_ms(300) in run_gps_cold_start(), the
-// ~2 s calibration measurement loop, mutex waits, etc.). The longest tones
-// here (success/error/warning) block for up to ~270 ms — during an active
-// recording that's 2-3 missed 100 ms timer ticks, which simply queue up
-// (EVENT_QUEUE_DEPTH=64) and get processed back-to-back the instant the
-// tone finishes. Since these are rare, discrete events (not per-tick), a
-// quarter-second catch-up burst is an acceptable trade for the tone
-// actually being audible on the Flipper's quiet piezo.
+// does other blocking calls (furi_delay_ms(GPS_COLD_START_SETTLE_MS) in
+// run_gps_cold_start(), the calibration measurement loop, mutex waits, etc.).
+// The longest tones here (success/error/warning) block for up to ~270 ms —
+// during an active recording that's 2-3 missed 100 ms timer ticks, which
+// simply queue up (EVENT_QUEUE_DEPTH=64) and get processed back-to-back the
+// instant the tone finishes. Since these are rare, discrete events (not
+// per-tick), a quarter-second catch-up burst is an acceptable trade for the
+// tone actually being audible on the Flipper's quiet piezo.
 //
 // Only flipper/biomap_cues_flipper.c calls these: the rest of the app sends
 // a cue (core/biomap_cues.h), and that file picks the tone. All functions
@@ -28,7 +28,7 @@
 
 #include <furi.h>
 #include <furi_hal_speaker.h>
-#include "../core/biomap_cues.h"
+#include "core/biomap_cues.h"
 
 // ── Volume ───────────────────────────────────────────────────────────────
 // The Flipper's piezo is quiet to begin with, and very short pulses (the

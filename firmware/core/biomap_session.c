@@ -6,12 +6,17 @@
 
 #include "biomap_session.h"
 
-#include "biomap_format.h"
 #include "core_check.h"
 
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
+
+#define GSR_RECOVERY_JUMP_NS 500.0f
+
+_Static_assert(TICK_HZ >= GPS_CSV_HZ && TICK_HZ % GPS_CSV_HZ == 0,
+               "GPS_CSV_HZ must divide TICK_HZ");
+_Static_assert(RF_BAND_COUNT == 3, "update Band Floors format for RF_BAND_COUNT");
 
 // ==========================================================================
 // Device helpers
@@ -30,7 +35,7 @@ static void session_unlock(SessionCore* s) {
 // Never called with the lock held: a log line can go out over a slow
 // serial link, and the screen waits for the lock.
 __attribute__((format(printf, 3, 4)))
-static void session_log(SessionCore* s, SessionLogLevel level, const char* fmt, ...) {
+static void session_log(const SessionCore* s, SessionLogLevel level, const char* fmt, ...) {
     CORE_CHECK(!s->locked, "session: log line with the lock held");
     if(!s->platform.log) return;
     char line[200];
@@ -41,7 +46,7 @@ static void session_log(SessionCore* s, SessionLogLevel level, const char* fmt, 
     s->platform.log(s->platform.ctx, level, line);
 }
 
-void session_core_cue(SessionCore* s, BioMapCue cue) {
+void session_core_cue(const SessionCore* s, BioMapCue cue) {
     if(biomap_cue_has_sound(cue)) {
         // Rule 2: a sound blocks, and the screen waits for this lock.
         CORE_CHECK(!s->locked, "session: cue with a sound sent with the lock held");
@@ -101,8 +106,12 @@ static inline bool is_gps_row_tick(const SessionCore* s) {
 // ── GpsStatus → GpsPosition ────────────────────────────────────────────
 static GpsPosition get_gps_position(const SessionCore* s) {
     GpsPosition pos = {0};
-    pos.hdop       = 99.9f; pos.pdop = 99.9f; pos.hacc = 99.9f; pos.fix_type = 1;
-    pos.speed_kts  = NAN;   pos.course_deg = NAN;
+    pos.hdop       = GPS_UNKNOWN_DOP;
+    pos.pdop       = GPS_UNKNOWN_DOP;
+    pos.hacc       = GPS_UNKNOWN_DOP;
+    pos.fix_type   = 1;
+    pos.speed_kts  = NAN;
+    pos.course_deg = NAN;
     if(!s->gps) return pos;
     GpsStatus gs = gps_uart_get_status(s->gps);
     pos.sats       = gs.satellites_tracked;
@@ -141,7 +150,7 @@ static RowDiag get_row_diag(const SessionCore* s) {
     return d;
 }
 
-static void log_telemetry(SessionCore* s, const RowDiag* d) {
+static void log_telemetry(const SessionCore* s, const RowDiag* d) {
     session_log(
         s, SessionLogInfo,
         "telemetry tick_dt=%u gps_drop=%u nmea_fail=%u gps_reinit=%u gsr_hz=%.1f i2c=%u rf=%u ret=%u flush_peak=%u fill=%u peak=%u over=%u flfail=%u pga=%u i2c_consec=%u",
@@ -166,7 +175,7 @@ static void log_telemetry(SessionCore* s, const RowDiag* d) {
 
 // GPS+GSR rows (live GSR reading) and GPS-only rows (raw = 0).
 // Returns true on success, false when the row didn't fit.
-static bool append_gps_csv_row(SessionCore* s, const GpsPosition* pos, double rel, float raw,
+static bool append_gps_csv_row(const SessionCore* s, const GpsPosition* pos, double rel, float raw,
                                const float* rf_rssi, const RowDiag* diag) {
     // static, not on the stack: keeps 300 bytes off the main thread's
     // stack on the tick path. Safe: only ever called from the tick, one
@@ -181,14 +190,14 @@ static bool append_gps_csv_row(SessionCore* s, const GpsPosition* pos, double re
 // The row for the GSR modes. Rows are written to the card by the flush
 // once every FLUSH_INTERVAL seconds (session_core_tick()).
 // Returns true on success, false when the row didn't fit.
-static bool batch_csv_row(SessionCore* s, float raw, const float* rf_rssi) {
+static bool batch_csv_row(const SessionCore* s, float raw, const float* rf_rssi) {
     if(!s->recording.active || !has_gsr(s->mode)) return true;
 
     double rel = pipeline_rel_seconds(s->recording.total_ticks);
     RowDiag diag = get_row_diag(s);  // zero unless debug fields are on
 
     if(s->mode == BioMapModeGsrOnly) {
-        // Two columns, or nine with debug fields: the widest debug row is
+        // Two columns, or ten with debug fields: the widest debug row is
         // about 65 bytes, so 128 is plenty and small enough for the stack.
         char row[128];
         int n = biomap_format_gsr_row(row, sizeof(row), s->settings.debug_fields_enabled,
@@ -218,6 +227,24 @@ static bool batch_csv_row(SessionCore* s, float raw, const float* rf_rssi) {
 //          first: that is card work only.
 //   STOP:  clear recording.active and close the file BEFORE the sound.
 
+static float gsr_effective_bias_v(const GsrSensor* gsr) {
+    float accepted = gsr_sensor_get_bias_volts(gsr);
+    return accepted > 0.0f ? accepted : GSR_BIAS_NOMINAL_V;
+}
+
+__attribute__((format(printf, 4, 5)))
+static void hdr_appendf(char* buf, size_t cap, int* pos, const char* fmt, ...) {
+    if(*pos < 0 || (size_t)*pos >= cap) {
+        *pos = -1;
+        return;
+    }
+    va_list args;
+    va_start(args, fmt);
+    int m = vsnprintf(buf + *pos, cap - (size_t)*pos, fmt, args);
+    va_end(args);
+    *pos = (m < 0 || (size_t)m >= cap - (size_t)*pos) ? -1 : (*pos + m);
+}
+
 // Writes the file header: the recording-start metadata lines and the
 // column names. Returns its length, or -1 if it doesn't fit.
 static int build_header(SessionCore* s, char* header, size_t cap, uint32_t epoch) {
@@ -243,49 +270,43 @@ static int build_header(SessionCore* s, char* header, size_t cap, uint32_t epoch
     if(has_gsr(s->mode) && s->gsr && gsr_sensor_available(s->gsr)) {
         bool done = gsr_sensor_run_bias_check(s->gsr, GSR_BIAS_CHECK_TIMEOUT_MS);
         if(done) bias_measured = gsr_sensor_get_bias_measured_volts(s->gsr);
-        float accepted = gsr_sensor_get_bias_volts(s->gsr);
-        if(accepted > 0.0f) bias_used = accepted;
+        bias_used = gsr_effective_bias_v(s->gsr);
         bias_line = true;
     }
 
-    int n = snprintf(header, cap, "# RecordingStartTime:%lu\n", (unsigned long)epoch);
+    int n = 0;
+    hdr_appendf(header, cap, &n, "# RecordingStartTime:%lu\n", (unsigned long)epoch);
     // DeviceName: which physical unit recorded the file.
-    if(n > 0 && (size_t)n < cap) {
-        n += snprintf(header + n, cap - (size_t)n, "# DeviceName:%s\n",
-                      cfg->device_name ? cfg->device_name : "");
-    }
+    hdr_appendf(header, cap, &n, "# DeviceName:%s\n", cfg->device_name ? cfg->device_name : "");
     // Firmware: which device type, version and build wrote the file, so a
     // bug found later can be traced to the recordings it affects.
-    if(cfg->firmware && n > 0 && (size_t)n < cap) {
-        n += snprintf(header + n, cap - (size_t)n, "# Firmware:%s\n", cfg->firmware);
+    if(cfg->firmware) {
+        hdr_appendf(header, cap, &n, "# Firmware:%s\n", cfg->firmware);
     }
     // HardwareAddress: the unit's own MAC address, on devices whose
     // DeviceName is the same on every unit (the Cardputer).
-    if(cfg->hardware_address && n > 0 && (size_t)n < cap) {
-        n += snprintf(header + n, cap - (size_t)n, "# HardwareAddress:%s\n",
-                      cfg->hardware_address);
+    if(cfg->hardware_address) {
+        hdr_appendf(header, cap, &n, "# HardwareAddress:%s\n", cfg->hardware_address);
     }
     // Mode: which sensors the file holds, as the menu names the mode. Needed
     // because GPS + RF writes 0.0 in the GSR column rather than a different
     // column list.
-    if(n > 0 && (size_t)n < cap) {
-        n += snprintf(header + n, cap - (size_t)n, "# Mode:%s\n", biomap_mode_name(s->mode));
-    }
+    hdr_appendf(header, cap, &n, "# Mode:%s\n", biomap_mode_name(s->mode));
     // Band Floors: only once the radio is on in this mode and a real
     // radio calibration exists. Bands in RF_BAND_COUNT order.
-    if(has_rf(s->mode) && cfg->rf_calibrated && n > 0 && (size_t)n < cap) {
-        n += snprintf(header + n, cap - (size_t)n,
-                      "# Band Floors (dBm): " RF_BAND_0_MHZ ":%.1f," RF_BAND_1_MHZ ":%.1f,"
-                      RF_BAND_2_MHZ ":%.1f\n",
-                      (double)cfg->rf_floors_dbm[0], (double)cfg->rf_floors_dbm[1],
-                      (double)cfg->rf_floors_dbm[2]);
+    if(has_rf(s->mode) && cfg->rf_calibrated) {
+        hdr_appendf(header, cap, &n,
+                    "# Band Floors (dBm): " RF_BAND_0_MHZ ":%.1f," RF_BAND_1_MHZ ":%.1f,"
+                    RF_BAND_2_MHZ ":%.1f\n",
+                    (double)cfg->rf_floors_dbm[0], (double)cfg->rf_floors_dbm[1],
+                    (double)cfg->rf_floors_dbm[2]);
     }
     // GPSChipID: a 5-word phrase, only once the module's ID has been read
     // (gps_uart_get_chip_id()).
-    if(has_gps(s->mode) && s->gps && n > 0 && (size_t)n < cap) {
+    if(has_gps(s->mode) && s->gps) {
         const char* chip_id = gps_uart_get_chip_id(s->gps);
         if(chip_id[0] != '\0') {
-            n += snprintf(header + n, cap - (size_t)n, "# GPSChipID:%s\n", chip_id);
+            hdr_appendf(header, cap, &n, "# GPSChipID:%s\n", chip_id);
         }
     }
     // GSR Calibration: the GSR sensor applies zero_counts and gain before
@@ -294,21 +315,18 @@ static int build_header(SessionCore* s, char* header, size_t cap, uint32_t epoch
     // per-resistor noise (470k/100k/47k, nS) as numbers, so a recording's
     // quality can be judged from the file alone. cal_time is when the
     // calibration was saved (Unix seconds; 0 if the clock was unset).
-    if(cfg->cal_active && n > 0 && (size_t)n < cap) {
-        n += snprintf(header + n, cap - (size_t)n,
-                      "# GSR Calibration: gain:%.4f,zero_counts:%.1f,r2:%.4f,noise_ns:%.2f,%.2f,%.2f,cal_time:%lu\n",
-                      (double)cfg->cal_gain, (double)cfg->cal_zero_counts, (double)cfg->cal_r_squared,
-                      (double)cfg->cal_noise_std_dev[0], (double)cfg->cal_noise_std_dev[1],
-                      (double)cfg->cal_noise_std_dev[2], (unsigned long)cfg->cal_timestamp);
+    if(cfg->cal_active) {
+        hdr_appendf(header, cap, &n,
+                    "# GSR Calibration: gain:%.4f,zero_counts:%.1f,r2:%.4f,noise_ns:%.2f,%.2f,%.2f,cal_time:%lu\n",
+                    (double)cfg->cal_gain, (double)cfg->cal_zero_counts, (double)cfg->cal_r_squared,
+                    (double)cfg->cal_noise_std_dev[0], (double)cfg->cal_noise_std_dev[1],
+                    (double)cfg->cal_noise_std_dev[2], (unsigned long)cfg->cal_timestamp);
     }
-    if(bias_line && n > 0 && (size_t)n < cap) {
+    if(bias_line && n >= 0 && (size_t)n < cap) {
         int m = biomap_format_gsr_bias_line(header + n, cap - (size_t)n, bias_measured, bias_used);
         n = (m < 0) ? -1 : n + m;
     }
-    if(n > 0 && (size_t)n < cap) {
-        n += snprintf(header + n, cap - (size_t)n, "%s", cols);
-    }
-    if(n < 0 || (size_t)n >= cap) return -1;
+    hdr_appendf(header, cap, &n, "%s", cols);
     return n;
 }
 
@@ -375,7 +393,7 @@ static void start_recording(SessionCore* s) {
 // failure. If it still fails, the file really is missing its last few
 // seconds, and the caller warns instead of playing the ordinary stop sound.
 // Returns true if nothing was lost.
-static bool flush_before_stop(SessionCore* s) {
+static bool flush_before_stop(const SessionCore* s) {
     if(s->platform.file_flush(s->platform.ctx, true) >= 0) return true;
     session_log(s, SessionLogError, "Final batch flush failed, retrying once");
     if(s->platform.file_flush(s->platform.ctx, true) >= 0) return true;
@@ -421,9 +439,9 @@ void session_core_end(SessionCore* s) {
 static void zoom_vertical(SessionCore* s, bool zoom_in) {
     session_lock(s);
     s->pipeline.zoom.manual_timeout = MANUAL_ZOOM_TIMEOUT;
-    s->pipeline.zoom.level = zoom_in
-        ? fminf(s->pipeline.zoom.level * ZOOM_FACTOR, ZOOM_MAX)
-        : fmaxf(s->pipeline.zoom.level / ZOOM_FACTOR, ZOOM_MIN);
+    float next = zoom_in ? (s->pipeline.zoom.level * ZOOM_FACTOR)
+                         : (s->pipeline.zoom.level / ZOOM_FACTOR);
+    s->pipeline.zoom.level = clampf(next, ZOOM_MIN, ZOOM_MAX);
     session_unlock(s);
 }
 
@@ -476,7 +494,7 @@ bool session_core_key(SessionCore* s, SessionKey key) {
 
     case SessionKeyUp:
     case SessionKeyDown:
-        if(!has_gsr(s->mode)) return false;
+        if(!mode_has_graph(s->mode)) return false;
         zoom_vertical(s, key == SessionKeyUp);
         // Left out during a recording (rule 3); zoom itself still works.
         session_core_cue(s, BioMapCueClick);
@@ -484,7 +502,7 @@ bool session_core_key(SessionCore* s, SessionKey key) {
 
     case SessionKeyLeft:
     case SessionKeyRight:
-        if(!has_gsr(s->mode)) return false;
+        if(!mode_has_graph(s->mode)) return false;
         zoom_horizontal(s, key == SessionKeyLeft);
         session_core_cue(s, BioMapCueClick);
         return true;
@@ -517,8 +535,7 @@ static void live_stream_bias_check_on_first_connect(SessionCore* s) {
     bool done = gsr_sensor_run_bias_check(s->gsr, GSR_BIAS_CHECK_TIMEOUT_MS);
     if(done) s->live_bias_checked = true;
     float measured = done ? gsr_sensor_get_bias_measured_volts(s->gsr) : NAN;
-    float used = gsr_sensor_get_bias_volts(s->gsr);
-    if(used <= 0.0f) used = GSR_BIAS_NOMINAL_V;
+    float used = gsr_effective_bias_v(s->gsr);
     session_log(s, SessionLogInfo, "Live Stream bias: measured %.1f mV, using %.1f mV",
                 (double)(measured * 1000.0f), (double)(used * 1000.0f));
 }
@@ -578,7 +595,7 @@ static bool recording_tick_locked(SessionCore* s, const float* rf_rssi) {
             float delta = (raw > s->pipeline.display.last_displayed)
                 ? raw - s->pipeline.display.last_displayed
                 : s->pipeline.display.last_displayed - raw;
-            bool recovering = s->pipeline.display.primed && (delta > 500.0f);
+            bool recovering = s->pipeline.display.primed && (delta > GSR_RECOVERY_JUMP_NS);
 
             pipeline_update_display(&s->pipeline, raw);
             if(recovering) pipeline_graph_restart_line(&s->pipeline);
@@ -733,5 +750,5 @@ bool session_core_tick(SessionCore* s) {
 
     // Redraw at 2 Hz (every fifth tick): more often than that has caused
     // the Flipper's screen queue to lock up during Bluetooth activity.
-    return s->recording.total_ticks % 5 == 0;
+    return s->recording.total_ticks % REFRESH_EVERY == 0;
 }

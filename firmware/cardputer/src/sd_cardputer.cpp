@@ -204,6 +204,7 @@ static SdOpenResult plat_open_new(void* ctx, const char* name) {
     // O_EXCL: the card refuses a name that already exists.
     c->fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0666);
     if(c->fd >= 0) {
+        c->direct_write_ms = 0;
         q_lock();
         g_q_fd = c->fd;
         g_write_failed = false;
@@ -341,7 +342,8 @@ void sd_cardputer_free(SdLogger* logger) {
     delete c;
     // End the task, and wait until it has.
     q_lock();
-    bool running = g_writer != nullptr;
+    bool was_running = g_writer != nullptr;
+    bool running = was_running;
     if(running) {
         g_writer_stop = true;
         xTaskNotifyGive(g_writer);
@@ -352,6 +354,9 @@ void sd_cardputer_free(SdLogger* logger) {
         q_lock();
         running = g_writer != nullptr;
         q_unlock();
+    }
+    if(was_running) {
+        delay(2);  // lets FreeRTOS IDLE0 free the self-deleted sd_write task's TCB & 4 KB stack
     }
     q_lock();
     uint8_t* buf = g_q.buf;

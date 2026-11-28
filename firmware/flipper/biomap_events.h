@@ -2,7 +2,8 @@
 
 // biomap_events.h — Shared event types for Bio Mapping
 //
-// Both biomap.c and flipper/gps_uart_flipper.c post to the same FuriMessageQueue.
+// Both biomap_gui.c (key/timer callbacks) and flipper/gps_uart_flipper.c post
+// to the same FuriMessageQueue.
 // The queue is allocated with sizeof(BioMapEvent) as the item size, so EVERY
 // caller must post an object of exactly that size.  Centralising the type here
 // guarantees they agree — no padding hacks, no undefined behaviour.

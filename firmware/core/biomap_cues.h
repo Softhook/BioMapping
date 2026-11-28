@@ -5,9 +5,8 @@
 // Shared by every device; plain C with no device code.
 //
 // Code says which cue happened; each device decides what that looks and
-// sounds like. The Flipper's LED patterns and tones are in
-// flipper/biomap_cues_flipper.c; the Cardputer will have its own (beeps,
-// no vibration motor).
+// sounds like (flipper/biomap_cues_flipper.c on the Flipper,
+// cardputer/src/cues_cardputer.cpp on the Cardputer).
 //
 // ("Cue", not "event", so they aren't confused with the main loop's key,
 // timer and serial events.)
@@ -81,23 +80,6 @@ typedef enum {
     BioMapCueCount,
 } BioMapCue;
 
-// Whether a cue makes a sound (the "(sound)" and "(light + sound)" marks
-// above), for checking rules 2 and 3. Keep in step with those marks.
-static inline bool biomap_cue_has_sound(BioMapCue cue) {
-    switch(cue) {
-    case BioMapCueHeartbeat:
-    case BioMapCueHeartbeatFingersOff:
-    case BioMapCueNoGpsFix:
-    case BioMapCueSdRetrying:
-    case BioMapCueSdWriteStopped:
-    case BioMapCueStatusLightOff:
-    case BioMapCueCount:
-        return false;
-    default:
-        return true;
-    }
-}
-
 // ── Shared tone palette ────────────────────────────────────────────────
 // Each device plays the same pitches and note durations so key feedback,
 // recording start/stop chirps, and alerts sound identical across devices.
@@ -110,9 +92,9 @@ typedef struct {
 #define BIOMAP_CUE_NOTE_GAP_MS 8
 
 // Look up the notes for `cue`. Returns the note count (0 for light-only
-// cues), sets `*out_notes` to the static note array, and sets `*out_alert`
-// (true for alerts/recording chirps, false for normal navigation clicks)
-// for devices that vary volume between the two.
+// cues). If non-NULL, sets `*out_notes` to the static note array and
+// `*out_alert` (true for alerts/recording chirps, false for normal
+// navigation clicks) for devices that vary volume between the two.
 static inline size_t biomap_cue_notes(BioMapCue cue, const BioMapCueNote** out_notes,
                                       bool* out_alert) {
     static const BioMapCueNote k_click[]     = {{1800.0f, 35}};
@@ -127,50 +109,63 @@ static inline size_t biomap_cue_notes(BioMapCue cue, const BioMapCueNote** out_n
     static const BioMapCueNote k_error[]     = {{600.0f, 90}, {450.0f, 130}};
     static const BioMapCueNote k_warning[]   = {{550.0f, 110}, {550.0f, 110}};
 
-    *out_notes = NULL;
-    if(out_alert) *out_alert = true;
+    const BioMapCueNote* notes = NULL;
+    bool alert = true;
+    size_t count = 0;
+
     switch(cue) {
     case BioMapCueClick:
-        *out_notes = k_click;
-        if(out_alert) *out_alert = false;
-        return 1;
+        notes = k_click;
+        alert = false;
+        count = 1;
+        break;
     case BioMapCueBack:
-        *out_notes = k_back;
-        if(out_alert) *out_alert = false;
-        return 1;
+        notes = k_back;
+        alert = false;
+        count = 1;
+        break;
     case BioMapCueConfirm:
-        *out_notes = k_confirm;
-        if(out_alert) *out_alert = false;
-        return 1;
+        notes = k_confirm;
+        alert = false;
+        count = 1;
+        break;
     case BioMapCueToggleOn:
-        *out_notes = k_tog_on;
-        if(out_alert) *out_alert = false;
-        return 1;
+        notes = k_tog_on;
+        alert = false;
+        count = 1;
+        break;
     case BioMapCueToggleOff:
-        *out_notes = k_tog_off;
-        if(out_alert) *out_alert = false;
-        return 1;
+        notes = k_tog_off;
+        alert = false;
+        count = 1;
+        break;
     case BioMapCueReset:
-        *out_notes = k_reset;
-        return 3;
+        notes = k_reset;
+        count = 3;
+        break;
     case BioMapCueSuccess:
     case BioMapCueGpsColdStartDone:
-        *out_notes = k_success;
-        return 3;
+        notes = k_success;
+        count = 3;
+        break;
     case BioMapCueError:
     case BioMapCueGpsColdStartFailed:
-        *out_notes = k_error;
-        return 2;
+        notes = k_error;
+        count = 2;
+        break;
     case BioMapCueRecordingStarted:
-        *out_notes = k_rec_start;
-        return 2;
+        notes = k_rec_start;
+        count = 2;
+        break;
     case BioMapCueRecordingStopped:
-        *out_notes = k_rec_stop;
-        return 2;
+        notes = k_rec_stop;
+        count = 2;
+        break;
     case BioMapCueRecordingIncomplete:
     case BioMapCueSdWriteStoppedAlarm:
-        *out_notes = k_warning;
-        return 2;
+        notes = k_warning;
+        count = 2;
+        break;
     case BioMapCueHeartbeat:
     case BioMapCueHeartbeatFingersOff:
     case BioMapCueNoGpsFix:
@@ -178,9 +173,19 @@ static inline size_t biomap_cue_notes(BioMapCue cue, const BioMapCueNote** out_n
     case BioMapCueSdWriteStopped:
     case BioMapCueStatusLightOff:
     case BioMapCueCount:
-        return 0;
+        break;
     }
-    return 0;
+
+    if(out_notes) *out_notes = notes;
+    if(out_alert) *out_alert = alert;
+    return count;
+}
+
+// Whether a cue makes a sound (the "(sound)" and "(light + sound)" marks
+// above), for checking rules 2 and 3. Derived directly from biomap_cue_notes
+// so the two cannot drift apart.
+static inline bool biomap_cue_has_sound(BioMapCue cue) {
+    return biomap_cue_notes(cue, NULL, NULL) > 0;
 }
 
 #ifdef __cplusplus

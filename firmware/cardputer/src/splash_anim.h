@@ -65,13 +65,13 @@ typedef struct {
 
     // Person's body stage (emerges directly from London, fades to 0 before title):
     float body_alpha;       // 0..1 luminous human silhouette
-    float body_scale;       // logarithmic zoom into the person (0.28 -> 5.0)
+    float body_scale;       // logarithmic zoom into the person (0.42 -> 4.2)
 
     // Bio Mapping 2 square-wave symbol (starts inside the body, grows & glides
     // into the final project logo on a completely clean dark background):
     float symbol_progress;  // 0..1 progressive trace of the exact 10x10 waveform
     float symbol_alpha;     // 0..1 symbol opacity
-    float symbol_cell;      // cell size in pixels (1.4 px in body -> 5.5 px hero logo)
+    float symbol_cell;      // cell size in pixels (1.5 px in body -> 5.5 px hero logo)
     float symbol_cy;        // vertical centre of active waveform (67.5 px -> 31 px)
     float symbol_glow;      // 0..1 soft glow that settles cleanly on the final logo
 

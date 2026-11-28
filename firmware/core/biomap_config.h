@@ -5,6 +5,9 @@
 
 #pragma once
 
+// Folder on the SD card where recordings, calibration and settings live.
+#define BIOMAP_DIR_NAME "biomapping"
+
 // Radio (EM) scan bands: 815, 868 and 915 MHz, in that order — the
 // rssi_815,rssi_868,rssi_915 CSV columns and the "# Band Floors" header
 // line. The Flipper's radio code (flipper/em_scan_rf.h, EM_SCAN_NUM_FREQS)
@@ -95,10 +98,11 @@ typedef enum {
 #define CAL_LO_GATE_47K   5000.0f
 #define CAL_HI_GATE      45000.0f
 
-// Valid-range bounds for a computed or loaded gain — a wizard fit or a
-// loaded calibration file outside them is rejected.
-#define CAL_GAIN_MIN     0.2f
-#define CAL_GAIN_MAX     5.0f
+// Valid-range bounds for a computed or loaded gain and R² linearity — a
+// wizard fit or a loaded calibration file outside them is rejected.
+#define CAL_GAIN_MIN       0.2f
+#define CAL_GAIN_MAX       5.0f
+#define CAL_MIN_R_SQUARED  0.95f
 
 // Largest zero reading (normalised counts, 7.8125 µV each, either sign) the
 // wizard's open-circuit step accepts, and a loaded file may hold. 2000
@@ -187,5 +191,3 @@ typedef enum {
     "i2c_peak_ms,rf_rssi_peak_ms,rf_retune_peak_ms,flush_peak_ms," \
     "log_fill_bytes,log_fill_peak_bytes,log_overflow_count,log_flush_fail_count," \
     "pga_change_count,i2c_consec_fail,prealloc_ms,gsr_spread_ns\n"
-
-

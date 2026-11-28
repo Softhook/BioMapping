@@ -18,7 +18,8 @@
 // This keeps one UART event from consuming an unbounded slice of the app
 // loop when backlog builds.
 #define GPS_RX_MAX_DRAIN_BYTES_PER_CALL 384
-#define GPS_RX_MAX_LINES_PER_CALL 8
+#define GPS_RX_MAX_LINES_PER_CALL       8
+#define GPS_WATCHDOG_TIMEOUT_MS         5000
 
 #define GPS_COUNT_OF(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -56,6 +57,7 @@ struct GpsUart {
 
 // One log line, if the device takes them. printf-style; lines longer than
 // the buffer are cut short.
+__attribute__((format(printf, 3, 4)))
 static void gps_log(const GpsPlatform* p, bool warning, const char* fmt, ...) {
     if(!p->log) return;
     char line[80];
@@ -118,7 +120,7 @@ static const char* nmea_field(const char* line, int n) {
 }
 
 // NMEA sentence dispatcher. Called with the lock held.
-static void gps_uart_parse_line(GpsUart* g, char* line) {
+static void gps_uart_parse_line(GpsUart* g, const char* line) {
     // $PUBX,00 (u-blox M10 SPG 5.10 Interface Description §2.8.2): field 9 is
     // hAcc in metres, field 18 numSvs, the satellites used in the navigation
     // solution. numSvs is the satellite count: GGA's is capped at 12, and
@@ -302,7 +304,7 @@ static char g_gps_chip_id[32] = {0};
 // ---------------------------------------------------------------------------
 // Helpers — send binary UBX packets over the GPS UART
 // ---------------------------------------------------------------------------
-static void ubx_tx(GpsUart* g, const uint8_t* data, size_t len) {
+static void ubx_tx(const GpsUart* g, const uint8_t* data, size_t len) {
     g->platform.tx(g->platform.ctx, data, len);
     g->platform.delay_ms(g->platform.ctx, 100);
 }
@@ -380,10 +382,8 @@ static void ubx_calc_checksum(const uint8_t* buf, size_t len, uint8_t* ck_a, uin
 // message sent to the receiver gets a binary UBX-ACK-ACK or UBX-ACK-NAK
 // reply — unconditional protocol behaviour, confirmed against the official
 // doc that there's no CFG-MSGOUT key to disable it. Reading it back,
-// rather than firing packets blind behind a fixed delay, is what actually
-// catches a rejected packet: CFG-MSG/CFG-RATE/CFG-NAV5 (used below) are
-// legacy messages absent from the SPG 5.10 message reference entirely, so
-// nothing guarantees a given firmware revision still accepts them.
+// rather than firing packets blind behind a fixed delay, catches any
+// CFG-VALSET packet rejected for an unsupported key or value.
 //
 // This reads straight from the received bytes (rx_read), ahead of
 // gps_uart_handle_rx()'s '\n'-based NMEA line splitter — required, not just
@@ -455,41 +455,53 @@ typedef enum {
     UbxAckTimeout,
 } UbxAckOutcome;
 
-// Reads exactly one UBX frame after locating sync and checks it's an
-// ACK/NAK for (want_cls, want_id) — the packet gps_uart_configure() just
-// sent. Anything else (wrong class/length, bad checksum, ACK/NAK for a
-// different message) is reported as a failure rather than scanned past:
-// per the comment above, no other binary UBX traffic legitimately
-// appears on this link, so a mismatch here is itself the problem being
-// reported, not noise to search past.
-static UbxAckOutcome ubx_wait_ack(GpsUart* g, uint8_t want_cls, uint8_t want_id) {
-    const GpsPlatform* p = &g->platform;
-    if(!ubx_find_sync(p)) return UbxAckTimeout;
+// Reads one UBX frame after locating 0xB5 0x62 sync: verifies `hdr[0] ==
+// want_cls`, checks `hdr[1] == *io_id` when `match_id` is true (otherwise
+// stores `hdr[1]` into `*io_id`), checks `len == want_len` before reading
+// payload bytes, reads `payload`, and verifies the Fletcher-8 checksum.
+static bool ubx_read_frame(const GpsPlatform* p, uint8_t want_cls, uint8_t* io_id,
+                           bool match_id, uint8_t* payload, uint16_t want_len) {
+    if(!ubx_find_sync(p)) return false;
 
     uint8_t hdr[4]; // class, id, len_lo, len_hi
-    if(!ubx_read_byte(p, &hdr[0]) || !ubx_read_byte(p, &hdr[1]) ||
-       !ubx_read_byte(p, &hdr[2]) || !ubx_read_byte(p, &hdr[3])) {
-        return UbxAckTimeout;
+    for(int i = 0; i < 4; i++) {
+        if(!ubx_read_byte(p, &hdr[i])) return false;
     }
     uint16_t len = (uint16_t)hdr[2] | ((uint16_t)hdr[3] << 8);
+    if(hdr[0] != want_cls || len != want_len) return false;
+    if(match_id && hdr[1] != *io_id) return false;
 
-    uint8_t payload[2];
-    if(!ubx_read_byte(p, &payload[0]) || !ubx_read_byte(p, &payload[1])) {
-        return UbxAckTimeout;
+    for(uint16_t i = 0; i < want_len; i++) {
+        if(!ubx_read_byte(p, &payload[i])) return false;
     }
     uint8_t ck_a, ck_b;
-    if(!ubx_read_byte(p, &ck_a) || !ubx_read_byte(p, &ck_b)) return UbxAckTimeout;
-
-    if(hdr[0] != 0x05 || len != 2) return UbxAckTimeout; // not an ACK/NAK frame
+    if(!ubx_read_byte(p, &ck_a) || !ubx_read_byte(p, &ck_b)) return false;
 
     uint8_t calc_a = 0, calc_b = 0;
     ubx_checksum_update(&calc_a, &calc_b, hdr, sizeof(hdr));
-    ubx_checksum_update(&calc_a, &calc_b, payload, sizeof(payload));
-    if(calc_a != ck_a || calc_b != ck_b) return UbxAckTimeout; // corrupted frame
+    ubx_checksum_update(&calc_a, &calc_b, payload, want_len);
+    if(calc_a != ck_a || calc_b != ck_b) return false;
 
-    if(payload[0] != want_cls || payload[1] != want_id) return UbxAckTimeout; // for a different message
+    *io_id = hdr[1];
+    return true;
+}
 
-    return (hdr[1] == 0x01) ? UbxAckAck : UbxAckNak;
+// Reads one UBX frame after locating sync and checks it's an ACK/NAK for
+// (want_cls, want_id) — the packet gps_uart_configure() just sent. Anything
+// else (wrong class/length, bad checksum, ACK/NAK for a different message)
+// is reported as a failure rather than scanned past: no other binary UBX
+// traffic legitimately appears on this link, so a mismatch here is itself
+// the problem being reported, not noise to search past.
+static UbxAckOutcome ubx_wait_ack(const GpsUart* g, uint8_t want_cls, uint8_t want_id) {
+    uint8_t frame_id = 0;
+    uint8_t payload[2];
+    if(!ubx_read_frame(&g->platform, 0x05, &frame_id, false, payload, sizeof(payload))) {
+        return UbxAckTimeout;
+    }
+    if(payload[0] != want_cls || payload[1] != want_id) return UbxAckTimeout;
+    if(frame_id == 0x01) return UbxAckAck;
+    if(frame_id == 0x00) return UbxAckNak;
+    return UbxAckTimeout;
 }
 
 // Sends a UBX packet and waits for its ACK/NAK, logging anything other
@@ -519,7 +531,7 @@ static UbxAckOutcome ubx_wait_ack(GpsUart* g, uint8_t want_cls, uint8_t want_id)
 // figure, so it isn't a "didn't wait long enough before sending" issue.
 // A resend right after the first wait naturally times out lands after
 // that same settling period has already elapsed, same as packets 2+ do.
-static void ubx_send_and_confirm(GpsUart* g, const uint8_t* data, size_t len, const char* label) {
+static void ubx_send_and_confirm(const GpsUart* g, const uint8_t* data, size_t len, const char* label) {
     for(int attempt = 0; attempt < 2; attempt++) {
         g->platform.rx_clear(g->platform.ctx);
         g->platform.tx(g->platform.ctx, data, len);
@@ -543,26 +555,8 @@ static bool ubx_poll_frame(const GpsPlatform* p, const uint8_t* poll, size_t pol
     CORE_CHECK(poll && poll_len >= 4 && (payload || want_len == 0), "GpsUart: invalid UBX poll");
     p->rx_clear(p->ctx); // drop stale bytes first — see ubx_send_and_confirm()'s doc comment
     p->tx(p->ctx, poll, poll_len);
-
-    if(!ubx_find_sync(p)) return false;
-
-    uint8_t hdr[4]; // class, id, len_lo, len_hi
-    for(int i = 0; i < 4; i++) {
-        if(!ubx_read_byte(p, &hdr[i])) return false;
-    }
-    uint16_t len = (uint16_t)hdr[2] | ((uint16_t)hdr[3] << 8);
-    if(hdr[0] != poll[2] || hdr[1] != poll[3] || len != want_len) return false;
-
-    for(uint16_t i = 0; i < want_len; i++) {
-        if(!ubx_read_byte(p, &payload[i])) return false;
-    }
-    uint8_t ck_a, ck_b;
-    if(!ubx_read_byte(p, &ck_a) || !ubx_read_byte(p, &ck_b)) return false;
-
-    uint8_t calc_a = 0, calc_b = 0;
-    ubx_checksum_update(&calc_a, &calc_b, hdr, sizeof(hdr));
-    ubx_checksum_update(&calc_a, &calc_b, payload, want_len);
-    return calc_a == ck_a && calc_b == ck_b;
+    uint8_t frame_id = poll[3];
+    return ubx_read_frame(p, poll[2], &frame_id, true, payload, want_len);
 }
 
 // ── UBX-SEC-UNIQID (class 0x27, id 0x03) — unique chip ID poll ──────────
@@ -573,7 +567,7 @@ static bool ubx_poll_frame(const GpsPlatform* p, const uint8_t* poll, size_t pol
 // with the payload populated).
 static const uint8_t ubx_poll_uniqid[] = {0xB5, 0x62, 0x27, 0x03, 0x00, 0x00, 0x2A, 0xA5};
 
-static bool ubx_poll_chip_id_once(GpsUart* g) {
+static bool ubx_poll_chip_id_once(const GpsUart* g) {
     uint8_t payload[10];
     if(!ubx_poll_frame(&g->platform, ubx_poll_uniqid, sizeof(ubx_poll_uniqid),
                        payload, sizeof(payload))) {
@@ -658,7 +652,7 @@ typedef struct {
     uint8_t value_len;
 } UbxValsetPair;
 
-static void ubx_send_valset(GpsUart* g, const UbxValsetPair* pairs, size_t count, const char* label) {
+static void ubx_send_valset(const GpsUart* g, const UbxValsetPair* pairs, size_t count, const char* label) {
     uint8_t pkt[40];
     size_t n = 0;
     pkt[n++] = 0xB5; pkt[n++] = 0x62;
@@ -690,7 +684,7 @@ static void ubx_send_valset(GpsUart* g, const UbxValsetPair* pairs, size_t count
 }
 
 // ── M10Q configuration values ───────────────────────────────────────────
-static void ubx_send_rate(GpsUart* g) {
+static void ubx_send_rate(const GpsUart* g) {
     // 100 ms measRate = 10 Hz, which is above the module's rating. With its
     // default four constellations the SAM-M10Q is rated for 5 Hz; 10 Hz
     // needs the high CPU clock, a permanent one-time (OTP) write this app
@@ -707,7 +701,7 @@ static void ubx_send_rate(GpsUart* g) {
     ubx_send_valset(g, pairs, GPS_COUNT_OF(pairs), "CFG-VALSET rate 10Hz");
 }
 
-static void ubx_send_nmea_output_rates(GpsUart* g) {
+static void ubx_send_nmea_output_rates(const GpsUart* g) {
     static const uint8_t off_val[] = {0x00};
     const UbxValsetPair pairs[] = {
         {0x209100ca, off_val, sizeof(off_val)}, // CFG-MSGOUT-NMEA_ID_GLL_UART1
@@ -717,28 +711,23 @@ static void ubx_send_nmea_output_rates(GpsUart* g) {
     ubx_send_valset(g, pairs, GPS_COUNT_OF(pairs), "CFG-VALSET NMEA output rates");
 }
 
-static void ubx_send_nav5(GpsUart* g, GpsNavModel nav_model) {
-    // CFG-NAVSPG-DYNMODEL constants (spec Table 22) are numerically
-    // identical to the legacy UBX-CFG-NAV5.dynModel byte values — same
-    // enum, same wire values, just addressed as a VALSET key now.
-    uint8_t dyn_model = 3; // Pedestrian default
-    if(nav_model == GpsNavModelWrist) {
-        dyn_model = 9; // Wrist-worn
-    } else if(nav_model == GpsNavModelVehicle) {
-        dyn_model = 4; // Vehicle / Automotive
-    } else if(nav_model == GpsNavModelStationary) {
-        dyn_model = 2; // Stationary / Seated
-    } else if(nav_model == GpsNavModelSea) {
-        dyn_model = 5; // Sea / Boating
-    } else if(nav_model == GpsNavModelBike) {
-        // No bicycle model exists: 10 (BIKE) is Motorbike, "not available
-        // in all products", and absent from the MIA-M10Q's list (integration
-        // manual Table 9). Portable is u-blox's general low-acceleration model.
-        dyn_model = 0; // Portable
-    } else if(nav_model == GpsNavModelFlight) {
-        dyn_model = 7; // Airborne <2g / Commercial Flight
-    }
-
+static void ubx_send_dyn_model(const GpsUart* g, GpsNavModel nav_model) {
+    // CFG-NAVSPG-DYNMODEL constants (spec Table 22). No bicycle model exists:
+    // 10 (BIKE) is Motorbike ("not available in all products", absent from
+    // MIA-M10Q Table 9), so Bike maps to 0 (Portable, u-blox's general
+    // low-acceleration model).
+    static const uint8_t DYN_MODEL[] = {
+        3, // GpsNavModelPedestrian
+        9, // GpsNavModelWrist
+        4, // GpsNavModelVehicle
+        2, // GpsNavModelStationary
+        5, // GpsNavModelSea
+        0, // GpsNavModelBike (Portable)
+        7, // GpsNavModelFlight (Airborne <2g)
+    };
+    _Static_assert(GPS_COUNT_OF(DYN_MODEL) == GpsNavModelCount,
+                   "one dynModel per GpsNavModel");
+    uint8_t dyn_model = ((unsigned)nav_model < GpsNavModelCount) ? DYN_MODEL[nav_model] : 3;
     const UbxValsetPair pair = {0x20110021, &dyn_model, 1}; // CFG-NAVSPG-DYNMODEL
     ubx_send_valset(g, &pair, 1, "CFG-VALSET dynamic model");
 }
@@ -751,16 +740,17 @@ static void ubx_send_nav5(GpsUart* g, GpsNavModel nav_model) {
 // description Table 24): 0 = disabled, 255 = automatic (the default).
 // Sent in both states, so switching back to automatic doesn't need a
 // power cycle.
-static void ubx_send_super_s(GpsUart* g, bool enabled) {
+static void ubx_send_super_s(const GpsUart* g, bool enabled) {
     const uint8_t mode = enabled ? 255 : 0;
     const UbxValsetPair pair = {0x201100d6, &mode, 1}; // CFG-NAVSPG-SIGATTCOMP
     ubx_send_valset(g, &pair, 1, enabled ? "CFG-VALSET Super-S auto" : "CFG-VALSET Super-S off");
 }
 
-static const uint8_t ubx_cfg_assistnow_autonomous[] = {
-    // VALSET packet enabling CFG-ANA-USE_ANA = 1 (true) for offline orbit predictions
-    0xB5, 0x62, 0x06, 0x8A, 0x09, 0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x23, 0x10, 0x01, 0xCF, 0xC0
-};
+static void ubx_send_assistnow(const GpsUart* g) {
+    const uint8_t enabled = 1;
+    const UbxValsetPair pair = {0x10230001, &enabled, 1}; // CFG-ANA-USE_ANA (offline orbit predictions)
+    ubx_send_valset(g, &pair, 1, "CFG-VALSET AssistNow");
+}
 static const uint8_t ubx_rxm_pmreq_standby[] = {
     // UBX-RXM-PMREQ software standby (Interface Description §3.16.6):
     // duration=0 (until woken), flags=0x06 (backup + force — force is
@@ -836,7 +826,7 @@ static UbxTimeOutcome ubx_poll_timeutc_once(const GpsPlatform* p, GpsUtcTime* ou
     // Require validTOW (0x01) + validWKN (0x02) + validUTC (0x04), a
     // plausible modern year (rejects ROM defaults if BT1 went flat), and a
     // valid calendar date/time.
-    if((valid & 0x07) != 0x07 || year < 2025 || year > 2099 ||
+    if((valid & 0x07) != 0x07 || year < GPS_UTC_MIN_YEAR || year > GPS_UTC_MAX_YEAR ||
        !utc_datetime_valid(year, month, day, hour, minute, second)) {
         return UbxTimeNotValid;
     }
@@ -845,7 +835,7 @@ static UbxTimeOutcome ubx_poll_timeutc_once(const GpsPlatform* p, GpsUtcTime* ou
                         ((uint32_t)payload[6] << 16) | ((uint32_t)payload[7] << 24);
     int32_t nano = (int32_t)((uint32_t)payload[8] | ((uint32_t)payload[9] << 8) |
                              ((uint32_t)payload[10] << 16) | ((uint32_t)payload[11] << 24));
-    if(nano < -1000000000 || nano > 1000000000) nano = 0;
+    if(nano < -GPS_UTC_MAX_NANO || nano > GPS_UTC_MAX_NANO) nano = 0;
 
     out->year = year;
     out->month = month;
@@ -878,7 +868,7 @@ static bool ubx_poll_boot_time(const GpsPlatform* p, GpsUtcTime* out) {
         *out = utc;
         return true;
     }
-    gps_log(p, false,
+    gps_log(p, false, "%s",
             outcome == UbxTimeNotValid ? "Boot UTC: backup clock not set" : "Boot UTC: no reply");
     return false;
 }
@@ -961,10 +951,10 @@ GpsUart* gps_uart_create(const GpsPlatform* platform, bool have_port, bool alrea
         .longitude = NAN,
         .speed     = NAN,
         .course    = NAN,
-        .hdop      = 99.9f,
-        .hacc      = 99.9f,
+        .hdop      = GPS_UNKNOWN_DOP,
+        .hacc      = GPS_UNKNOWN_DOP,
         .fix_type  = 1,
-        .pdop      = 99.9f,
+        .pdop      = GPS_UNKNOWN_DOP,
     };
     // Arm watchdog at create so a botched initial baud-rate switch
     // triggers a one-shot recovery after 5 s instead of silently
@@ -1150,7 +1140,7 @@ void gps_uart_handle_rx(GpsUart* g) {
     // the main thread for seconds waiting on ACKs that never come.
     if(g->last_valid_nmea_ms > 0) {
         uint32_t elapsed = p->now_ms(p->ctx) - g->last_valid_nmea_ms;
-        if(elapsed > 5000) {
+        if(elapsed > GPS_WATCHDOG_TIMEOUT_MS) {
             gps_log(p, true, "NMEA watchdog: no valid sentence in 5 s — reconfiguring");
             gps_uart_reinit(g, GPS_BAUD_RATE);
         }
@@ -1185,9 +1175,9 @@ static void gps_uart_configure(GpsUart* g, bool switch_baud) {
     // Send configuration via CFG-VALSET, confirming each packet's ACK/NAK.
     ubx_send_rate(g);
     ubx_send_nmea_output_rates(g);
-    ubx_send_nav5(g, g->nav_model);
+    ubx_send_dyn_model(g, g->nav_model);
     ubx_send_super_s(g, g->super_s);
-    ubx_send_and_confirm(g, ubx_cfg_assistnow_autonomous, sizeof(ubx_cfg_assistnow_autonomous), "CFG-VALSET AssistNow");
+    ubx_send_assistnow(g);
     // Enable $PUBX,00 for live hAcc in metres, on UART1 once per navigation
     // solution (the rate field counts solutions, not seconds) — so 10 Hz,
     // with every fix: the logs show hAcc changing within 0.1–0.9 s. Proprietary

@@ -7,8 +7,13 @@
 //
 // Everything here runs on the main loop.
 
+#include <string.h>
+
 #include "biomap_config.h"
 #include "biomap_format.h"
+
+// Shared device name for the "# DeviceName:" CSV header and BLE advertising.
+#define CARDPUTER_DEVICE_NAME "Cardputer"
 
 struct CardputerSettings {
     bool        zoom_enabled = true;
@@ -24,6 +29,25 @@ struct CardputerSettings {
     uint32_t cal_timestamp = 0;
     float    cal_r_squared = 0.0f;
     float    cal_noise_std_dev[CAL_POINTS] = {0.0f, 0.0f, 0.0f};
+
+    void set_calibration(float gain, float zero_counts, uint32_t timestamp,
+                         float r_squared, const float noise_std_dev[CAL_POINTS]) {
+        cal_active = true;
+        cal_gain = gain;
+        cal_zero_counts = zero_counts;
+        cal_timestamp = timestamp;
+        cal_r_squared = r_squared;
+        memcpy(cal_noise_std_dev, noise_std_dev, sizeof(cal_noise_std_dev));
+    }
+
+    void clear_calibration(void) {
+        cal_active = false;
+        cal_gain = 1.0f;
+        cal_zero_counts = 0.0f;
+        cal_timestamp = 0;
+        cal_r_squared = 0.0f;
+        memset(cal_noise_std_dev, 0, sizeof(cal_noise_std_dev));
+    }
 };
 
 extern CardputerSettings g_settings;

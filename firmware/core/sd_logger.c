@@ -40,6 +40,7 @@
 // This is corruption detection, not tamper protection — a plain CRC can
 // always be recomputed by whoever edited the file.
 #define SD_LOGGER_INTEGRITY_LINE "# Integrity: crc32 v1\n"
+#define SD_LOGGER_BATCH_BYTES    24576
 
 struct SdLogger {
     SdPlatform platform;
@@ -60,8 +61,8 @@ struct SdLogger {
     // tight typical-case estimate and start dropping one row per flush.
     // ~169 bytes/row worst case (generous per-field digit bounds) × 100 rows
     // ≈ 16900 bytes; 24576 clears that with margin for future columns.
-    char gsr_batch[24576];
-    int  gsr_batch_len;
+    char   gsr_batch[SD_LOGGER_BATCH_BYTES];
+    size_t gsr_batch_len;
 
     // The last flush failed. The next one then writes the whole buffer,
     // whole blocks or not, so a success really means the card is back.
@@ -244,6 +245,7 @@ static bool open_log_file(SdLogger* l, const char* header, const char* stamp) {
 
 bool sd_logger_start(SdLogger* l, const char* header, const char* stamp) {
     CORE_CHECK(l, "SdLogger: NULL in start()");
+    CORE_CHECK(header, "SdLogger: NULL header in start()");
     CORE_CHECK(stamp, "SdLogger: NULL stamp in start()");
     CORE_CHECK(!l->active, "SdLogger: already active in start()");
     bool ok = open_log_file(l, header, stamp);
@@ -275,8 +277,8 @@ static void fold_committed(SdLogger* l, const char* data, size_t n) {
 
 // Drop the first `n` bytes of the batch buffer (they are on the card now).
 static void drop_front(SdLogger* l, size_t n) {
-    memmove(l->gsr_batch, l->gsr_batch + n, (size_t)l->gsr_batch_len - n);
-    l->gsr_batch_len -= (int)n;
+    memmove(l->gsr_batch, l->gsr_batch + n, l->gsr_batch_len - n);
+    l->gsr_batch_len -= n;
 }
 
 // Raise the lifetime high-water mark after the batch buffer has grown.
@@ -377,7 +379,7 @@ void sd_logger_stop(SdLogger* l, uint32_t end_epoch) {
 // How many bytes from the front of the buffer this flush writes: all of
 // them, or with block_bytes set, up to the last whole block of the file.
 static size_t flush_length(const SdLogger* l, bool whole_blocks_only) {
-    size_t len = (size_t)l->gsr_batch_len;
+    size_t len = l->gsr_batch_len;
     if(!whole_blocks_only || l->block_bytes == 0 || l->last_flush_failed) return len;
     uint32_t end = ((l->crc_bytes + (uint32_t)len) / l->block_bytes) * l->block_bytes;
     return end > l->crc_bytes ? (size_t)(end - l->crc_bytes) : 0;
@@ -465,24 +467,62 @@ int sd_logger_batch_flush_all(SdLogger* l) {
 // Returns false on overflow (data not appended, caller should log/drop).
 bool sd_logger_batch_append(SdLogger* l, const char* data, size_t len) {
     CORE_CHECK(l, "SdLogger: NULL in batch_append()");
+    CORE_CHECK(data || len == 0, "SdLogger: NULL data in batch_append()");
     if(len == 0) return true;
-    if(l->gsr_batch_len + (int)len > (int)sizeof(l->gsr_batch)) {
-        sd_log(l, SdLogWarning, "Batch overflow (%d + %d > %d)",
-               l->gsr_batch_len, (int)len, (int)sizeof(l->gsr_batch));
+    if(len > sizeof(l->gsr_batch) - l->gsr_batch_len) {
+        sd_log(l, SdLogWarning, "Batch overflow (%u + %u > %u)",
+               (unsigned)l->gsr_batch_len, (unsigned)len, (unsigned)sizeof(l->gsr_batch));
         l->overflow_count++;
         return false;
     }
     memcpy(l->gsr_batch + l->gsr_batch_len, data, len);
-    l->gsr_batch_len += (int)len;
+    l->gsr_batch_len += len;
     note_batch_fill(l);
     return true;
 }
 
-const char* sd_logger_get_filename(const SdLogger* l) { return l->filename; }
+const char* sd_logger_get_filename(const SdLogger* l) {
+    CORE_CHECK(l, "SdLogger: NULL in get_filename()");
+    return l->filename;
+}
 
-uint32_t sd_logger_get_flush_peak_ms(const SdLogger* l) { return l->flush_peak_ms; }
-uint32_t sd_logger_get_prealloc_ms(const SdLogger* l) { return l->prealloc_ms; }
-uint32_t sd_logger_get_batch_fill_bytes(const SdLogger* l) { return (uint32_t)l->gsr_batch_len; }
-uint32_t sd_logger_get_batch_fill_peak_bytes(const SdLogger* l) { return l->batch_fill_peak_bytes; }
-uint32_t sd_logger_get_overflow_count(const SdLogger* l) { return l->overflow_count; }
-uint32_t sd_logger_get_flush_fail_count(const SdLogger* l) { return l->flush_fail_count; }
+uint32_t sd_logger_get_flush_peak_ms(const SdLogger* l) {
+    CORE_CHECK(l, "SdLogger: NULL in get_flush_peak_ms()");
+    return l->flush_peak_ms;
+}
+
+uint32_t sd_logger_get_prealloc_ms(const SdLogger* l) {
+    CORE_CHECK(l, "SdLogger: NULL in get_prealloc_ms()");
+    return l->prealloc_ms;
+}
+
+uint32_t sd_logger_get_batch_fill_bytes(const SdLogger* l) {
+    CORE_CHECK(l, "SdLogger: NULL in get_batch_fill_bytes()");
+    return (uint32_t)l->gsr_batch_len;
+}
+
+uint32_t sd_logger_get_batch_fill_peak_bytes(const SdLogger* l) {
+    CORE_CHECK(l, "SdLogger: NULL in get_batch_fill_peak_bytes()");
+    return l->batch_fill_peak_bytes;
+}
+
+uint32_t sd_logger_get_overflow_count(const SdLogger* l) {
+    CORE_CHECK(l, "SdLogger: NULL in get_overflow_count()");
+    return l->overflow_count;
+}
+
+uint32_t sd_logger_get_flush_fail_count(const SdLogger* l) {
+    CORE_CHECK(l, "SdLogger: NULL in get_flush_fail_count()");
+    return l->flush_fail_count;
+}
+
+void sd_logger_fill_diag(const SdLogger* l, RowDiag* d) {
+    CORE_CHECK(d, "SdLogger: NULL diag in fill_diag()");
+    if(!l) return;
+    d->flush_peak_ms        = l->flush_peak_ms;
+    d->log_fill_bytes       = (uint32_t)l->gsr_batch_len;
+    d->log_fill_peak_bytes  = l->batch_fill_peak_bytes;
+    d->log_overflow_count   = l->overflow_count;
+    d->log_flush_fail_count = l->flush_fail_count;
+    d->prealloc_ms          = l->prealloc_ms;
+}

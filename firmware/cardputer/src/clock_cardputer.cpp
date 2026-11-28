@@ -76,16 +76,20 @@ bool clock_cardputer_is_set(void) {
 }
 
 void clock_cardputer_now(SessionDateTime* out, int32_t* utc_offset_s) {
-    clock_local_from_utc((int64_t)time(nullptr), out, utc_offset_s);
+    int64_t utc = g_rule.clock_set ? (int64_t)time(nullptr) : 0;
+    clock_local_from_utc(utc, out, utc_offset_s);
 }
 
 uint32_t clock_cardputer_epoch(int32_t utc_offset_s) {
+    if(!g_rule.clock_set) return 0;
     return clock_local_epoch((int64_t)time(nullptr), utc_offset_s);
 }
 
 uint32_t clock_cardputer_epoch_now(void) {
+    if(!g_rule.clock_set) return 0;
+    int64_t utc = (int64_t)time(nullptr);
     SessionDateTime dt;
     int32_t off = 0;
-    clock_cardputer_now(&dt, &off);
-    return clock_cardputer_epoch(off);
+    clock_local_from_utc(utc, &dt, &off);
+    return clock_local_epoch(utc, off);
 }

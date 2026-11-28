@@ -5,7 +5,6 @@
 
 #include "biomap_screen.h"
 #include "bt_cardputer.h"
-#include "sd_cardputer.h"
 #include "session_cardputer.h"
 #include "ui_theme.h"
 
@@ -38,11 +37,9 @@ static uint16_t fg_color(const DrawCtx* c) {
 
 static void cp_clear(void* ctx) {
     auto* c = static_cast<DrawCtx*>(ctx);
-    c->canvas->fillSprite(TFT_BLACK);
+    ui_reset_canvas(*c->canvas);
     c->inverted = false;
     c->font = ScreenFontSecondary;
-    c->canvas->setFont(&fonts::Font2);
-    c->canvas->setTextDatum(textdatum_t::top_left);
 }
 
 static void cp_set_font(void* ctx, ScreenFont font) {
@@ -55,9 +52,7 @@ static void cp_draw_str(void* ctx, int x, int y, const char* text) {
     auto* c = static_cast<DrawCtx*>(ctx);
     // In layout units, `y` is the text baseline (about 8 units below the
     // top of the glyph). Font2 is 16 px tall; sy(y) - 14 aligns the baseline.
-    int py = sy(y) - 14;
-    if(py < 0) py = 0;
-    if(py > UI_SCREEN_H - 16) py = UI_SCREEN_H - 16;
+    int py = clampi(sy(y) - 14, 0, UI_SCREEN_H - 16);
     int px = sx(x);
     uint16_t col = (c->inverted && c->write_stopped) ? TFT_WHITE : fg_color(c);
     c->canvas->setTextColor(col);
@@ -136,10 +131,6 @@ static float catmull_rom(float p0, float p1, float p2, float p3, float t) {
                    (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * t3);
 }
 
-static inline int clamp_int(int v, int lo, int hi) {
-    return v < lo ? lo : (v > hi ? hi : v);
-}
-
 static void cp_draw_graph(void* ctx, const SessionCore* s, int layout_gx, int layout_gy,
                           int layout_gw, int layout_gh, bool visible) {
     auto* c = static_cast<DrawCtx*>(ctx);
@@ -160,10 +151,7 @@ static void cp_draw_graph(void* ctx, const SessionCore* s, int layout_gx, int la
     int qh = (y1 - y0) / 4;
     canvas.drawFastHLine(gx + 1, cy - qh, gw - 2, UI_COL_GRID);
     canvas.drawFastHLine(gx + 1, cy + qh, gw - 2, UI_COL_GRID);
-    for(int x = gx + 4; x < gx + gw - 2; x += 4) {
-        canvas.drawPixel(x, cy, COL_ZERO_LINE);
-        canvas.drawPixel(x + 1, cy, COL_ZERO_LINE);
-    }
+    ui_draw_dashed_hline(canvas, gx + 4, gx + gw - 2, cy, COL_ZERO_LINE);
 
     // 10-second time marks along the top of the graph frame. Each mark is
     // tied to a sample, so it scrolls left with the curve (including the
@@ -237,22 +225,11 @@ static void cp_draw_graph(void* ctx, const SessionCore* s, int layout_gx, int la
             float p3 = filt[idx + 2 < n ? idx + 2 : n - 1];
 
             float val = catmull_rom(p0, p1, p2, p3, t) * scale;
-            int y_cur = clamp_int((int)lroundf((float)cy - val), y0, y1);
+            int y_cur = clampi((int)lroundf((float)cy - val), y0, y1);
             int x_cur = gx + 1 + px;
 
-            // Connect from the previous column with a 2 px thick anti-aliased
-            // cyan ribbon so steep slopes are solid and smooth.
             if(px == 0) prev_y = y_cur;
-            int y_lo = prev_y < y_cur ? prev_y : y_cur;
-            int y_hi = prev_y > y_cur ? prev_y : y_cur;
-
-            // Outer glow pixels 1 px above and below the stroke.
-            if(y_lo > y0) canvas.drawPixel(x_cur, y_lo - 1, COL_GLOW);
-            if(y_hi < y1) canvas.drawPixel(x_cur, y_hi + 1, COL_GLOW);
-
-            // Solid core stroke across [y_lo .. y_hi].
-            canvas.drawFastVLine(x_cur, y_lo, y_hi - y_lo + 1, COL_CURVE);
-
+            ui_draw_glow_span(canvas, x_cur, prev_y, y_cur, y0, y1, COL_CURVE, COL_GLOW);
             prev_y = y_cur;
         }
     }

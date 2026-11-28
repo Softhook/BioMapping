@@ -28,6 +28,5 @@ GsrSensor* gsr_sensor_alloc(GsrWorkerHook hook, void* hook_ctx);
 void       gsr_sensor_free(GsrSensor* gsr);
 
 // Remaining free stack space (bytes) on the worker's own thread, via
-// furi_thread_get_stack_space(). Returns 0 when the sensor is unavailable
-// (no thread was ever started).
+// furi_thread_get_stack_space(). Returns 0 if gsr is NULL.
 uint32_t gsr_sensor_get_stack_space(const GsrSensor* gsr);

@@ -74,7 +74,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     // held only for a 3-float copy (em_scan_sampler.h), so it is quick
     // enough here.
     float rf_dbm[RF_BAND_COUNT];
-    bool rf = has_rf(s->core.mode) && s->core.mode != BioMapModeDiagnostics && s->em;
+    bool rf = mode_has_rf_panel(s->core.mode) && s->em;
     if(rf) em_scan_sampler_get_snapshot(s->em, rf_dbm);
 
     ScreenExtras extras = {

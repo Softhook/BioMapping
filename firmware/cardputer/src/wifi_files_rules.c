@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "biomap_types.h"
+
 static char ascii_lower(char c) {
     return (c >= 'A' && c <= 'Z') ? (char)(c + ('a' - 'A')) : c;
 }
@@ -176,12 +178,6 @@ static bool parse_digits(const char* s, size_t count, uint32_t* out) {
     return true;
 }
 
-static uint32_t days_in_month(uint32_t yr, uint32_t mo) {
-    static const uint8_t DAYS[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    if(mo == 2 && ((yr % 4u == 0 && yr % 100u != 0) || (yr % 400u == 0))) return 29;
-    return DAYS[mo - 1];
-}
-
 void wifi_files_dos_datetime_from_name(const char* name,
                                        uint16_t* dos_date,
                                        uint16_t* dos_time) {
@@ -206,8 +202,9 @@ void wifi_files_dos_datetime_from_name(const char* name,
            !parse_digits(p + 14, 2, &mi) || !parse_digits(p + 17, 2, &sc)) {
             continue;
         }
-        if(yr < 1980 || yr > 2107 || mo < 1 || mo > 12 || dy < 1 || dy > days_in_month(yr, mo) ||
-           hr > 23 || mi > 59 || sc > 59) {
+        if(yr < 1980 || yr > 2107 || sc > 59 ||
+           !utc_datetime_valid((uint16_t)yr, (uint8_t)mo, (uint8_t)dy,
+                               (uint8_t)hr, (uint8_t)mi, (uint8_t)sc)) {
             return;
         }
         if(dos_date) {

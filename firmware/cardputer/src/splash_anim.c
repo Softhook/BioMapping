@@ -1,7 +1,8 @@
 #include "splash_anim.h"
 
 #include <math.h>
-#include <string.h>
+
+#include "biomap_types.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -10,10 +11,8 @@
 static const float DEG_TO_RAD = (float)(M_PI / 180.0);
 static const float TWO_PI = (float)(2.0 * M_PI);
 
-static float clamp01(float x) {
-    if(x < 0.0f) return 0.0f;
-    if(x > 1.0f) return 1.0f;
-    return x;
+static inline float clamp01(float x) {
+    return clampf(x, 0.0f, 1.0f);
 }
 
 float splash_ease(SplashEase ease, float t) {
@@ -388,10 +387,7 @@ void splash_audio_make_bell(int16_t* out, size_t count) {
         float w = TWO_PI * SPLASH_BELL_BASE_HZ * t;
         float s = sinf(w) + 0.07f * sinf(2.0f * w) * dec;
         // Linear headroom (peak ~7,800) so all 4 chord notes mix cleanly with zero clipping.
-        int32_t pcm = (int32_t)(s * env * 7800.0f);
-        if(pcm > 14000) pcm = 14000;
-        if(pcm < -14000) pcm = -14000;
-        out[i] = (int16_t)pcm;
+        out[i] = (int16_t)clampi((int32_t)(s * env * 7800.0f), -14000, 14000);
     }
     out[0] = 0;
     out[count - 1] = 0;

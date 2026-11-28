@@ -7,8 +7,8 @@
 //
 // Two live entry points: em_scan_rf_dwell_band() (RF calibration wizard,
 // biomap_rf_cal.c — one band, peak-hold over a short dwell) and
-// em_scan_rf_fast_sweep_snapshot() (GSR worker's RF path, gsr_sensor.c —
-// all bands, one RSSI read each).
+// em_scan_rf_fast_sweep_snapshot() (em_scan_sampler.c — all bands, one RSSI
+// read each).
 
 #include <stdint.h>
 
@@ -30,10 +30,11 @@
 extern const uint32_t em_scan_freq_hz[EM_SCAN_NUM_FREQS];
 extern const char* const em_scan_freq_label[EM_SCAN_NUM_FREQS];
 
-// Powers up the CC1101 and loads an RX preset. Call once at app start.
+// Powers up the CC1101 and loads an RX preset. Call when starting an RF
+// session or RF calibration run.
 void em_scan_rf_init(void);
 
-// Powers down the CC1101. Call once at app exit.
+// Powers down the CC1101. Call when leaving an RF session or calibration run.
 void em_scan_rf_deinit(void);
 
 // Tunes to ONE band (band_index into em_scan_freq_hz/em_scan_freq_label),
@@ -62,7 +63,7 @@ void em_scan_rf_dwell_band(int band_index, float* out_peak_dbm);
 // out_retune_peak_ms (may be NULL): set to the worst single per-band
 // em_scan_rf_tune_and_warmup() duration (retune + settle delay, NOT
 // including the RSSI read) observed during this call, in ms. Callers that
-// separately time the whole call (as gsr_sensor.c's worker does, for
+// separately time the whole call (as em_scan_sampler_poll() does, for
 // rf_rssi_peak_ms) will find that outer duration is always >= this value.
 void em_scan_rf_fast_sweep_snapshot(
     float     out_rssi_dbm[EM_SCAN_NUM_FREQS],

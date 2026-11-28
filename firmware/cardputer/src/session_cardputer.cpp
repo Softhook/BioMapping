@@ -16,14 +16,16 @@
 
 CardputerSession g_session;
 
+static StaticSemaphore_t g_mutex_mem;
 static SemaphoreHandle_t g_mutex = nullptr;
 static TickSchedule      g_ticks = {};
 
-static const char* const DEVICE_NAME = "Cardputer";
+static const char* const DEVICE_NAME = CARDPUTER_DEVICE_NAME;
 
 // CARDPUTER_FIRMWARE_VERSION is custom_firmware_version in platformio.ini,
 // passed in by build_info.py.
-static const char* const FIRMWARE = BIOMAP_FIRMWARE_TEXT("Cardputer", CARDPUTER_FIRMWARE_VERSION);
+static const char* const FIRMWARE =
+    BIOMAP_FIRMWARE_TEXT(CARDPUTER_DEVICE_NAME, CARDPUTER_FIRMWARE_VERSION);
 
 // DeviceName is the same on every Cardputer, so the header also carries the
 // chip's own MAC address, burned in at the factory (the one the flashing
@@ -57,7 +59,7 @@ static bool     g_no_time_notice = false;
 
 static void plat_lock(void* ctx) {
     (void)ctx;
-    if(!g_mutex) g_mutex = xSemaphoreCreateMutex();
+    if(!g_mutex) g_mutex = xSemaphoreCreateMutexStatic(&g_mutex_mem);
     xSemaphoreTake(g_mutex, portMAX_DELAY);
 }
 
@@ -135,15 +137,10 @@ static int plat_file_flush(void* ctx, bool all) {
 // Lock held: only reads the logger's counters.
 static void plat_fill_diag(void* ctx, RowDiag* d) {
     (void)ctx;
-    const SdLogger* l = g_session.logger;
+    sd_logger_fill_diag(g_session.logger, d);
     // The card time, from the background writer: the logger's own timer
     // only sees the copy into the queue (sd_cardputer.cpp).
-    d->flush_peak_ms        = sd_cardputer_write_peak_ms();
-    d->log_fill_bytes       = sd_logger_get_batch_fill_bytes(l);
-    d->log_fill_peak_bytes  = sd_logger_get_batch_fill_peak_bytes(l);
-    d->log_overflow_count   = sd_logger_get_overflow_count(l);
-    d->log_flush_fail_count = sd_logger_get_flush_fail_count(l);
-    d->prealloc_ms          = sd_logger_get_prealloc_ms(l);
+    d->flush_peak_ms = sd_cardputer_write_peak_ms();
 }
 
 // Once a second with debug fields on, lock released.
@@ -217,7 +214,7 @@ void session_cardputer_lock(void) { plat_lock(nullptr); }
 void session_cardputer_unlock(void) { plat_unlock(nullptr); }
 
 void session_cardputer_begin(BioMapMode mode) {
-    if(!g_mutex) g_mutex = xSemaphoreCreateMutex();
+    g_no_time_notice = false;
     SessionPlatform platform = session_platform();
     SessionSettings cfg = session_settings();
     session_cardputer_lock();
@@ -260,7 +257,8 @@ bool session_cardputer_poll(void) {
     // waits for seconds.
     GpsUart* gps = g_session.open ? g_session.core.gps : nullptr;
     bool redraw = false;
-    if(g_no_time_notice && millis() - g_no_time_since_ms >= NO_TIME_NOTICE_MS) {
+    if(g_no_time_notice &&
+       (clock_cardputer_is_set() || millis() - g_no_time_since_ms >= NO_TIME_NOTICE_MS)) {
         g_no_time_notice = false;
         redraw = true;
     }
@@ -306,6 +304,7 @@ bool session_cardputer_key(SessionKey key) {
     bool was_recording = g_session.core.recording.active;
     bool redraw = session_core_key(&g_session.core, key);
     if(!was_recording && g_session.core.recording.active) {
+        g_no_time_notice = false;
         // Starting took about half a second or more (bias check, file,
         // sound, settle). That wait isn't a stall: row 0 comes one tick
         // from now, not a catch-up burst of rows all reading the same GSR
@@ -321,6 +320,7 @@ bool session_cardputer_no_time_notice(void) {
 
 void session_cardputer_end(void) {
     if(!g_session.open) return;
+    g_no_time_notice = false;
     // Last resort: in normal use Back has already closed the file.
     session_core_end(&g_session.core);
 

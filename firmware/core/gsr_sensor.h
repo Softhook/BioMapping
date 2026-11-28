@@ -6,8 +6,9 @@
 // The device runs one background thread that calls gsr_sensor_worker_pass()
 // in a loop, which samples the ADC at up to 860 SPS into a ring buffer.
 // Everything that touches hardware (I2C, the clock, waits, the lock) goes
-// through the GsrPlatform functions the device hands to gsr_sensor_create().
-// The Flipper's thread and functions are in flipper/gsr_sensor_flipper.c.
+// through the GsrPlatform functions the device hands to gsr_sensor_create()
+// (flipper/gsr_sensor_flipper.c on the Flipper, cardputer/src/gsr_cardputer.cpp
+// on the Cardputer).
 //
 // Auto-ranging keeps the ADC reading in [12.5 %, 91.5 %] of full scale by
 // stepping the PGA gain in real time. The tick() normalises the reading

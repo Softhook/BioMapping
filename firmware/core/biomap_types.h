@@ -1,8 +1,7 @@
 // biomap_types.h — Core sub-structs, constants, and inline helpers.
 //
-// Lightweight: no Flipper Zero SDK, no module headers.  Safe to include
-// from any translation unit.  BioMapApp itself lives in biomap.h where
-// the full SDK types are available.
+// Lightweight: no device SDK headers, no module headers. Safe to include
+// from any C or C++ translation unit.
 
 #pragma once
 
@@ -12,15 +11,20 @@
 
 #include "biomap_config.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ── Constants ──────────────────────────────────────────────────────────
 
 #define GRAPH_N          126
 #define GRAPH_LEVELS     5   // time scales of 1, 2, 4, 8 and 16 ticks per sample
 #define TICK_HZ          10
-#define EVENT_QUEUE_DEPTH 64   // FuriMessageQueue capacity
+#define EVENT_QUEUE_DEPTH 64   // main event queue capacity on the Flipper
 #define ZOOM_FACTOR      1.5f    // multiplicative step for manual Up/Down zoom
 #define ZOOM_MIN         0.25f
 #define ZOOM_MAX         16.0f
+#define GPS_UNKNOWN_DOP  99.9f   // sentinel for unknown HDOP / PDOP / hAcc
 
 // GPS logging rate — rows per second in the CSV.
 // 10 Hz = 100 ms between fixes; matches TICK_HZ so every tick logs GPS+GSR
@@ -54,7 +58,7 @@
 // — a batch buffer that fills first ends it sooner regardless.
 #define SD_FLUSH_FAIL_STREAK_LIMIT 6
 
-// ── Sub-structs (owned by BioMapApp) ───────────────────────────────────
+// ── Sub-structs (owned by Pipeline / SessionCore) ─────────────────────
 
 typedef struct {
     float    smooth_iir;         // output of the 3 Hz post-decimation smoothing IIR
@@ -198,11 +202,11 @@ typedef struct {
 // and render paths. Live Stream captures GPS/GSR but routes it to BLE
 // directly via bt_stream instead of the SD logger (and does not use RF).
 
-static inline bool has_gps(int mode) {
+static inline bool has_gps(BioMapMode mode) {
     return mode == BioMapModeGpsGsrRf || mode == BioMapModeGpsGsr || mode == BioMapModeGpsOnly;
 }
 
-static inline bool has_gsr(int mode) {
+static inline bool has_gsr(BioMapMode mode) {
     return mode == BioMapModeGpsGsrRf || mode == BioMapModeGpsGsr || mode == BioMapModeGsrOnly
         || mode == BioMapModeDiagnostics;
 }
@@ -218,9 +222,21 @@ static inline bool has_gsr(int mode) {
 // thread-contention impact. Everywhere else, RF is gated identically to
 // has_gps() (RF readings are only spatially useful, so only active
 // alongside GPS). Live Stream mode does not support RF.
-static inline bool has_rf(int mode) {
+static inline bool has_rf(BioMapMode mode) {
     return mode == BioMapModeGpsGsrRf || mode == BioMapModeGpsOnly
         || mode == BioMapModeDiagnostics;
+}
+
+// True when the session screen shows the live GSR waveform graph (every GSR
+// mode except text-only Diagnostics).
+static inline bool mode_has_graph(BioMapMode mode) {
+    return has_gsr(mode) && mode != BioMapModeDiagnostics;
+}
+
+// True when the session screen shows the 3-band radio level-meter panel
+// (Diagnostics runs the radio sampler for contention metrics, not the panel).
+static inline bool mode_has_rf_panel(BioMapMode mode) {
+    return has_rf(mode) && mode != BioMapModeDiagnostics;
 }
 
 // Clamp a float to the inclusive [lo, hi] range. Callers pass finite values
@@ -229,13 +245,26 @@ static inline float clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
+// Clamp an int to the inclusive [lo, hi] range.
+static inline int clampi(int v, int lo, int hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
+// True if `year` is a Gregorian leap year.
+static inline bool is_leap_year(uint16_t year) {
+    return (year % 4 == 0) && (year % 100 != 0 || year % 400 == 0);
+}
+
 // True if (year, month, day, hour, minute, second) is a valid Gregorian UTC
 // timestamp (including leap seconds where second == 60).
 static inline bool utc_datetime_valid(uint16_t year, uint8_t month, uint8_t day,
                                       uint8_t hour, uint8_t minute, uint8_t second) {
     static const uint8_t month_days[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
     if(month < 1 || month > 12 || hour > 23 || minute > 59 || second > 60) return false;
-    bool leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
-    uint8_t max_day = (month == 2 && leap) ? 29 : month_days[month - 1];
+    uint8_t max_day = (month == 2 && is_leap_year(year)) ? 29 : month_days[month - 1];
     return day >= 1 && day <= max_day;
 }
+
+#ifdef __cplusplus
+}
+#endif

@@ -52,3 +52,35 @@ bool keys_to_session(const Keyboard_Class::KeysState& st, SessionKey* out) {
     if(st.word.empty()) return false;
     return key_map_char(st.word.back(), out);
 }
+
+bool keys_serial_read_char(int* out_ch) {
+    static int prev_ch = -1;
+    while(Serial.available() > 0) {
+        int ch = Serial.read();
+        bool crlf_tail = (ch == '\n' && prev_ch == '\r');
+        prev_ch = ch;
+        if(crlf_tail) continue;
+        *out_ch = ch;
+        return true;
+    }
+    return false;
+}
+
+bool keys_poll_back_escape(void) {
+    M5Cardputer.update();
+    keys_unstick_poll();
+    if(M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
+        SessionKey key;
+        if(keys_to_session(M5Cardputer.Keyboard.keysState(), &key) && key == SessionKeyBack) {
+            return true;
+        }
+    }
+    int ch = 0;
+    while(keys_serial_read_char(&ch)) {
+        SessionKey key;
+        if(key_map_char(ch, &key) && key == SessionKeyBack) {
+            return true;
+        }
+    }
+    return false;
+}

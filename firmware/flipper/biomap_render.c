@@ -3,13 +3,15 @@
 // flipper/biomap_screen_flipper.c.
 #include "biomap.h"
 
+#include <stdarg.h>
+
 // ── Label arrays for menu and options screens ──────────────────────────────
 
-static const char* const menu_labels[MENU_COUNT] = {
+static const char* const menu_labels[MenuCount] = {
     "GPS + GSR + RF", "GPS + GSR", "GPS + RF", "GSR Only", "Live Stream", "Options",
 };
 
-static const char* const options_labels[OPTIONS_COUNT] = {
+static const char* const options_labels[OptCount] = {
     "GPS Profile",
     "Super-S",
     "Cold Reset GPS",
@@ -24,12 +26,20 @@ static const char* const options_labels[OPTIONS_COUNT] = {
 
 // ── Rendering helpers ──────────────────────────────────────────────────────
 
+static void draw_screen_header(Canvas* c, const char* title) {
+    canvas_clear(c);
+    canvas_set_font(c, FontPrimary);
+    canvas_draw_str(c, 0, 10, title);
+    canvas_set_font(c, FontSecondary);
+}
+
 // Format + draw at (x, y) in one call, returning y + 10 for the next line.
 // Replaces the repetitive snprintf + canvas_draw_str + y += 10 triplet
 // across the calibration screens.
 // buf is intentionally capped at 48 bytes — FontSecondary (haxrcorp 4089)
 // glyphs are 3–6 px wide, about 25–30 per line on the 128 px display, so
 // 48 chars is a safe ceiling per line.
+__attribute__((format(printf, 4, 5)))
 static int draw_fmt(Canvas* c, int x, int y, const char* fmt, ...) {
     char buf[48];
     va_list args;
@@ -40,20 +50,9 @@ static int draw_fmt(Canvas* c, int x, int y, const char* fmt, ...) {
     return y + 10;
 }
 
-
 // ==========================================================================
 // Menu & options rendering
 // ==========================================================================
-
-// Index of the first visible row when a list of `count` items, `max_visible`
-// of which fit on screen at once, is scrolled to keep `sel` in view.
-// Shared by draw_selection_list below and options_render's separate overlay
-// pass over the same rows — the two must agree or the toggle-state text
-// lands on the wrong row.
-static int scroll_window_top(int sel, int count, int max_visible) {
-    if(count > max_visible && sel >= max_visible) return sel - max_visible + 1;
-    return 0;
-}
 
 static void draw_selection_list(Canvas* c, int sel, int count,
                          const char* const* labels, int start_y, int max_visible) {
@@ -61,7 +60,7 @@ static void draw_selection_list(Canvas* c, int sel, int count,
     for(int i = top; i < count && (i - top) < max_visible; i++) {
         int y = start_y + (i - top) * 10;
         if(i == sel) {
-            canvas_draw_box(c, 0, y - 8, 128, 9);
+            canvas_draw_box(c, 0, y - 8, SCREEN_W, 9);
             canvas_invert_color(c);
             canvas_draw_str(c, 0, y, ">");
             canvas_draw_str(c, 8, y, labels[i]);
@@ -76,11 +75,8 @@ void menu_render(Canvas* c, void* ctx) {
     ListContext* m_ctx = (ListContext*)ctx;
     BioMapApp* a = m_ctx->app;
     if(furi_mutex_acquire(a->mutex, 10) != FuriStatusOk) return;
-    canvas_clear(c);
-    canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, "Bio Mapping");
-    canvas_set_font(c, FontSecondary);
-    draw_selection_list(c, (int)m_ctx->selection, MENU_COUNT, menu_labels, 22, 5);
+    draw_screen_header(c, "Bio Mapping");
+    draw_selection_list(c, (int)m_ctx->selection, MenuCount, menu_labels, 22, 5);
     furi_mutex_release(a->mutex);
 }
 
@@ -88,19 +84,16 @@ void options_render(Canvas* c, void* ctx) {
     ListContext* o_ctx = (ListContext*)ctx;
     BioMapApp* a = o_ctx->app;
     if(furi_mutex_acquire(a->mutex, 10) != FuriStatusOk) return;
-    canvas_clear(c);
-    canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, "Options");
-    canvas_set_font(c, FontSecondary);
+    draw_screen_header(c, "Options");
     int sel = (int)o_ctx->selection;
 
     int max_visible = 5;
-    int top = scroll_window_top(sel, OPTIONS_COUNT, max_visible);
+    int top = scroll_window_top(sel, OptCount, max_visible);
 
-    draw_selection_list(c, sel, OPTIONS_COUNT, options_labels, 22, max_visible);
+    draw_selection_list(c, sel, OptCount, options_labels, 22, max_visible);
 
     // Overlay toggle state on selectable items
-    for(int i = top; i < OPTIONS_COUNT && (i - top) < max_visible; i++) {
+    for(int i = top; i < OptCount && (i - top) < max_visible; i++) {
         if(i == OptColdResetGps || i == OptDiagnostics) continue; // no right-aligned state text
         int y = 22 + (i - top) * 10;
         const char* state;
@@ -123,12 +116,11 @@ void options_render(Canvas* c, void* ctx) {
         } else {
             continue;
         }
-        int sx = 128 - canvas_string_width(c, state) - 2;
+        int sx = SCREEN_W - canvas_string_width(c, state) - 2;
         if(i == sel) canvas_invert_color(c);
         canvas_draw_str(c, sx, y, state);
         if(i == sel) canvas_invert_color(c);
     }
-    canvas_set_font(c, FontSecondary);
     furi_mutex_release(a->mutex);
 }
 
@@ -139,16 +131,15 @@ void options_render(Canvas* c, void* ctx) {
 // ctx is a ListContext* (biomap.h) — guarded by app->mutex against
 // run_cal_submenu()'s key-handling loop, same as menu_render/options_render.
 static void draw_cal_submenu(Canvas* c, void* ctx, const char* title) {
+    static const char* const options[CalSubmenuCount] = {
+        "Start Wizard", "Reset to Default", "Show Current",
+    };
     ListContext* sm = (ListContext*)ctx;
     if(furi_mutex_acquire(sm->app->mutex, 10) != FuriStatusOk) return;
     int sel = (int)sm->selection;
-    canvas_clear(c);
-    canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, title);
-    canvas_set_font(c, FontSecondary);
+    draw_screen_header(c, title);
 
-    const char* options[] = { "Start Wizard", "Reset to Default", "Show Current" };
-    for(int i = 0; i < 3; i++) {
+    for(int i = 0; i < CalSubmenuCount; i++) {
         int y = 25 + i * 12;
         if(i == sel) canvas_draw_str(c, 0, y, ">");
         canvas_draw_str(c, 10, y, options[i]);
@@ -172,21 +163,14 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
     float zero_counts = w->core.zero_counts;
     float zero_noise_ns = w->core.zero_noise_ns;
     float r_squared = w->core.r_squared;
-    int fail_idx = w->core.fail_idx;
+    int fail_idx = cal_wizard_fail_step_index(&w->core);
     float bias_v = w->core.bias_measured_v;
     uint32_t seconds_left = w->core.seconds_left;
     float noise_std_dev[CAL_POINTS];
     memcpy(noise_std_dev, w->core.noise_std_dev, sizeof(noise_std_dev));
     furi_mutex_release(w->mutex);
 
-    canvas_clear(c);
-    canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, "GSR Calibration");
-    canvas_set_font(c, FontSecondary);
-
-    static const struct { const char* level; const char* resistor; } cal_steps[3] = {
-        {"Low", "470k"}, {"Mid", "100k"}, {"High", "47k"},
-    };
+    draw_screen_header(c, "GSR Calibration");
 
     switch(step) {
     case WizardStepPrompt470k:
@@ -194,8 +178,8 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
     case WizardStepPrompt47k: {
         int idx = step / 2;
         draw_fmt(c, 0, 25, "Step %d/4: %s (%s)",
-                 idx + 2, cal_steps[idx].level, cal_steps[idx].resistor);
-        draw_fmt(c, 0, 37, "Connect %s 0.1%% resistor", cal_steps[idx].resistor);
+                 idx + 2, biomap_cal_steps[idx].level, biomap_cal_steps[idx].resistor);
+        draw_fmt(c, 0, 37, "Connect %s 0.1%% resistor", biomap_cal_steps[idx].resistor);
         canvas_draw_str(c, 0, 49, "OK to measure");
         break;
     }
@@ -203,7 +187,7 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
     case WizardStepMeasuring100k:
     case WizardStepMeasuring47k: { // live dwell countdown (CAL_DWELL_SECONDS)
         int idx = step / 2;
-        draw_fmt(c, 0, 25, "Measuring %s...", cal_steps[idx].resistor);
+        draw_fmt(c, 0, 25, "Measuring %s...", biomap_cal_steps[idx].resistor);
         canvas_draw_str(c, 0, 37, "Keep resistor connected");
         draw_fmt(c, 0, 49, "%lus remaining (Back=cancel)", (unsigned long)seconds_left);
         break;
@@ -248,7 +232,7 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
         break;
     case WizardStepNoiseFailed: // sigma >= CAL_NOISE_ACCEPTABLE_NS
         canvas_draw_str(c, 0, 25, "Pre-flight Check Failed!");
-        draw_fmt(c, 0, 37, "%s too noisy/unstable.", cal_steps[fail_idx].resistor);
+        draw_fmt(c, 0, 37, "%s too noisy/unstable.", biomap_cal_steps[fail_idx].resistor);
         draw_fmt(c, 0, 49, "Sigma: %.2f nS (max %.0f)",
                  (double)noise_std_dev[fail_idx], (double)CAL_NOISE_ACCEPTABLE_NS);
         break;
@@ -272,20 +256,15 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
 // covers an unset RTC now, or a clock that has gone backwards since the
 // save. Shared by the GSR and RF "Show Current" screens.
 static void draw_calibration_age(Canvas* c, int x, int y, uint32_t saved_epoch) {
+    char age[32];
     uint32_t now = saved_epoch ? biomap_rtc_now_epoch() : 0;
-    if(saved_epoch == 0 || now == 0 || now < saved_epoch) {
-        canvas_draw_str(c, x, y, "Age: unknown");
-    } else {
-        draw_fmt(c, x, y, "Age: %lu d", (unsigned long)((now - saved_epoch) / 86400UL));
-    }
+    biomap_format_cal_age(age, sizeof(age), saved_epoch, now);
+    canvas_draw_str(c, x, y, age);
 }
 
 void show_current_calibration_render(Canvas* c, void* ctx) {
     BioMapApp* app = (BioMapApp*)ctx;
-    canvas_clear(c);
-    canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, "GSR Calibration");
-    canvas_set_font(c, FontSecondary);
+    draw_screen_header(c, "GSR Calibration");
 
     if(furi_mutex_acquire(app->mutex, 10) != FuriStatusOk) return;
     bool active = app->cal_active;
@@ -302,7 +281,7 @@ void show_current_calibration_render(Canvas* c, void* ctx) {
     // wizard's fit-fail screen); the default transform has no fit or
     // noise data, so the Zero line stays plain for it.
     if(active) {
-        draw_fmt(c, 0, 35, "Gain: %.3fx  R\xb2: %.3f", (double)gain, (double)r_squared);
+        draw_fmt(c, 0, 35, "Gain: %.3fx  R\xb2: %.4f", (double)gain, (double)r_squared);
         draw_fmt(c, 0, 47, "Zero:%.0f  N:%.2fnS",
                  (double)zero_counts, (double)biomap_cal_worst_noise_std_dev(noise_std_dev));
     } else {
@@ -324,10 +303,7 @@ void rf_calibration_menu_render(Canvas* c, void* ctx) {
 
 void rf_calibration_wizard_prep_render(Canvas* c, void* ctx) {
     RfCalWizardState* w = (RfCalWizardState*)ctx;
-    canvas_clear(c);
-    canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, "RF Faraday Calibration");
-    canvas_set_font(c, FontSecondary);
+    draw_screen_header(c, "RF Faraday Calibration");
     canvas_draw_str(c, 0, 25, "Place Flipper inside RF");
     canvas_draw_str(c, 0, 35, "shielding bag/box & seal.");
 
@@ -338,17 +314,13 @@ void rf_calibration_wizard_prep_render(Canvas* c, void* ctx) {
     uint32_t seconds_left = w->seconds_left;
     furi_mutex_release(w->mutex);
 
-    char buf[32];
-    snprintf(buf, sizeof(buf), "Pre-bagging: %lus", (unsigned long)seconds_left);
-    canvas_draw_str(c, 0, 47, buf);
+    draw_fmt(c, 0, 47, "Pre-bagging: %lus", (unsigned long)seconds_left);
 }
 
 void rf_calibration_wizard_sampling_render(Canvas* c, void* ctx) {
+    _Static_assert(EM_SCAN_NUM_FREQS == 3, "update sampling render format");
     RfCalWizardState* w = (RfCalWizardState*)ctx;
-    canvas_clear(c);
-    canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, "Zeroing CC1101...");
-    canvas_set_font(c, FontSecondary);
+    draw_screen_header(c, "Zeroing CC1101...");
 
     furi_mutex_acquire(w->mutex, FuriWaitForever);
     uint32_t seconds_left = w->seconds_left;
@@ -380,10 +352,7 @@ void rf_calibration_wizard_stats_render(Canvas* c, void* ctx) {
     memcpy(computed_std_devs, w->computed_std_devs, sizeof(computed_std_devs));
     furi_mutex_release(w->mutex);
 
-    canvas_clear(c);
-    canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, passed ? "Calibration Passed!" : "Calibration Failed!");
-    canvas_set_font(c, FontSecondary);
+    draw_screen_header(c, passed ? "Calibration Passed!" : "Calibration Failed!");
 
     if(passed) {
         float min_f = computed_floors[0];
@@ -397,8 +366,9 @@ void rf_calibration_wizard_stats_render(Canvas* c, void* ctx) {
         draw_fmt(c, 0, 24, "Floors: %.1f to %.1f dBm", (double)min_f, (double)max_f);
         draw_fmt(c, 0, 36, "Max StdDev: %.2fdB (OK)", (double)max_std);
         canvas_draw_str(c, 0, 60, "OK=Save  Back=Discard");
-    } else if(sweep_count < 5) {
-        draw_fmt(c, 0, 24, "Too few sweeps: %lu (need 5+)", (unsigned long)sweep_count);
+    } else if(sweep_count < EM_SCAN_CAL_MIN_SAMPLES) {
+        draw_fmt(c, 0, 24, "Too few sweeps: %lu (need %d+)",
+                 (unsigned long)sweep_count, EM_SCAN_CAL_MIN_SAMPLES);
         canvas_draw_str(c, 0, 36, "Sampling ran too slow/short");
     } else {
         int worst_std_idx = 0;
@@ -424,7 +394,7 @@ void rf_calibration_wizard_stats_render(Canvas* c, void* ctx) {
                      em_scan_freq_label[worst_floor_idx], (double)computed_floors[worst_floor_idx]);
             canvas_draw_str(c, 0, 48, "Place Flipper in Faraday bag!");
         } else {
-            canvas_draw_str(c, 0, 24, "High Noise Variance (>3.5dB)");
+            draw_fmt(c, 0, 24, "High Noise Variance (>%.1fdB)", (double)EM_SCAN_CAL_MAX_STD_DEV_DB);
             draw_fmt(c, 0, 36, "Worst: %sMHz %.2fdB",
                      em_scan_freq_label[worst_std_idx], (double)worst_std);
             canvas_draw_str(c, 0, 48, "Check bag seal for leaks!");
@@ -434,10 +404,7 @@ void rf_calibration_wizard_stats_render(Canvas* c, void* ctx) {
 
 void rf_show_current_calibration_render(Canvas* c, void* ctx) {
     BioMapApp* app = (BioMapApp*)ctx;
-    canvas_clear(c);
-    canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, "RF Calibration");
-    canvas_set_font(c, FontSecondary);
+    draw_screen_header(c, "RF Calibration");
 
     if(furi_mutex_acquire(app->mutex, 10) != FuriStatusOk) return;
     bool calibrated = app->rf_calibrated;

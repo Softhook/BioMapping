@@ -14,7 +14,6 @@
 // auto-reconnect can pick the link back up; on session exit, any connected
 // client is disconnected first.
 
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 

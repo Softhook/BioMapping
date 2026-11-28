@@ -1,20 +1,15 @@
 #include "gsr_audio_cardputer.h"
 
 #include <atomic>
-#include <esp_system.h>
 #include <math.h>
 #include <new>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
+#include "cues_cardputer.h"
 #include "gsr_audio.h"
 #include "gsr_cardputer.h"
 #include "settings_cardputer.h"
 #include "ui_theme.h"
-
-// Dedicated virtual speaker channel while GSR Audio is open.
-static const uint8_t AUDIO_CHANNEL = 6;
 
 // Three 80 ms buffers used in turn at 48 kHz (3,840 mono 16-bit samples =
 // 7,680 bytes each), the speaker library's safe pattern for one producer
@@ -34,10 +29,7 @@ static const int VOL_STEP_PCT = 10;
 static const int VOL_MIN_PCT  = 0;
 static const int VOL_MAX_PCT  = 100;
 
-static const uint16_t COL_REST_LINE = UI_COL_FRAME;
-
 static const int      HIST_LEN       = 112;
-static const uint32_t ANIM_MS        = 33;    // 30 FPS redraw
 static const uint32_t SENS_FLASH_MS  = 1800;  // highlight sensitivity readout on change
 
 struct SynthSnapshot {
@@ -86,20 +78,20 @@ static void refresh_snapshot_locked(AudioRuntime* rt) {
     rt->snap.breath_inhale = rt->synth.breath_inhale;
 }
 
-// Core 0 feeder task: keeps M5Unified's 2-slot queue on AUDIO_CHANNEL fed
+// Core 0 feeder task: keeps M5Unified's 2-slot queue on SPEAKER_CH_GSR_AUDIO fed
 // with 80 ms blocks so the sound never runs dry.
 static void audio_feeder_task(void* arg) {
     auto* rt = static_cast<AudioRuntime*>(arg);
     while(rt->task_running.load(std::memory_order_acquire)) {
         while(rt->task_running.load(std::memory_order_acquire) &&
-              M5Cardputer.Speaker.isPlaying(AUDIO_CHANNEL) < 2) {
+              M5Cardputer.Speaker.isPlaying(SPEAKER_CH_GSR_AUDIO) < 2) {
             int16_t* block = rt->bufs + rt->next_buf * BLOCK_SAMPLES;
             xSemaphoreTake(rt->mutex, portMAX_DELAY);
             gsr_audio_render(&rt->synth, block, BLOCK_SAMPLES);
             xSemaphoreGive(rt->mutex);
 
             if(!M5Cardputer.Speaker.playRaw(block, BLOCK_SAMPLES, GSR_AUDIO_SAMPLE_RATE,
-                                            false, 1, AUDIO_CHANNEL, false)) {
+                                            false, 1, SPEAKER_CH_GSR_AUDIO, false)) {
                 break;
             }
             rt->next_buf = (rt->next_buf + 1) % RING_BUFFERS;
@@ -117,18 +109,16 @@ bool gsr_audio_cardputer_start(void) {
 
     // Set up in this order and torn down in reverse (stop()).
     // Step 1: the runtime block
-    void* raw_mem = malloc(sizeof(AudioRuntime));
-    if(!raw_mem) {
+    auto* rt = new (std::nothrow) AudioRuntime();
+    if(!rt) {
         Serial.println("[Audio] error: no memory for GSR Audio runtime");
         return false;
     }
-    auto* rt = new (raw_mem) AudioRuntime();
 
     // Step 2: mutex
     rt->mutex = xSemaphoreCreateMutex();
     if(!rt->mutex) {
-        rt->~AudioRuntime();
-        free(rt);
+        delete rt;
         Serial.println("[Audio] error: no memory for audio mutex");
         return false;
     }
@@ -155,7 +145,7 @@ bool gsr_audio_cardputer_start(void) {
 
     // The master volume stays at cues_cardputer's 128; this channel at its
     // default 255.
-    M5Cardputer.Speaker.setChannelVolume(AUDIO_CHANNEL, 255);
+    M5Cardputer.Speaker.setChannelVolume(SPEAKER_CH_GSR_AUDIO, 255);
 
     // Step 4: Core 0 audio feeder task
     rt->task_finished.store(false, std::memory_order_release);
@@ -167,8 +157,7 @@ bool gsr_audio_cardputer_start(void) {
             gsr_cardputer_stop(rt->gsr);
         }
         vSemaphoreDelete(rt->mutex);
-        rt->~AudioRuntime();
-        free(rt);
+        delete rt;
         Serial.println("[Audio] error: audio task create failed");
         return false;
     }
@@ -216,17 +205,16 @@ void gsr_audio_cardputer_stop(void) {
         rt->task = nullptr;
 
         uint32_t drain_start = millis();
-        while(M5Cardputer.Speaker.isPlaying(AUDIO_CHANNEL) > 0 &&
+        while(M5Cardputer.Speaker.isPlaying(SPEAKER_CH_GSR_AUDIO) > 0 &&
               millis() - drain_start < DRAIN_WAIT_MS) {
             delay(1);
         }
     }
-    M5Cardputer.Speaker.stop(AUDIO_CHANNEL);  // only if the drain timed out
+    M5Cardputer.Speaker.stop(SPEAKER_CH_GSR_AUDIO);  // only if the drain timed out
     uint32_t wait_start = millis();
-    while(M5Cardputer.Speaker.isPlaying(AUDIO_CHANNEL) > 0 && millis() - wait_start < 60) {
+    while(M5Cardputer.Speaker.isPlaying(SPEAKER_CH_GSR_AUDIO) > 0 && millis() - wait_start < 60) {
         delay(1);
     }
-    M5Cardputer.Speaker.setChannelVolume(AUDIO_CHANNEL, 255);
 
     // Step 3 in reverse: stop and power down the ADS1115.
     if(rt->gsr) {
@@ -239,8 +227,7 @@ void gsr_audio_cardputer_stop(void) {
         vSemaphoreDelete(rt->mutex);
         rt->mutex = nullptr;
     }
-    rt->~AudioRuntime();
-    free(rt);
+    delete rt;
 
     Serial.printf("[Audio] off (free heap %u)\n", (unsigned)ESP.getFreeHeap());
 }
@@ -278,9 +265,7 @@ static bool cycle_voice(bool next) {
 static bool step_volume(bool up) {
     AudioRuntime* rt = g_rt;
     if(!rt) return false;
-    int next = g_vol_pct + (up ? VOL_STEP_PCT : -VOL_STEP_PCT);
-    if(next < VOL_MIN_PCT) next = VOL_MIN_PCT;
-    if(next > VOL_MAX_PCT) next = VOL_MAX_PCT;
+    int next = clampi(g_vol_pct + (up ? VOL_STEP_PCT : -VOL_STEP_PCT), VOL_MIN_PCT, VOL_MAX_PCT);
     g_vol_pct = next;
     if(up && rt->muted && next > 0) {
         rt->muted = false;
@@ -300,10 +285,8 @@ static bool step_volume(bool up) {
 static bool step_sensitivity(bool up) {
     AudioRuntime* rt = g_rt;
     if(!rt) return false;
-    int next = g_sens_pct + (up ? GSR_AUDIO_SENS_STEP_PCT : -GSR_AUDIO_SENS_STEP_PCT);
-    if(next < GSR_AUDIO_SENS_MIN_PCT) next = GSR_AUDIO_SENS_MIN_PCT;
-    if(next > GSR_AUDIO_SENS_MAX_PCT) next = GSR_AUDIO_SENS_MAX_PCT;
-    g_sens_pct = next;
+    g_sens_pct = clampi(g_sens_pct + (up ? GSR_AUDIO_SENS_STEP_PCT : -GSR_AUDIO_SENS_STEP_PCT),
+                        GSR_AUDIO_SENS_MIN_PCT, GSR_AUDIO_SENS_MAX_PCT);
     rt->sens_flash_until = millis() + SENS_FLASH_MS;
 
     xSemaphoreTake(rt->mutex, portMAX_DELAY);
@@ -405,7 +388,7 @@ bool gsr_audio_cardputer_poll(void) {
         rt->last_tick_ms = now;
     }
 
-    if(now - rt->last_anim_ms >= ANIM_MS) {
+    if(now - rt->last_anim_ms >= UI_ANIM_MS) {
         rt->last_anim_ms = now;
         xSemaphoreTake(rt->mutex, portMAX_DELAY);
         refresh_snapshot_locked(rt);
@@ -432,9 +415,7 @@ void gsr_audio_cardputer_draw(M5Canvas& canvas) {
     if(!rt) return;
     const SynthSnapshot snap = rt->snap;
 
-    canvas.fillSprite(TFT_BLACK);
-    canvas.setFont(&fonts::Font2);
-    canvas.setTextDatum(textdatum_t::top_left);
+    ui_reset_canvas(canvas);
 
     char right_hdr[32];
     uint16_t right_col;
@@ -494,10 +475,7 @@ void gsr_audio_cardputer_draw(M5Canvas& canvas) {
 
     canvas.drawFastHLine(gx + 1, y_top + plot_h / 2, gw - 2, UI_COL_GRID);
     int y_rest = y_bot - (int)lroundf(GSR_AUDIO_REST_NORM * (float)plot_h);
-    for(int x = gx + 3; x < gx + gw - 3; x += 5) {
-        canvas.drawPixel(x, y_rest, COL_REST_LINE);
-        canvas.drawPixel(x + 1, y_rest, COL_REST_LINE);
-    }
+    ui_draw_dashed_hline(canvas, gx + 3, gx + gw - 3, y_rest, UI_COL_FRAME, 5);
 
     if(contact && rt->hist_count >= 2) {
         const int plot_w = gw - 4;
@@ -510,24 +488,16 @@ void gsr_audio_cardputer_draw(M5Canvas& canvas) {
 
             int ring0 = (rt->hist_head + i0) % HIST_LEN;
             int ring1 = (rt->hist_head + i0 + 1) % HIST_LEN;
-            float u = rt->hist_u[ring0] + frac * (rt->hist_u[ring1] - rt->hist_u[ring0]);
-            if(u < 0.0f) u = 0.0f;
-            if(u > 1.0f) u = 1.0f;
+            float u = clampf(rt->hist_u[ring0] + frac * (rt->hist_u[ring1] - rt->hist_u[ring0]),
+                             0.0f, 1.0f);
 
-            int y_cur = y_bot - (int)lroundf(u * (float)plot_h);
-            if(y_cur < y_top) y_cur = y_top;
-            if(y_cur > y_bot) y_cur = y_bot;
+            int y_cur = clampi(y_bot - (int)lroundf(u * (float)plot_h), y_top, y_bot);
             if(px == 0) prev_y = y_cur;
 
             int x_cur = gx + 2 + px;
-            int y_lo = prev_y < y_cur ? prev_y : y_cur;
-            int y_hi = prev_y > y_cur ? prev_y : y_cur;
-
             uint16_t col  = ui_spectrum565(u, rt->muted ? 0.45f : 1.0f);
             uint16_t glow = ui_spectrum565(u, rt->muted ? 0.18f : 0.38f);
-            if(y_lo > y_top) canvas.drawPixel(x_cur, y_lo - 1, glow);
-            if(y_hi < y_bot) canvas.drawPixel(x_cur, y_hi + 1, glow);
-            canvas.drawFastVLine(x_cur, y_lo, y_hi - y_lo + 1, col);
+            ui_draw_glow_span(canvas, x_cur, prev_y, y_cur, y_top, y_bot, col, glow);
             prev_y = y_cur;
         }
     }

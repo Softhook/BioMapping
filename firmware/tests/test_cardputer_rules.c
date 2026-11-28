@@ -1,12 +1,17 @@
 // Host tests for the Cardputer-only rules, in plain C:
-//   cardputer/src/clock_rule.c     when the clock is set from GPS time,
-//                                  and reading that time from an RMC
-//   cardputer/src/wake_watch.c     the wake-up wait's "first clean byte"
-//   cardputer/src/tick_schedule.c  the 10 Hz ticks, catch-up and GPS slices
-//   cardputer/src/clock_local.c    local time, and the UTC offset kept
-//                                  across a recording
-//   cardputer/src/key_map.h        which character is which button
-//   cardputer/src/write_queue.c    the bytes waiting for the SD card
+//   cardputer/src/clock_rule.c        when the clock is set from GPS time,
+//                                     and reading that time from an RMC
+//   cardputer/src/wake_watch.c        the wake-up wait's "first clean byte"
+//   cardputer/src/tick_schedule.c     the 10 Hz ticks, catch-up and GPS slices
+//   cardputer/src/clock_local.c       local time, and the UTC offset kept
+//                                     across a recording
+//   cardputer/src/key_map.h           which character is which button
+//   cardputer/src/wifi_files_rules.c  CSV filename checks, natural sort, QR,
+//                                     JSON escape, DOS timestamps, Apple probes
+//   cardputer/src/zip_stream.c        single-pass ZIP streamer and CRC-32
+//   cardputer/src/splash_anim.c       startup easing, 3D globe & bell audio
+//   cardputer/src/write_queue.c       the bytes waiting for the SD card
+//   cardputer/src/gsr_audio.c         48 kHz GSR audification & soundscapes
 
 #include <assert.h>
 #include <stdio.h>

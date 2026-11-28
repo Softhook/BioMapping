@@ -1,13 +1,9 @@
 // biomap_pipeline.h — Pure math pipeline functions for GSR signal processing.
 //
-// Platform-independent: includes only biomap_types.h.  No Flipper SDK,
-// no module headers.  All functions operate on Pipeline* or individual
-// sub-struct pointers.  Designed to be testable with a stack-allocated
+// Platform-independent: includes only biomap_types.h. No device SDK,
+// no module headers. All functions operate on Pipeline* or individual
+// sub-struct pointers. Designed to be testable with a stack-allocated
 // Pipeline on any C99 host compiler.
-//
-// This file declares the Pipeline struct (bundle of DisplayState +
-// GraphState + ZoomState) and the pure-math functions extracted from
-// core/biomap_session.c.
 
 #pragma once
 
@@ -19,9 +15,8 @@ extern "C" {
 
 // ── Pipeline — bundled signal-processing state ────────────────────────
 //
-// Owns display, graph, and zoom sub-structs.  All pure-math functions
-// below operate on Pipeline* rather than Session* — zero Flipper SDK
-// dependencies.  Session embeds this as `Pipeline pipeline`.
+// Owns display, graph, and zoom sub-structs. SessionCore embeds this as
+// `Pipeline pipeline`.
 
 typedef struct {
     DisplayState  display;

@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <stddef.h>
+
 #include "biomap_types.h"
 
 #ifdef __cplusplus
@@ -30,7 +32,7 @@ extern "C" {
 //   rel           relative timestamp in seconds — the first column
 //   raw           GSR value in nS for the gsr_raw column
 //   rf_rssi       NULL when RF scanning is inactive, otherwise an
-//                 EM_SCAN_NUM_FREQS-element snapshot appended as 3 extra
+//                 RF_BAND_COUNT-element snapshot appended as 3 extra
 //                 columns rssi_815,rssi_868,rssi_915 (raw per-band RSSI,
 //                 one read per band from the last sweep)
 //   diag          RowDiag contention columns; only read when debug_fields
@@ -47,7 +49,7 @@ int biomap_format_gps_row(char* out, size_t cap, bool debug_fields,
 // the row would not fit in `cap`.
 //
 // The row is two columns (timestamp,gsr_raw). With debug_fields it appends
-// the seven SD/I2C contention columns the GSR-only schema carries
+// the eight SD/I2C contention columns the GSR-only schema carries
 // (BIOMAP_CSV_COLS_GSR_ONLY_DEBUG) — a subset of the RowDiag fields, since
 // this mode has no GPS or RF pipeline to report on.
 //
@@ -74,6 +76,10 @@ int biomap_format_gsr_bias_line(char* out, size_t cap, float measured_v, float u
 // by the main menu, Options screen, and GSR/RF calibration submenus so all
 // the list screens navigate the same way.
 int32_t cycle_selection(int32_t sel, int32_t count, bool down);
+
+// First visible row index when scrolling a list of `count` items inside a
+// window showing at most `max_visible` items at once.
+int scroll_window_top(int sel, int count, int max_visible);
 
 // The Options screen's short name for a GPS profile ("PED", "WRIST", ...),
 // on both devices. "?" for a value that isn't a GpsNavModel.
@@ -154,13 +160,24 @@ float cal_dwell_std(const CalDwell* d);
 // Mean of every reading, in gate or not. 0 if there were none.
 float cal_dwell_mean_all(const CalDwell* d);
 
-// Canonical calibration targets (nS) and valid-range gates [lo, hi] (nS)
-// for the three calibration resistors (470k, 100k, 47k).
+// Canonical calibration step names, targets (nS), and valid-range gates
+// [lo, hi] (nS) for the three calibration resistors (470k, 100k, 47k).
+typedef struct {
+    const char* level;     // "Low", "Mid", "High"
+    const char* resistor;  // "470k", "100k", "47k"
+} CalStepInfo;
+
+extern const CalStepInfo biomap_cal_steps[CAL_POINTS];
 extern const float biomap_cal_targets[CAL_POINTS];
 extern const float biomap_cal_gates[CAL_POINTS][2];
 
 // Worst-case (highest) noise σ across the three calibration resistors (nS).
 float biomap_cal_worst_noise_std_dev(const float noise_std_dev[CAL_POINTS]);
+
+// Format a saved calibration's age into `out` ("Age: %lu d", or
+// "Age: unknown" when either Unix timestamp is 0 or `now_epoch < saved_epoch`).
+// Returns the length written, or -1 if it would not fit in `cap`.
+int biomap_format_cal_age(char* out, size_t cap, uint32_t saved_epoch, uint32_t now_epoch);
 
 // ── Calibration and settings records (on-disk formats) ────────────────
 // The records each device reads from and writes to its SD card, and the
@@ -252,10 +269,15 @@ uint32_t biomap_settings_checksum(const BioMapSettings* s);
 // Magic, version, checksum, and nav_model a real GpsNavModel.
 bool biomap_settings_valid(const BioMapSettings* s);
 
+// A settings record ready to write: magic, version and checksum filled in.
+BioMapSettings biomap_settings_make(bool zoom_enabled, bool backlight_on, bool sound_enabled,
+                                    GpsNavModel nav_model, bool super_s,
+                                    bool debug_fields_enabled);
+
 // Start-time part of a recording's file name: "YYYY-MM-DD_HH-MM-SS", e.g.
 // "2026-11-19_14-32-05". ISO 8601 order (largest unit first) so files sort
 // by time, with "-" in place of ":" because ":" is not allowed in FAT file
-// names. The time is the Flipper clock's local time. Returns the length
+// names. The time is the device's local time. Returns the length
 // written, or -1 if it would not fit in `cap` (needs 20 bytes).
 int biomap_format_file_stamp(char* out, size_t cap, uint16_t year, uint8_t month, uint8_t day,
                              uint8_t hour, uint8_t minute, uint8_t second);

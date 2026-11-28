@@ -2,7 +2,6 @@
 
 #include <math.h>
 #include <stdio.h>
-#include <string.h>
 
 #include "biomap_config.h"
 #include "biomap_format.h"
@@ -105,11 +104,6 @@ static void move_selection(int32_t* sel, int32_t count, bool down) {
     play_cue(BioMapCueClick);
 }
 
-static int scroll_window_top(int sel, int count, int max_visible) {
-    if(count > max_visible && sel >= max_visible) return sel - max_visible + 1;
-    return 0;
-}
-
 // ── Calibration wizard lifecycle & non-blocking 10 Hz driver ────────────
 // The 4-step wizard state machine lives in core/cal_wizard.c; this file
 // only starts/stops the GSR thread and ticks it every 100 ms on the main
@@ -166,11 +160,8 @@ static bool wizard_poll(void) {
 
 static void show_splash_banner(M5Canvas& canvas, const char* title, const char* subtitle,
                                uint16_t subtitle_col) {
-    canvas.fillSprite(TFT_BLACK);
-    canvas.fillRect(0, 0, UI_SCREEN_W, 22, UI_COL_HEADER_BG);
-    canvas.setFont(&fonts::Font2);
-    canvas.setTextColor(TFT_WHITE);
-    canvas.drawString(title, 6, 3);
+    ui_reset_canvas(canvas);
+    ui_draw_header(canvas, title);
     canvas.setTextColor(subtitle_col);
     canvas.drawString(subtitle, 6, 60);
     canvas.pushSprite(0, 0);
@@ -178,10 +169,7 @@ static void show_splash_banner(M5Canvas& canvas, const char* title, const char* 
 
 static void launch_session(BioMapMode mode, M5Canvas& canvas) {
     if(session_mode_needs_gps(mode)) {
-        const char* title = (mode == BioMapModeGpsGsr)     ? "GPS + GSR"
-                          : (mode == BioMapModeLiveStream) ? "Live Stream"
-                                                           : "Session";
-        show_splash_banner(canvas, title, "Starting GPS...", TFT_YELLOW);
+        show_splash_banner(canvas, biomap_mode_name(mode), "Starting GPS...", TFT_YELLOW);
     }
     session_cardputer_begin(mode);
 }
@@ -207,12 +195,8 @@ void menu_cardputer_begin(void) {
     g_cal_sel = 0;
 }
 
-bool menu_cardputer_active(void) {
-    return !g_session.open;
-}
-
 bool menu_cardputer_poll(M5Canvas& canvas) {
-    if(!menu_cardputer_active()) return false;
+    if(g_session.open) return false;
     if(g_screen == ScreenId::CalWizard) {
         return wizard_poll();
     }
@@ -264,8 +248,8 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
             } else if(g_main_sel == MainGsrAudio) {
                 show_splash_banner(canvas, "GSR Audio", "Starting sensor...", TFT_CYAN);
                 gps_cardputer_sleep();
-                play_cue(BioMapCueConfirm);
                 if(gsr_audio_cardputer_start()) {
+                    play_cue(BioMapCueConfirm);
                     g_screen = ScreenId::GsrAudio;
                 } else {
                     play_cue(BioMapCueError);
@@ -384,17 +368,19 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
         BioMapCue cue = BioMapCueCount;
         CalKeyOutcome out = cal_wizard_key(&g_wiz, key == SessionKeyOk, &cue);
         if(out == CalKeyOutcomeNone) return false;
-        play_cue(cue);
         g_wiz_last_tick_ms = millis();
         if(out == CalKeyOutcomeSaveAndExit) {
-            settings_cardputer_save_cal(g_wiz.gain, g_wiz.zero_counts,
-                                        g_wiz.r_squared, g_wiz.noise_std_dev);
+            bool saved = settings_cardputer_save_cal(g_wiz.gain, g_wiz.zero_counts,
+                                                     g_wiz.r_squared, g_wiz.noise_std_dev);
+            play_cue(saved ? cue : BioMapCueError);
             wizard_close();
             g_screen = ScreenId::Options;
         } else if(out == CalKeyOutcomeCancelAndExit) {
+            play_cue(cue);
             wizard_close();
             g_screen = ScreenId::CalSubmenu;
         } else {
+            play_cue(cue);
             BioMapCue err_cue = BioMapCueCount;
             if(cal_wizard_check_sensor(&g_wiz, &err_cue)) {
                 play_cue(err_cue);
@@ -600,16 +586,10 @@ static void draw_cal_show_current(M5Canvas& canvas) {
         canvas.drawString(line, 8, y);
         y += 20;
 
-        uint32_t now = clock_cardputer_epoch_now();
-        uint32_t saved = g_settings.cal_timestamp;
+        biomap_format_cal_age(line, sizeof(line), g_settings.cal_timestamp,
+                              clock_cardputer_epoch_now());
         canvas.setTextColor(UI_COL_MUTED);
-        if(saved == 0 || now == 0 || now < saved) {
-            canvas.drawString("Age: unknown", 8, y);
-        } else {
-            snprintf(line, sizeof(line), "Age: %lu d",
-                     (unsigned long)((now - saved) / 86400UL));
-            canvas.drawString(line, 8, y);
-        }
+        canvas.drawString(line, 8, y);
     } else {
         canvas.setTextColor(TFT_LIGHTGREY);
         snprintf(line, sizeof(line), "Gain: %.3fx (uncalibrated)", (double)g_settings.cal_gain);
@@ -623,19 +603,44 @@ static void draw_cal_show_current(M5Canvas& canvas) {
 }
 
 static void draw_wizard_progress_bar(M5Canvas& canvas, int y, uint32_t seconds_left) {
-    int elapsed = (int)CAL_DWELL_SECONDS - (int)seconds_left;
-    if(elapsed < 0) elapsed = 0;
-    if(elapsed > CAL_DWELL_SECONDS) elapsed = CAL_DWELL_SECONDS;
+    int elapsed = clampi((int)CAL_DWELL_SECONDS - (int)seconds_left, 0, CAL_DWELL_SECONDS);
     int w = (elapsed * 224) / CAL_DWELL_SECONDS;
     canvas.drawRect(8, y, 224, 10, TFT_DARKGREY);
     if(w > 2) canvas.fillRect(9, y + 1, w - 2, 8, TFT_CYAN);
 }
 
-static void draw_cal_wizard(M5Canvas& canvas) {
-    static const struct { const char* level; const char* resistor; } STEPS[3] = {
-        {"Low", "470k"}, {"Mid", "100k"}, {"High", "47k"},
-    };
+static void draw_wizard_measuring(M5Canvas& canvas, const char* step_badge,
+                                  const char* heading, const char* hint,
+                                  const char* unit) {
     char buf[64];
+    ui_draw_header(canvas, "GSR Calibration", step_badge, TFT_CYAN);
+    canvas.setTextColor(TFT_CYAN);
+    canvas.drawString(heading, 8, 28);
+    canvas.setTextColor(TFT_LIGHTGREY);
+    canvas.drawString(hint, 8, 48);
+    snprintf(buf, sizeof(buf), "%lus remaining   (%.0f %s)",
+             (unsigned long)g_wiz.seconds_left, (double)g_wiz.live_reading, unit);
+    canvas.setTextColor(TFT_WHITE);
+    canvas.drawString(buf, 8, 68);
+    draw_wizard_progress_bar(canvas, 92, g_wiz.seconds_left);
+    ui_draw_footer(canvas, "Esc: Cancel");
+}
+
+static void draw_wizard_fail(M5Canvas& canvas, const char* title,
+                             const char* detail, const char* hint) {
+    ui_draw_header(canvas, "GSR Calibration", "Failed", TFT_RED);
+    canvas.setTextColor(TFT_RED);
+    canvas.drawString(title, 8, 28);
+    canvas.setTextColor(TFT_WHITE);
+    canvas.drawString(detail, 8, 50);
+    canvas.setTextColor(TFT_YELLOW);
+    canvas.drawString(hint, 8, 72);
+    ui_draw_footer(canvas, "Enter: Retry   Esc: Cancel");
+}
+
+static void draw_cal_wizard(M5Canvas& canvas) {
+    char buf[64];
+    char buf2[64];
     int step = g_wiz.step;
 
     switch(step) {
@@ -651,17 +656,8 @@ static void draw_cal_wizard(M5Canvas& canvas) {
         break;
 
     case WizardStepMeasuringZero:
-        ui_draw_header(canvas, "GSR Calibration", "Step 1/4", TFT_CYAN);
-        canvas.setTextColor(TFT_CYAN);
-        canvas.drawString("Measuring zero...", 8, 28);
-        canvas.setTextColor(TFT_LIGHTGREY);
-        canvas.drawString("Keep nothing connected", 8, 48);
-        snprintf(buf, sizeof(buf), "%lus remaining   (%.0f cts)",
-                 (unsigned long)g_wiz.seconds_left, (double)g_wiz.live_reading);
-        canvas.setTextColor(TFT_WHITE);
-        canvas.drawString(buf, 8, 68);
-        draw_wizard_progress_bar(canvas, 92, g_wiz.seconds_left);
-        ui_draw_footer(canvas, "Esc: Cancel");
+        draw_wizard_measuring(canvas, "Step 1/4", "Measuring zero...",
+                              "Keep nothing connected", "cts");
         break;
 
     case WizardStepPrompt470k:
@@ -671,10 +667,10 @@ static void draw_cal_wizard(M5Canvas& canvas) {
         snprintf(buf, sizeof(buf), "Step %d/4", idx + 2);
         ui_draw_header(canvas, "GSR Calibration", buf, TFT_CYAN);
         snprintf(buf, sizeof(buf), "Step %d/4: %s (%s)",
-                 idx + 2, STEPS[idx].level, STEPS[idx].resistor);
+                 idx + 2, biomap_cal_steps[idx].level, biomap_cal_steps[idx].resistor);
         canvas.setTextColor(TFT_WHITE);
         canvas.drawString(buf, 8, 30);
-        snprintf(buf, sizeof(buf), "Connect %s 0.1%% resistor", STEPS[idx].resistor);
+        snprintf(buf, sizeof(buf), "Connect %s 0.1%% resistor", biomap_cal_steps[idx].resistor);
         canvas.setTextColor(TFT_YELLOW);
         canvas.drawString(buf, 8, 52);
         ui_draw_footer(canvas, "Enter: Measure   Esc: Cancel");
@@ -686,18 +682,8 @@ static void draw_cal_wizard(M5Canvas& canvas) {
     case WizardStepMeasuring47k: {
         int idx = step / 2;
         snprintf(buf, sizeof(buf), "Step %d/4", idx + 2);
-        ui_draw_header(canvas, "GSR Calibration", buf, TFT_CYAN);
-        snprintf(buf, sizeof(buf), "Measuring %s...", STEPS[idx].resistor);
-        canvas.setTextColor(TFT_CYAN);
-        canvas.drawString(buf, 8, 28);
-        canvas.setTextColor(TFT_LIGHTGREY);
-        canvas.drawString("Keep resistor connected", 8, 48);
-        snprintf(buf, sizeof(buf), "%lus remaining   (%.0f nS)",
-                 (unsigned long)g_wiz.seconds_left, (double)g_wiz.live_reading);
-        canvas.setTextColor(TFT_WHITE);
-        canvas.drawString(buf, 8, 68);
-        draw_wizard_progress_bar(canvas, 92, g_wiz.seconds_left);
-        ui_draw_footer(canvas, "Esc: Cancel");
+        snprintf(buf2, sizeof(buf2), "Measuring %s...", biomap_cal_steps[idx].resistor);
+        draw_wizard_measuring(canvas, buf, buf2, "Keep resistor connected", "nS");
         break;
     }
 
@@ -718,82 +704,50 @@ static void draw_cal_wizard(M5Canvas& canvas) {
     }
 
     case WizardStepZeroFailed:
-        ui_draw_header(canvas, "GSR Calibration", "Failed", TFT_RED);
-        canvas.setTextColor(TFT_RED);
-        canvas.drawString("Zero Check Failed!", 8, 28);
-        canvas.setTextColor(TFT_WHITE);
         if(g_wiz.zero_noise_ns >= CAL_NOISE_ACCEPTABLE_NS) {
             snprintf(buf, sizeof(buf), "Too noisy: %.1f nS (max %.0f)",
                      (double)g_wiz.zero_noise_ns, (double)CAL_NOISE_ACCEPTABLE_NS);
-            canvas.drawString(buf, 8, 50);
-            canvas.setTextColor(TFT_YELLOW);
-            canvas.drawString("Keep cables still.", 8, 72);
+            draw_wizard_fail(canvas, "Zero Check Failed!", buf, "Keep cables still.");
         } else {
             snprintf(buf, sizeof(buf), "Read %.0f counts (max %.0f)",
                      (double)g_wiz.zero_counts, (double)CAL_ZERO_MAX_COUNTS);
-            canvas.drawString(buf, 8, 50);
-            canvas.setTextColor(TFT_YELLOW);
-            canvas.drawString("Disconnect everything.", 8, 72);
+            draw_wizard_fail(canvas, "Zero Check Failed!", buf, "Disconnect everything.");
         }
-        ui_draw_footer(canvas, "Enter: Retry   Esc: Cancel");
         break;
 
     case WizardStepMeasureFailed:
-        ui_draw_header(canvas, "GSR Calibration", "Failed", TFT_RED);
-        canvas.setTextColor(TFT_RED);
-        canvas.drawString("Calibration Failed!", 8, 28);
-        canvas.setTextColor(TFT_WHITE);
-        canvas.drawString(g_wiz.sensor_ok ? "Reading out of range." : "No GSR sensor found.", 8, 50);
-        canvas.setTextColor(TFT_YELLOW);
-        canvas.drawString("Check resistor & connections.", 8, 72);
-        ui_draw_footer(canvas, "Enter: Retry   Esc: Cancel");
+        draw_wizard_fail(canvas, "Calibration Failed!",
+                         g_wiz.sensor_ok ? "Reading out of range." : "No GSR sensor found.",
+                         "Check resistor & connections.");
         break;
 
     case WizardStepFitFailed:
-        ui_draw_header(canvas, "GSR Calibration", "Failed", TFT_RED);
-        canvas.setTextColor(TFT_RED);
-        canvas.drawString("Calibration Fit Failed!", 8, 28);
-        canvas.setTextColor(TFT_WHITE);
-        canvas.drawString("Device out of range.", 8, 50);
         snprintf(buf, sizeof(buf), "Gain: %.3fx   R2: %.4f",
                  (double)g_wiz.gain, (double)g_wiz.r_squared);
-        canvas.setTextColor(TFT_YELLOW);
-        canvas.drawString(buf, 8, 72);
-        ui_draw_footer(canvas, "Enter: Retry   Esc: Cancel");
+        draw_wizard_fail(canvas, "Calibration Fit Failed!", "Device out of range.", buf);
         break;
 
-    case WizardStepNoiseFailed:
-        ui_draw_header(canvas, "GSR Calibration", "Failed", TFT_RED);
-        canvas.setTextColor(TFT_RED);
-        canvas.drawString("Pre-flight Check Failed!", 8, 28);
+    case WizardStepNoiseFailed: {
+        int fail_idx = cal_wizard_fail_step_index(&g_wiz);
         snprintf(buf, sizeof(buf), "%s resistor too noisy/unstable.",
-                 STEPS[g_wiz.fail_idx].resistor);
-        canvas.setTextColor(TFT_WHITE);
-        canvas.drawString(buf, 8, 50);
-        snprintf(buf, sizeof(buf), "Sigma: %.2f nS (max %.0f nS)",
-                 (double)g_wiz.noise_std_dev[g_wiz.fail_idx], (double)CAL_NOISE_ACCEPTABLE_NS);
-        canvas.setTextColor(TFT_YELLOW);
-        canvas.drawString(buf, 8, 72);
-        ui_draw_footer(canvas, "Enter: Retry   Esc: Cancel");
+                 biomap_cal_steps[fail_idx].resistor);
+        snprintf(buf2, sizeof(buf2), "Sigma: %.2f nS (max %.0f nS)",
+                 (double)g_wiz.noise_std_dev[fail_idx], (double)CAL_NOISE_ACCEPTABLE_NS);
+        draw_wizard_fail(canvas, "Pre-flight Check Failed!", buf, buf2);
         break;
+    }
 
     case WizardStepBiasFailed:
-        ui_draw_header(canvas, "GSR Calibration", "Failed", TFT_RED);
-        canvas.setTextColor(TFT_RED);
-        canvas.drawString("Bias Check Failed!", 8, 28);
-        canvas.setTextColor(TFT_WHITE);
         if(isnan(g_wiz.bias_measured_v)) {
-            canvas.drawString("No reading. Check wiring.", 8, 50);
+            draw_wizard_fail(canvas, "Bias Check Failed!",
+                             "No reading. Check wiring.", "Check 3.3 V supply.");
         } else {
             snprintf(buf, sizeof(buf), "Bias %.0f mV (need %.0f-%.0f mV)",
                      (double)(g_wiz.bias_measured_v * 1000.0f),
                      (double)(GSR_BIAS_MIN_V * 1000.0f),
                      (double)(GSR_BIAS_MAX_V * 1000.0f));
-            canvas.drawString(buf, 8, 50);
+            draw_wizard_fail(canvas, "Bias Check Failed!", buf, "Check 3.3 V supply.");
         }
-        canvas.setTextColor(TFT_YELLOW);
-        canvas.drawString("Check 3.3 V supply.", 8, 72);
-        ui_draw_footer(canvas, "Enter: Retry   Esc: Cancel");
         break;
 
     default:
@@ -802,9 +756,7 @@ static void draw_cal_wizard(M5Canvas& canvas) {
 }
 
 void menu_cardputer_draw(M5Canvas& canvas) {
-    canvas.fillSprite(TFT_BLACK);
-    canvas.setFont(&fonts::Font2);
-    canvas.setTextDatum(textdatum_t::top_left);
+    ui_reset_canvas(canvas);
 
     switch(g_screen) {
     case ScreenId::MainMenu:

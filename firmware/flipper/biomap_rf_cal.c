@@ -6,6 +6,9 @@
 // come from biomap_gui.c (see biomap.h).
 #include "biomap.h"
 
+#define RF_CAL_PREP_SECONDS   30
+#define RF_CAL_SAMPLE_SECONDS 20
+
 // ── Show current RF calibration ─────────────────────────────────────────
 // run_simple_viewer/run_cal_submenu (biomap_gui.c) hold the shared
 // Up/Down/OK/Back loop shapes — see biomap.h.
@@ -22,16 +25,18 @@ void run_rf_calibration_menu(BioMapApp* app) {
 // Shared cancel-cleanup for the prep and sampling loops below — both bail
 // out with the identical "back tone, power down radio, pop screen, free
 // mutex" sequence, differing only in which loop's cancel flag triggered it.
-static void rf_cal_wizard_abort(BioMapApp* app, ViewPort* vp, FuriMutex* mutex) {
+static void rf_cal_wizard_abort(BioMapApp* app, FuriMutex* mutex) {
     biomap_app_cue(app, BioMapCueBack);
     em_scan_rf_deinit();
-    vp_pop(app, vp);
+    vp_pop(app);
     furi_mutex_free(mutex);
 }
 
 void run_rf_calibration_wizard(BioMapApp* app) {
     gps_uart_sleep();
-    RfCalWizardState w = {0};
+    RfCalWizardState w = {
+        .seconds_left = RF_CAL_PREP_SECONDS,
+    };
     // Guards every field below against the GUI thread's render callbacks
     // (biomap_render.c's rf_calibration_wizard_*_render), which run
     // asynchronously off view_port_update() — see RfCalWizardState's doc
@@ -49,40 +54,36 @@ void run_rf_calibration_wizard(BioMapApp* app) {
     em_scan_rf_init();
 
     // ── Prep countdown (30s), skippable via OK, cancelable via Back ────
-    // Non-blocking peek + a fixed furi_delay_ms(100) each iteration — NOT a
-    // furi_message_queue_get(..., timeout) used as the pacing clock. That
-    // approach returns as soon as ANY event is queued (not just Back/OK),
-    // so a repeated/held irrelevant key (Up/Down, which do nothing here)
-    // would return early every iteration and silently fast-forward the
-    // whole 30s wait. The fixed delay makes iteration cadence independent
-    // of how much key traffic arrives — matches the sampling loop below,
-    // which already used this pattern.
-    furi_mutex_acquire(w.mutex, FuriWaitForever);
-    w.step = 0;
-    w.seconds_left = 30;
-    furi_mutex_release(w.mutex);
+    // Non-blocking drain + a fixed furi_delay_ms(100) each iteration — NOT
+    // furi_message_queue_get(..., timeout) as the pacing clock, which would
+    // return early on irrelevant keys and fast-forward the countdown.
     bool cancelled = false;
-    for(uint32_t elapsed = 0; elapsed < 30 * TICK_HZ; elapsed++) {
+    bool skip_prep = false;
+    for(uint32_t elapsed = 0; elapsed < RF_CAL_PREP_SECONDS * TICK_HZ; elapsed++) {
         BioMapEvent ev;
-        if(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk) {
+        while(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk) {
             if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
                 if(ev.input.key == InputKeyBack) {
                     cancelled = true;
                     break;
                 }
-                if(ev.input.key == InputKeyOk) break; // skip remaining wait
+                if(ev.input.key == InputKeyOk) {
+                    skip_prep = true;
+                    break;
+                }
             }
         }
+        if(cancelled || skip_prep) break;
         furi_delay_ms(1000 / TICK_HZ);
         if((elapsed % TICK_HZ) == 0) {
             furi_mutex_acquire(w.mutex, FuriWaitForever);
-            w.seconds_left = 30 - elapsed / TICK_HZ;
+            w.seconds_left = RF_CAL_PREP_SECONDS - elapsed / TICK_HZ;
             furi_mutex_release(w.mutex);
             view_port_update(vp);
         }
     }
     if(cancelled) {
-        rf_cal_wizard_abort(app, vp, w.mutex);
+        rf_cal_wizard_abort(app, w.mutex);
         return;
     }
     biomap_app_cue(app, BioMapCueConfirm);
@@ -91,9 +92,7 @@ void run_rf_calibration_wizard(BioMapApp* app) {
     // One em_scan_rf_dwell_band() call per ~100 ms iteration, round-robin
     // across EM_SCAN_NUM_FREQS bands — a full sweep (one sample per band)
     // completes and is recorded every time the band index wraps to 0.
-    furi_mutex_acquire(w.mutex, FuriWaitForever);
-    w.step = 1;
-    furi_mutex_release(w.mutex);
+    w.seconds_left = RF_CAL_SAMPLE_SECONDS;
     vp_push(app, rf_calibration_wizard_sampling_render, &w);
     // static, not a stack local: 64*3 floats (768 bytes) is a meaningful
     // chunk of this thread's 4 KB total stack (application.fam's stack_size)
@@ -102,18 +101,18 @@ void run_rf_calibration_wizard(BioMapApp* app) {
     // never re-entrant or concurrent (single blocking call on the main app
     // thread).
     static float samples[EM_SCAN_CAL_MAX_SAMPLES][EM_SCAN_NUM_FREQS];
-    w.sweep_count = 0;
     int band = 0;
     bool sampling_cancelled = false;
-    for(uint32_t elapsed = 0; elapsed < 20 * TICK_HZ; elapsed++) {
+    for(uint32_t elapsed = 0; elapsed < RF_CAL_SAMPLE_SECONDS * TICK_HZ; elapsed++) {
         BioMapEvent ev;
-        if(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk) {
+        while(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk) {
             if(ev.type == EventTypeKey && ev.input.type == InputTypeShort
                 && ev.input.key == InputKeyBack) {
                 sampling_cancelled = true;
                 break;
             }
         }
+        if(sampling_cancelled) break;
         furi_delay_ms(1000 / TICK_HZ);
 
         float peak;
@@ -128,49 +127,30 @@ void run_rf_calibration_wizard(BioMapApp* app) {
             w.sweep_count++;
         }
 
-        w.seconds_left = 20 - elapsed / TICK_HZ;
+        w.seconds_left = RF_CAL_SAMPLE_SECONDS - elapsed / TICK_HZ;
         furi_mutex_release(w.mutex);
         view_port_update(vp);
     }
     if(sampling_cancelled) {
-        rf_cal_wizard_abort(app, vp, w.mutex);
+        rf_cal_wizard_abort(app, w.mutex);
         return;
     }
 
     // ── Compute stats + pass/fail ───────────────────────────────────────
-    // Gate: per-band ceiling (em_scan_cal_max_floor_dbm), floor sanity clamp
-    // (EM_SCAN_CAL_MIN_FLOOR_DBM), and max std dev (EM_SCAN_CAL_MAX_STD_DEV_DB).
-    // No mutex needed here: computed_floors/computed_std_devs/passed/step
-    // are all written below BEFORE the vp_push() call that makes
-    // rf_calibration_wizard_stats_render (the first reader of any of them)
-    // live, and nothing else writes them afterward — vp_push() itself
-    // provides the happens-before edge, same reasoning as any other
-    // single-threaded-until-publish pattern.
+    // Gate: minimum sweep count plus em_scan_cal_stats_valid() (per-band
+    // floor bounds, max std dev, and NaN checks). Written before vp_push()
+    // publishes them to rf_calibration_wizard_stats_render().
     em_scan_cal_compute_stats(
         (const float(*)[EM_SCAN_NUM_FREQS])samples,
         w.sweep_count,
         w.computed_floors,
         w.computed_std_devs);
 
-    w.passed = (w.sweep_count >= 5);
-    if(w.passed) {
-        for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-            if(w.computed_floors[i] > em_scan_cal_max_floor_dbm[i] ||
-               w.computed_floors[i] < EM_SCAN_CAL_MIN_FLOOR_DBM ||
-               w.computed_std_devs[i] >= EM_SCAN_CAL_MAX_STD_DEV_DB) {
-                w.passed = false;
-                break;
-            }
-        }
-    }
+    w.passed = (w.sweep_count >= EM_SCAN_CAL_MIN_SAMPLES) &&
+               em_scan_cal_stats_valid(w.computed_floors, w.computed_std_devs);
 
-    w.step = 2;
     vp_push(app, rf_calibration_wizard_stats_render, &w);
-    if(w.passed) {
-        biomap_app_cue(app, BioMapCueSuccess);
-    } else {
-        biomap_app_cue(app, BioMapCueError);
-    }
+    biomap_app_cue(app, w.passed ? BioMapCueSuccess : BioMapCueError);
     view_port_update(vp);
 
     // ── Result screen: OK saves (if passed), Back discards ─────────────
@@ -188,8 +168,8 @@ void run_rf_calibration_wizard(BioMapApp* app) {
             memcpy(cal.noise_std_dev_db, w.computed_std_devs, sizeof(cal.noise_std_dev_db));
             cal.sample_count = w.sweep_count;
 
-            biomap_save_rf_calibration(app, &cal);
-            biomap_app_cue(app, BioMapCueConfirm);
+            bool saved = biomap_save_rf_calibration(app, &cal);
+            biomap_app_cue(app, saved ? BioMapCueConfirm : BioMapCueError);
             break;
         } else if(ev.input.key == InputKeyBack || (ev.input.key == InputKeyOk && !w.passed)) {
             biomap_app_cue(app, BioMapCueBack);
@@ -198,6 +178,6 @@ void run_rf_calibration_wizard(BioMapApp* app) {
     }
 
     em_scan_rf_deinit();
-    vp_pop(app, vp);
+    vp_pop(app);
     furi_mutex_free(w.mutex);
 }

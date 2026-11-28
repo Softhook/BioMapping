@@ -57,11 +57,10 @@ typedef struct Session {
     // Radio-scan modes only (has_rf()) — NULL otherwise. Runs on the GSR
     // sensor's worker thread via its worker hook, so it is freed after it.
     EmScanSampler* em;
-    // NULL in Live Stream, which has no file.
+    // NULL in non-recording modes (Live Stream, Diagnostics).
     SdLogger*      logger;
     // Live Stream only — NULL in every other mode.
     BtStream*      bt_stream;
-    ViewPort*      vp;          // == app->screen_vp while a session is active; not owned/freed here
     FuriTimer*     timer;
 
     // The recording screen's text kept between frames (core/biomap_screen.h)
@@ -116,9 +115,9 @@ typedef struct BioMapApp {
     float              cal_r_squared;
     // Per-resistor σ (nS) from the wizard's pre-flight noise/resolution
     // check (see CalNoiseGrade, biomap_format.h); all-zero when no custom
-    // cal is active. Loaded from BioMapCalibration::noise_std_dev, graded
-    // and surfaced by show_current_calibration_render() via
-    // calibration_noise_grade().
+    // cal is active. Loaded from BioMapCalibration::noise_std_dev and
+    // surfaced by show_current_calibration_render() via
+    // biomap_cal_worst_noise_std_dev().
     float              cal_noise_std_dev[CAL_POINTS];
     EmScanCal          rf_cal_data;     // RF Faraday calibration (em_scan_cal.h)
     bool               rf_calibrated;
@@ -133,11 +132,8 @@ typedef struct BioMapApp {
 
 // ── Menu & conversion UI types ─────────────────────────────────────────
 
-#define MENU_COUNT      6
-#define OPTIONS_COUNT   10
-
-// Menu screen selection indices — matches MENU_COUNT above and the
-// item order drawn by menu_render() (biomap_render.c).
+// Menu screen selection indices — matches the item order drawn by
+// menu_render() (biomap_render.c).
 enum {
     MenuGpsGsrRf = 0,
     MenuGpsGsr,
@@ -145,12 +141,13 @@ enum {
     MenuGsrOnly,
     MenuLiveStream,
     MenuOptions,
+    MenuCount,
 };
 
-// Options screen selection indices — matches OPTIONS_COUNT above and the
-// item order drawn by options_render() (biomap_render.c). Shared between
-// biomap_gui.c (key handling) and biomap_render.c (toggle-state overlay) so
-// the two stay in sync by construction rather than by comment.
+// Options screen selection indices — matches the item order drawn by
+// options_render() (biomap_render.c). Shared between biomap_gui.c (key
+// handling) and biomap_render.c (toggle-state overlay) so the two stay in
+// sync by construction.
 enum {
     OptGpsProfile = 0,
     OptSuperS,
@@ -162,6 +159,16 @@ enum {
     OptSound,
     OptDiagnostics,
     OptDebugFields,
+    OptCount,
+};
+
+// Shared 3-item GSR / RF calibration submenu indices (run_cal_submenu in
+// biomap_gui.c and draw_cal_submenu in biomap_render.c).
+enum {
+    CalSubmenuStartWizard = 0,
+    CalSubmenuReset,
+    CalSubmenuShowCurrent,
+    CalSubmenuCount,
 };
 
 // A list screen's selection (the main menu, Options, a calibration
@@ -173,21 +180,14 @@ typedef struct {
     int32_t    selection;
 } ListContext;
 
-// BioMapCalibration (the record format), BIOMAP_CAL_MAGIC/VERSION and the
-// validity check live in biomap_format.h; biomap.c owns the file I/O.
-#define BIOMAP_CAL_PATH    "/ext/biomapping/biomap.cal"
-#define BIOMAP_CAL_PATH_TMP "/ext/biomapping/biomap.cal.tmp"
-
-// CAL_POINTS, CAL_TARGET_*, CAL_*_GATE, CAL_GAIN_*, CAL_ZERO_MAX_COUNTS,
-// CAL_DWELL_SECONDS, CAL_MIN_VALID, CAL_*_FLUSH_TICKS and CAL_NOISE_*_NS
-// live in core/biomap_config.h, the WizardStep* enum in core/cal_wizard.h,
-// so both devices share one source of truth.
-
-// ── Options persistence ─────────────────────────────────────────────────
-// BioMapSettings (the record format) and its validity check live in
-// biomap_format.h; biomap.c owns the file I/O.
-#define BIOMAP_SETTINGS_PATH     "/ext/biomapping/biomap.settings"
-#define BIOMAP_SETTINGS_PATH_TMP "/ext/biomapping/biomap.settings.tmp"
+// SD folder and persisted files (/ext/biomapping/...).
+// BioMapCalibration and BioMapSettings live in core/biomap_format.h;
+// biomap.c owns the Flipper file I/O.
+#define BIOMAP_EXT_DIR           EXT_PATH(BIOMAP_DIR_NAME)
+#define BIOMAP_CAL_PATH          BIOMAP_EXT_DIR "/biomap.cal"
+#define BIOMAP_CAL_PATH_TMP      BIOMAP_CAL_PATH ".tmp"
+#define BIOMAP_SETTINGS_PATH     BIOMAP_EXT_DIR "/biomap.settings"
+#define BIOMAP_SETTINGS_PATH_TMP BIOMAP_SETTINGS_PATH ".tmp"
 
 // Calibration wizard state: the shared state machine (CalWizardCore and
 // its step numbers, core/cal_wizard.h) plus the mutex below.
@@ -206,23 +206,13 @@ typedef struct {
     CalWizardCore core;
 } WizardState;
 
-// RF Faraday calibration wizard state. Steps:
-//   0 = prep countdown (30s, place Flipper in shielding bag)
-//   1 = active sampling (20s round-robin CC1101 dwell)
-//   2 = stats/result (pass/fail, save decision)
-//
-// Lives as a stack-local in run_rf_calibration_wizard() (biomap_rf_cal.c),
-// but its draw callbacks (biomap_render.c's rf_calibration_wizard_*_render)
-// run on the GUI service's own thread, triggered asynchronously by
-// view_port_update() — so this struct is genuinely cross-thread shared for
-// as long as the wizard's ViewPort callback points at it, unlike most
-// other per-screen state structs in this app (which are read-only from the
-// GUI thread's perspective, or don't update on a tight loop). `mutex`
-// guards every field below during the active-sampling step, where the main
-// thread rewrites rssi_dbm[]/seconds_left every ~100 ms in a loop.
+// RF Faraday calibration wizard state (prep countdown, 20 s CC1101 sampling,
+// and pass/fail result screen). Each phase pushes its own draw callback in
+// biomap_render.c (rf_calibration_wizard_*_render), running asynchronously
+// on the GUI service's thread off view_port_update(). `mutex` guards the
+// fields below while the main thread updates them.
 typedef struct {
     FuriMutex* mutex;
-    int      step;
     uint32_t seconds_left;                          // countdown display (prep or sampling)
     uint32_t sweep_count;
     float    rssi_dbm[EM_SCAN_NUM_FREQS];            // live per-band reading during sampling
@@ -250,20 +240,15 @@ void run_gps_cold_start(BioMapApp* app);
 void biomap_backlight_claim(BioMapApp* app);
 void biomap_backlight_release(BioMapApp* app, bool block);
 void run_options_screen(BioMapApp* app);
-void run_calibration_menu(BioMapApp* app);
-void run_calibration_wizard(BioMapApp* app);
-bool biomap_load_calibration(BioMapApp* app);
-void biomap_save_calibration(BioMapApp* app, float gain, float zero_counts, float r_squared,
+bool biomap_save_calibration(BioMapApp* app, float gain, float zero_counts, float r_squared,
                              const float noise_std_dev[CAL_POINTS]);
 void biomap_reset_calibration(BioMapApp* app);
 
-bool biomap_load_settings(BioMapApp* app);
 void biomap_save_settings(BioMapApp* app);
 
 void run_rf_calibration_menu(BioMapApp* app);
 void run_rf_calibration_wizard(BioMapApp* app);
-bool biomap_load_rf_calibration(BioMapApp* app);
-void biomap_save_rf_calibration(BioMapApp* app, const EmScanCal* cal);
+bool biomap_save_rf_calibration(BioMapApp* app, const EmScanCal* cal);
 void biomap_reset_rf_calibration(BioMapApp* app);
 
 // A cue (core/biomap_cues.h) with the app's own Options > Sound setting.
@@ -276,10 +261,10 @@ void biomap_timer_callback(void* ctx);
 int32_t biomap_gui_show_menu(BioMapApp* app);
 
 // ── Shared sub-screen helpers (biomap_gui.c) ────────────────────────────
-// Reused by biomap_rf_cal.c's RF calibration menu/wizard — see biomap_gui.c
+// Reused by biomap_rf_cal.c and biomap_session_flipper.c — see biomap_gui.c
 // for the single-persistent-ViewPort rationale.
 ViewPort* vp_push(BioMapApp* app, ViewPortDrawCallback draw, void* ctx);
-void      vp_pop(BioMapApp* app, ViewPort* vp);
+void      vp_pop(BioMapApp* app);
 void      drain_stale_events(FuriMessageQueue* q);
 // cycle_selection() is declared in biomap_format.h (SDK-free, host-tested).
 

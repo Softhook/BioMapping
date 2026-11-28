@@ -4,8 +4,6 @@
 #include <furi.h>
 #include <profiles/serial_profile.h>
 #include <stdatomic.h>
-#include <stdlib.h>
-#include <string.h>
 
 struct BtStream {
     Bt* bt;

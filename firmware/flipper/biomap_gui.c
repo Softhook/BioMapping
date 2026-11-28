@@ -52,8 +52,7 @@ ViewPort* vp_push(BioMapApp* app, ViewPortDrawCallback draw, void* ctx) {
 
 // "Pop" a screen: disable the shared ViewPort and clear its draw callback.
 // It stays in the GUI stack — never removed/freed here.
-void vp_pop(BioMapApp* app, ViewPort* vp) {
-    UNUSED(vp);
+void vp_pop(BioMapApp* app) {
     view_port_enabled_set(app->screen_vp, false);
     view_port_draw_callback_set(app->screen_vp, NULL, NULL);
 }
@@ -94,11 +93,11 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
 
         switch(ev.input.key) {
         case InputKeyUp:
-            nav_cycle(app, &ctx.selection, MENU_COUNT, false);
+            nav_cycle(app, &ctx.selection, MenuCount, false);
             view_port_update(vp);
             break;
         case InputKeyDown:
-            nav_cycle(app, &ctx.selection, MENU_COUNT, true);
+            nav_cycle(app, &ctx.selection, MenuCount, true);
             view_port_update(vp);
             break;
         case InputKeyOk:
@@ -117,7 +116,7 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
         }
     }
 
-    vp_pop(app, vp);
+    vp_pop(app);
     return result;
 }
 
@@ -141,6 +140,8 @@ static void toggle_app_setting(BioMapApp* app, bool* field, bool force_tone) {
                new_val ? BioMapCueToggleOn : BioMapCueToggleOff);
 }
 
+static void run_calibration_menu(BioMapApp* app);
+
 void run_options_screen(BioMapApp* app) {
     ListContext ctx = {.app = app, .selection = 0};
     ViewPort* vp = vp_push(app, options_render, &ctx);
@@ -156,19 +157,20 @@ void run_options_screen(BioMapApp* app) {
 
             switch(ev.input.key) {
             case InputKeyUp:
-                nav_cycle(app, &ctx.selection, OPTIONS_COUNT, false);
+                nav_cycle(app, &ctx.selection, OptCount, false);
                 break;
             case InputKeyDown:
-                nav_cycle(app, &ctx.selection, OPTIONS_COUNT, true);
+                nav_cycle(app, &ctx.selection, OptCount, true);
                 break;
             case InputKeyOk:
             case InputKeyLeft:
             case InputKeyRight:
                 switch(ctx.selection) {
                 case OptGpsProfile:
-                    // Next GPS Profile (PED, WRIST, VEHICLE, STATION, SEA, BIKE, FLIGHT)
+                    // Cycle GPS Profile (Left = previous, Right/OK = next)
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    app->nav_model = (GpsNavModel)cycle_selection((int32_t)app->nav_model, GpsNavModelCount, true);
+                    app->nav_model = (GpsNavModel)cycle_selection(
+                        (int32_t)app->nav_model, GpsNavModelCount, ev.input.key != InputKeyLeft);
                     furi_mutex_release(app->mutex);
                     biomap_save_settings(app);
                     biomap_app_cue(app, BioMapCueClick);
@@ -179,6 +181,7 @@ void run_options_screen(BioMapApp* app) {
                     toggle_app_setting(app, &app->super_s, false);
                     break;
                 case OptColdResetGps:
+                    if(ev.input.key != InputKeyOk) continue;
                     // Cold Reset GPS — VP stays visible, no need to re-create.
                     // run_gps_cold_start() plays its own success/error tone.
                     run_gps_cold_start(app);
@@ -189,11 +192,13 @@ void run_options_screen(BioMapApp* app) {
                     toggle_app_setting(app, &app->zoom_enabled, false);
                     break;
                 case OptGsrCalibration:
+                    if(ev.input.key != InputKeyOk) continue;
                     biomap_app_cue(app, BioMapCueConfirm);
                     run_calibration_menu(app);
                     vp_push(app, options_render, &ctx);
                     continue;
                 case OptRfCalibration:
+                    if(ev.input.key != InputKeyOk) continue;
                     // Re-arm-after-return pattern, same as GSR Calibration
                     biomap_app_cue(app, BioMapCueConfirm);
                     run_rf_calibration_menu(app);
@@ -208,6 +213,7 @@ void run_options_screen(BioMapApp* app) {
                     toggle_app_setting(app, &app->sound_enabled, true);
                     break;
                 case OptDiagnostics:
+                    if(ev.input.key != InputKeyOk) continue;
                     biomap_app_cue(app, BioMapCueConfirm);
                     run_recording_session(app, BioMapModeDiagnostics);
                     vp_push(app, options_render, &ctx);
@@ -215,16 +221,16 @@ void run_options_screen(BioMapApp* app) {
                 case OptDebugFields:
                     toggle_app_setting(app, &app->debug_fields_enabled, false);
                     break;
-                default: break;
+                default: continue;
                 }
                 break;
-            default: break;
+            default: continue;
             }
             view_port_update(vp);
         }
     }
 
-    vp_pop(app, vp);
+    vp_pop(app);
 }
 
 // Simple pop-up viewer: pushes `render`, waits for OK or Back to dismiss,
@@ -232,7 +238,7 @@ void run_options_screen(BioMapApp* app) {
 // (run_show_current_rf_calibration, biomap_rf_cal.c) "Show Current" screens
 // — see the declaration in biomap.h.
 void run_simple_viewer(BioMapApp* app, ViewPortDrawCallback render, void* ctx) {
-    ViewPort* vp = vp_push(app, render, ctx);
+    vp_push(app, render, ctx);
     drain_stale_events(app->event_queue);
     BioMapEvent ev;
     while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
@@ -243,7 +249,7 @@ void run_simple_viewer(BioMapApp* app, ViewPortDrawCallback render, void* ctx) {
             }
         }
     }
-    vp_pop(app, vp);
+    vp_pop(app);
 }
 
 static void run_show_current_calibration(BioMapApp* app) {
@@ -252,17 +258,7 @@ static void run_show_current_calibration(BioMapApp* app) {
 
 // Generic "Start Wizard / Reset to Default / Show Current" 3-item submenu
 // loop — shared shape behind run_calibration_menu (GSR, below) and
-// run_rf_calibration_menu (RF, biomap_rf_cal.c) — see the declaration in
-// biomap.h.
-// run_cal_submenu()'s fixed 3-item shape: Start Wizard / Reset / Show
-// Current — matches the order drawn by draw_cal_submenu() (biomap_render.c).
-#define CAL_SUBMENU_COUNT 3
-enum {
-    CalSubmenuStartWizard = 0,
-    CalSubmenuReset,
-    CalSubmenuShowCurrent,
-};
-
+// run_rf_calibration_menu (RF, biomap_rf_cal.c) — see biomap.h.
 void run_cal_submenu(BioMapApp* app, ViewPortDrawCallback render,
                       SubmenuAction start_wizard, SubmenuAction reset,
                       SubmenuAction show_current) {
@@ -279,9 +275,9 @@ void run_cal_submenu(BioMapApp* app, ViewPortDrawCallback render,
                 break;
             }
             if(ev.input.key == InputKeyUp) {
-                nav_cycle(app, &ctx.selection, CAL_SUBMENU_COUNT, false);
+                nav_cycle(app, &ctx.selection, CalSubmenuCount, false);
             } else if(ev.input.key == InputKeyDown) {
-                nav_cycle(app, &ctx.selection, CAL_SUBMENU_COUNT, true);
+                nav_cycle(app, &ctx.selection, CalSubmenuCount, true);
             } else if(ev.input.key == InputKeyOk) {
                 // This thread's own last write — no lock needed to read it
                 // back.
@@ -299,24 +295,20 @@ void run_cal_submenu(BioMapApp* app, ViewPortDrawCallback render,
                     vp_push(app, render, &ctx);
                     continue;
                 }
+            } else {
+                continue;
             }
             view_port_update(vp);
         }
     }
-    vp_pop(app, vp);
-}
-
-void run_calibration_menu(BioMapApp* app) {
-    run_cal_submenu(app, calibration_menu_render,
-                    run_calibration_wizard, biomap_reset_calibration,
-                    run_show_current_calibration);
+    vp_pop(app);
 }
 
 // Drives the shared 4-step calibration wizard (core/cal_wizard.h) on the
 // Flipper: forwards OK and Back to cal_wizard_key(),
 // and while cal_wizard_measuring() is true, steps cal_wizard_tick() at
 // 10 Hz while polling the event queue for Back cancellation.
-void run_calibration_wizard(BioMapApp* app) {
+static void run_calibration_wizard(BioMapApp* app) {
     gps_uart_sleep();
     GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     if(gsr && !gsr_sensor_available(gsr)) {
@@ -402,17 +394,18 @@ void run_calibration_wizard(BioMapApp* app) {
         furi_mutex_release(w.mutex);
 
         if(out == CalKeyOutcomeNone) continue;
-        // Play the click/confirm/back/error cue BEFORE the first dwell tick
-        // runs: the dwell begins with a 1–2 s buffer flush that absorbs any
-        // speaker noise from the click.
-        biomap_app_cue(app, cue);
         if(out == CalKeyOutcomeSaveAndExit) {
-            biomap_save_calibration(app, w.core.gain, w.core.zero_counts,
-                                    w.core.r_squared, w.core.noise_std_dev);
+            bool saved = biomap_save_calibration(app, w.core.gain, w.core.zero_counts,
+                                                 w.core.r_squared, w.core.noise_std_dev);
+            biomap_app_cue(app, saved ? cue : BioMapCueError);
             running = false;
         } else if(out == CalKeyOutcomeCancelAndExit) {
+            biomap_app_cue(app, cue);
             running = false;
         } else {
+            // Play the click cue BEFORE the first dwell tick runs: the dwell
+            // begins with a 1–2 s buffer flush that absorbs any speaker noise.
+            biomap_app_cue(app, cue);
             view_port_update(vp);
             BioMapCue err_cue = BioMapCueCount;
             furi_mutex_acquire(w.mutex, FuriWaitForever);
@@ -426,7 +419,13 @@ void run_calibration_wizard(BioMapApp* app) {
     }
 
     if(gsr) gsr_sensor_free(gsr);
-    vp_pop(app, vp);
+    vp_pop(app);
     furi_mutex_free(w.mutex);
+}
+
+static void run_calibration_menu(BioMapApp* app) {
+    run_cal_submenu(app, calibration_menu_render,
+                    run_calibration_wizard, biomap_reset_calibration,
+                    run_show_current_calibration);
 }
 

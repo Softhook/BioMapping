@@ -69,7 +69,7 @@ typedef enum {
 typedef struct {
     GsrSensor*    gsr;
     bool          sensor_ok;
-    int           step;                        // WizardStep* (biomap_config.h)
+    int           step;                        // WizardStep* (above)
     float         measured[CAL_POINTS];        // [470k, 100k, 47k], nS
     float         noise_std_dev[CAL_POINTS];   // per-resistor σ from the dwell, nS
     int           fail_idx;                    // resistor index behind step 9/11/12's fail screen
@@ -100,6 +100,11 @@ void cal_wizard_init(CalWizardCore* w, GsrSensor* gsr);
 // actively running and needs 10 Hz cal_wizard_tick() calls.
 static inline bool cal_wizard_measuring(const CalWizardCore* w) {
     return w->phase != CalDwellPhaseIdle;
+}
+
+// Bounds-checked resistor index (0 .. CAL_POINTS - 1) for fail screens.
+static inline int cal_wizard_fail_step_index(const CalWizardCore* w) {
+    return (w->fail_idx >= 0 && w->fail_idx < CAL_POINTS) ? w->fail_idx : 0;
 }
 
 // Handle OK (`is_ok == true`) or Back (`is_ok == false`). When the return

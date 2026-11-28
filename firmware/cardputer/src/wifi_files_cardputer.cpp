@@ -20,7 +20,6 @@
 
 #include "clock_cardputer.h"
 #include "cues_cardputer.h"
-#include "key_map.h"
 #include "keys.h"
 #include "sd_cardputer.h"
 #include "settings_cardputer.h"
@@ -63,6 +62,7 @@ static struct {
     M5Canvas*  canvas = nullptr;
     uint8_t*   io_buf = nullptr;
     char       ssid[32] = "";
+    char       ip_str[16] = "";
     char       qr_wifi[80] = "";
     char       qr_url[48] = "";
     char       status_line[48] = "";
@@ -210,22 +210,8 @@ static void scan_csv_dir(CsvFileList* out, size_t max_items) {
 // ── Transfer responsiveness, status line, and streaming I/O ──────────────
 
 static bool poll_escape_during_transfer(void) {
-    M5Cardputer.update();
-    keys_unstick_poll();
-    if(M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
-        SessionKey key;
-        if(keys_to_session(M5Cardputer.Keyboard.keysState(), &key) &&
-           key == SessionKeyBack) {
-            g_wf.wants_exit = true;
-            return true;
-        }
-    }
-    while(Serial.available() > 0) {
-        SessionKey key;
-        if(key_map_char(Serial.read(), &key) && key == SessionKeyBack) {
-            g_wf.wants_exit = true;
-            return true;
-        }
+    if(!g_wf.wants_exit && keys_poll_back_escape()) {
+        g_wf.wants_exit = true;
     }
     return g_wf.wants_exit;
 }
@@ -402,10 +388,10 @@ static void redirect_to(const char* path) {
 // True when the request named our own address, or none at all.
 static bool asked_for_us(void) {
     String host = g_wf.server->hostHeader();
-    const char* ours = g_wf.qr_url + 7;  // after "http://"
-    size_t n = strlen(ours);
     if(host.length() == 0) return true;
-    return strncmp(host.c_str(), ours, n) == 0 &&
+    size_t n = strlen(g_wf.ip_str);
+    if(n == 0) return false;
+    return strncmp(host.c_str(), g_wf.ip_str, n) == 0 &&
            (host.c_str()[n] == '\0' || host.c_str()[n] == ':');
 }
 
@@ -736,7 +722,7 @@ static void handle_not_found(void) {
 
 bool wifi_files_start(M5Canvas& canvas) {
     wifi_files_stop();
-    if(!sd_card_mount() || !sd_card_ready()) {
+    if(!sd_card_mount()) {
         Serial.println("[WiFi] warning: SD card not ready");
         return false;
     }
@@ -769,7 +755,8 @@ bool wifi_files_start(M5Canvas& canvas) {
     WiFi.setTxPower(WIFI_POWER_15dBm);
 
     IPAddress ip = WiFi.softAPIP();
-    snprintf(g_wf.qr_url, sizeof(g_wf.qr_url), "http://%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+    snprintf(g_wf.ip_str, sizeof(g_wf.ip_str), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+    snprintf(g_wf.qr_url, sizeof(g_wf.qr_url), "http://%s", g_wf.ip_str);
 
     g_wf.server = new (std::nothrow) WebServer(80);
     if(!g_wf.server) {
@@ -818,8 +805,8 @@ bool wifi_files_start(M5Canvas& canvas) {
     // Ensure the QR code is bright enough for phone cameras even when DIM.
     M5Cardputer.Display.setBrightness(UI_BRIGHTNESS_ON);
 
-    Serial.printf("[WiFi] on: ap=%s ip=%u.%u.%u.%u files=%d (free heap %u)\n",
-                  g_wf.ssid, ip[0], ip[1], ip[2], ip[3],
+    Serial.printf("[WiFi] on: ap=%s ip=%s files=%d (free heap %u)\n",
+                  g_wf.ssid, g_wf.ip_str,
                   g_wf.file_count, (unsigned)ESP.getFreeHeap());
     return true;
 }
@@ -845,7 +832,9 @@ void wifi_files_stop(void) {
     g_wf.status_timed = false;
     g_wf.canvas = nullptr;
     g_wf.client_count = 0;
+    g_wf.ip_str[0] = '\0';
     g_wf.qr_wifi[0] = '\0';
+    g_wf.qr_url[0] = '\0';
 
     if(was_active) {
         WiFi.softAPdisconnect(true);
@@ -950,8 +939,7 @@ void wifi_files_draw(M5Canvas& canvas) {
         draw_fit(canvas, "No password", 40, UI_COL_MUTED);
     } else {
         draw_fit(canvas, "2. Open page", 2, TFT_CYAN);
-        const char* host = strncmp(g_wf.qr_url, "http://", 7) == 0 ? g_wf.qr_url + 7 : g_wf.qr_url;
-        draw_fit(canvas, host, 20, TFT_WHITE);
+        draw_fit(canvas, g_wf.ip_str, 20, TFT_WHITE);
         draw_fit(canvas, g_wf.ssid, 40, UI_COL_MUTED);
     }
 

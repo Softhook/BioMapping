@@ -15,11 +15,9 @@
 // internal lock — do NOT hold the app mutex when calling gps_uart_process_rx().
 
 #include <furi.h>
-#include <furi_hal.h>
 #include "core/gps_uart.h"
 
 #define GPS_RX_BUF_SIZE   (1024 * 5)
-#define GPS_UART_CH       FuriHalSerialIdUsart
 
 // Lifecycle — caller owns event_queue until free() returns. See
 // gps_uart_create() for what alloc does and how long it blocks.

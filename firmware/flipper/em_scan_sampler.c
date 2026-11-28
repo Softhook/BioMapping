@@ -1,5 +1,5 @@
 // em_scan_sampler.c — paced CC1101 RSSI sampling on the GSR worker thread.
-// See em_scan_sampler.h for how it plugs into gsr_sensor.c.
+// See em_scan_sampler.h for how it plugs into flipper/gsr_sensor_flipper.c.
 
 #include "em_scan_sampler.h"
 #include <furi.h>
@@ -22,6 +22,7 @@
 // trips it.
 #define EM_SCAN_DISABLE_SPI_WAIT_TIMEOUT_MS 100
 #define EM_SCAN_DISABLE_SPI_WAIT_POLL_MS     1
+#define EM_SCAN_DISABLED_RSSI_DBM          (-100.0f)
 
 struct EmScanSampler {
     // Written by the main thread (set_enabled), read by the worker on every
@@ -59,7 +60,7 @@ struct EmScanSampler {
 static void reset_snapshot(EmScanSampler* s) {
     furi_mutex_acquire(s->mutex, FuriWaitForever);
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-        s->rssi_dbm[i] = -100.0f;
+        s->rssi_dbm[i] = EM_SCAN_DISABLED_RSSI_DBM;
     }
     furi_mutex_release(s->mutex);
 }
@@ -72,13 +73,11 @@ EmScanSampler* em_scan_sampler_alloc(void) {
     s->deinit_pending = false;
     s->last_sample_tick = 0;
     s->sample_ticks = (EM_SCAN_SAMPLE_INTERVAL_MS * furi_kernel_get_tick_frequency()) / 1000;
-    for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-        s->rssi_dbm[i] = -100.0f;
-    }
     s->rssi_peak_ms = 0;
     s->retune_peak_ms = 0;
     s->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     furi_check(s->mutex, "EmScanSampler: mutex alloc failed");
+    reset_snapshot(s);
     return s;
 }
 
@@ -128,9 +127,7 @@ void em_scan_sampler_poll(void* ctx) {
     uint32_t sweep_dur = furi_get_tick() - sweep_start;
 
     furi_mutex_acquire(s->mutex, FuriWaitForever);
-    for(int b = 0; b < EM_SCAN_NUM_FREQS; b++) {
-        s->rssi_dbm[b] = snapshot[b];
-    }
+    memcpy(s->rssi_dbm, snapshot, sizeof(s->rssi_dbm));
     if(sweep_dur > s->rssi_peak_ms) s->rssi_peak_ms = sweep_dur;
     if(retune_dur > s->retune_peak_ms) s->retune_peak_ms = retune_dur;
     furi_mutex_release(s->mutex);

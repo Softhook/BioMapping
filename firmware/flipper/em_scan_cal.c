@@ -19,23 +19,29 @@ uint32_t em_scan_cal_compute_crc(const EmScanCal* cal) {
     return ~biomap_crc32_update(0xFFFFFFFFu, cal, offsetof(EmScanCal, crc32));
 }
 
-bool em_scan_cal_validate(const EmScanCal* cal) {
-    if(!cal) return false;
-    if(cal->magic != EM_SCAN_CAL_MAGIC) return false;
-    if(cal->version != EM_SCAN_CAL_VERSION) return false;
-    if(cal->crc32 != em_scan_cal_compute_crc(cal)) return false;
-
+bool em_scan_cal_stats_valid(
+    const float noise_floor_dbm[EM_SCAN_NUM_FREQS],
+    const float noise_std_dev_db[EM_SCAN_NUM_FREQS]) {
+    if(!noise_floor_dbm || !noise_std_dev_db) return false;
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-        float floor = cal->noise_floor_dbm[i];
+        float floor = noise_floor_dbm[i];
         if(isnan(floor) || floor < EM_SCAN_CAL_MIN_FLOOR_DBM || floor > em_scan_cal_max_floor_dbm[i]) {
             return false;
         }
-        float std_dev = cal->noise_std_dev_db[i];
+        float std_dev = noise_std_dev_db[i];
         if(isnan(std_dev) || std_dev < 0.0f || std_dev >= EM_SCAN_CAL_MAX_STD_DEV_DB) {
             return false;
         }
     }
     return true;
+}
+
+bool em_scan_cal_validate(const EmScanCal* cal) {
+    if(!cal) return false;
+    if(cal->magic != EM_SCAN_CAL_MAGIC) return false;
+    if(cal->version != EM_SCAN_CAL_VERSION) return false;
+    if(cal->crc32 != em_scan_cal_compute_crc(cal)) return false;
+    return em_scan_cal_stats_valid(cal->noise_floor_dbm, cal->noise_std_dev_db);
 }
 
 bool em_scan_cal_load(EmScanCal* cal, Storage* storage) {
@@ -66,25 +72,25 @@ bool em_scan_cal_save(const EmScanCal* cal, Storage* storage) {
 
     if(!em_scan_cal_validate(&temp_cal)) return false;
 
-    storage_common_mkdir(storage, "/ext/biomapping");
+    storage_common_mkdir(storage, EM_SCAN_CAL_DIR);
 
     File* file = storage_file_alloc(storage);
     if(!file) return false;
 
-    const char* tmp_path = "/ext/biomapping/em_scan_cal.bin.tmp";
+    bool opened = storage_file_open(file, EM_SCAN_CAL_PATH_TMP, FSAM_WRITE, FSOM_CREATE_ALWAYS);
     bool success = false;
-    if(storage_file_open(file, tmp_path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
+    if(opened) {
         size_t written = storage_file_write(file, &temp_cal, sizeof(EmScanCal));
-        if(written == sizeof(EmScanCal)) {
-            success = true;
-        }
+        success = (written == sizeof(EmScanCal));
         storage_file_close(file);
     }
     storage_file_free(file);
 
     if(success) {
-        FS_Error err = storage_common_rename(storage, tmp_path, EM_SCAN_CAL_PATH);
+        FS_Error err = storage_common_rename(storage, EM_SCAN_CAL_PATH_TMP, EM_SCAN_CAL_PATH);
         success = (err == FSE_OK);
+    } else if(opened) {
+        storage_common_remove(storage, EM_SCAN_CAL_PATH_TMP);
     }
     return success;
 }
@@ -92,7 +98,7 @@ bool em_scan_cal_save(const EmScanCal* cal, Storage* storage) {
 void em_scan_cal_reset(Storage* storage) {
     if(!storage) return;
     storage_common_remove(storage, EM_SCAN_CAL_PATH);
-    storage_common_remove(storage, "/ext/biomapping/em_scan_cal.bin.tmp");
+    storage_common_remove(storage, EM_SCAN_CAL_PATH_TMP);
 }
 
 static void sort_floats(float* arr, uint32_t n) {

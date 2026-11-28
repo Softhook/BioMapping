@@ -15,6 +15,10 @@
 
 #include "biomap_session.h"  // SessionKey (core/)
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 static inline bool key_map_char(int ch, SessionKey* out) {
     switch(ch) {
     case ';':
@@ -34,3 +38,7 @@ static inline bool key_map_char(int ch, SessionKey* out) {
     default:   return false;
     }
 }
+
+#ifdef __cplusplus
+}
+#endif

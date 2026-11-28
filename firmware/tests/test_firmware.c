@@ -172,6 +172,15 @@ void test_cycle_selection_wraparound() {
     for(int i = 0; i < 6; i++) assert(cycle_selection(i, 7, true) == i + 1);
     for(int i = 6; i > 0; i--) assert(cycle_selection(i, 7, false) == i - 1);
 
+    // Scroll window top: stays at 0 while the list fits or selection is inside
+    // the top window, then slides down by one row per step past max_visible.
+    assert(scroll_window_top(0, 3, 4) == 0);
+    assert(scroll_window_top(2, 3, 4) == 0);
+    assert(scroll_window_top(0, 6, 4) == 0);
+    assert(scroll_window_top(3, 6, 4) == 0);
+    assert(scroll_window_top(4, 6, 4) == 1);
+    assert(scroll_window_top(5, 6, 4) == 2);
+
     printf("  -> Pass\n");
 }
 
@@ -346,6 +355,19 @@ void test_update_graph_peak_floor_clamp_and_lerp() {
     // Target = 80/0.5 = 160, clamped to ZOOM_MAX (16) before the lerp.
     float expected_level = 2.0f + (ZOOM_MAX - 2.0f) * ZOOM_LERP_RATE;
     assert(fabsf(p.zoom.level - expected_level) < 1e-4f);
+
+    // Same floor clamp and lerp must still advance on non-sample ticks when
+    // zoomed out horizontally (graph.level > 0, where ring[level] only writes
+    // every 2^level ticks).
+    Pipeline p_slow = {0};
+    p_slow.graph.level = 1;  // ring[1] writes on even tick counts only
+    p_slow.zoom.enabled = true;
+    p_slow.zoom.level = 2.0f;
+    p_slow.zoom.peak = ZOOM_PEAK_FLOOR;
+    pipeline_update_graph(&p_slow);  // tick 1: ring[1] does not step
+    assert(fabsf(p_slow.zoom.peak - ZOOM_PEAK_FLOOR) < 1e-6f);
+    assert(fabsf(p_slow.zoom.level - expected_level) < 1e-4f);
+
     printf("  -> Pass\n");
 }
 
@@ -1105,6 +1127,21 @@ void test_cal_make_fields_and_status_text() {
         for(size_t j = 0; j < i; j++)
             assert(strcmp(text, biomap_calibration_status_text(fails[j])) != 0);
     }
+
+    // biomap_format_cal_age: "Age: <N> d" when both epochs are valid,
+    // "Age: unknown" when either is 0 or clock is behind saved timestamp.
+    char age[32];
+    assert(biomap_format_cal_age(age, sizeof(age), 1700000000u, 1700000000u + 3u * 86400u + 500u) > 0);
+    assert(strcmp(age, "Age: 3 d") == 0);
+    assert(biomap_format_cal_age(age, sizeof(age), 0u, 1700000000u) > 0);
+    assert(strcmp(age, "Age: unknown") == 0);
+    assert(biomap_format_cal_age(age, sizeof(age), 1700000000u, 0u) > 0);
+    assert(strcmp(age, "Age: unknown") == 0);
+    assert(biomap_format_cal_age(age, sizeof(age), 1700000100u, 1700000000u) > 0);
+    assert(strcmp(age, "Age: unknown") == 0);
+    char tiny_age[6];
+    assert(biomap_format_cal_age(tiny_age, sizeof(tiny_age), 1700000000u, 1700086400u) == -1);
+
     printf("  -> Pass\n");
 }
 
@@ -1156,14 +1193,7 @@ void test_cal_check_bounds_edges() {
 
 void test_settings_record_valid() {
     printf("Running test_settings_record_valid...\n");
-    BioMapSettings s;
-    memset(&s, 0, sizeof(s));
-    s.magic = BIOMAP_SETTINGS_MAGIC;
-    s.version = BIOMAP_SETTINGS_VERSION;
-    s.zoom_enabled = true;
-    s.sound_enabled = true;
-    s.nav_model = GpsNavModelBike;
-    s.checksum = biomap_settings_checksum(&s);
+    BioMapSettings s = biomap_settings_make(true, false, true, GpsNavModelBike, false, false);
     assert(biomap_settings_valid(&s));
 
     BioMapSettings bad;

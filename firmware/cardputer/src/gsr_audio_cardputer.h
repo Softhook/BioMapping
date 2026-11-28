@@ -15,7 +15,6 @@
 //     audio task, powers down the GSR sensor and frees all the memory.
 
 #include <M5Cardputer.h>
-#include <stdbool.h>
 
 #include "biomap_session.h"
 #include "gsr_sensor.h"

@@ -24,7 +24,7 @@ bool gps_cardputer_port_open(GpsUtcTime* boot_utc = nullptr);
 // Puts the module into software standby (100 ms; no-op if already asleep or
 // port closed) and starts counting stray bytes until the next start(). Call
 // when entering non-GPS modes (GSR Only, Diagnostics, Calibration, Wi-Fi
-// Files) or after a cold reset.
+// Files, GSR Audio) or after a cold reset.
 void gps_cardputer_sleep(void);
 
 // True while the module has been put into software standby.

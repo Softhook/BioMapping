@@ -94,14 +94,9 @@ static void plat_rf_snapshot(void* ctx, float out_dbm[RF_BAND_COUNT]) {
 
 static void plat_fill_diag(void* ctx, RowDiag* d) {
     const Session* s = &((BioMapApp*)ctx)->session;
-    d->rf_rssi_peak_ms      = s->em ? em_scan_sampler_get_rssi_peak_ms(s->em) : 0;
-    d->rf_retune_peak_ms    = s->em ? em_scan_sampler_get_retune_peak_ms(s->em) : 0;
-    d->flush_peak_ms        = s->logger ? sd_logger_get_flush_peak_ms(s->logger) : 0;
-    d->log_fill_bytes       = s->logger ? sd_logger_get_batch_fill_bytes(s->logger) : 0;
-    d->log_fill_peak_bytes  = s->logger ? sd_logger_get_batch_fill_peak_bytes(s->logger) : 0;
-    d->log_overflow_count   = s->logger ? sd_logger_get_overflow_count(s->logger) : 0;
-    d->log_flush_fail_count = s->logger ? sd_logger_get_flush_fail_count(s->logger) : 0;
-    d->prealloc_ms          = s->logger ? sd_logger_get_prealloc_ms(s->logger) : 0;
+    d->rf_rssi_peak_ms   = s->em ? em_scan_sampler_get_rssi_peak_ms(s->em) : 0;
+    d->rf_retune_peak_ms = s->em ? em_scan_sampler_get_retune_peak_ms(s->em) : 0;
+    sd_logger_fill_diag(s->logger, d);
 }
 
 // Once a second with debug fields on, lock released: memory and stack, and
@@ -174,8 +169,8 @@ static SessionSettings session_settings(BioMapApp* app) {
         .cal_r_squared        = app->cal_r_squared,
         .cal_timestamp        = app->cal_timestamp,
     };
-    for(int i = 0; i < RF_BAND_COUNT; i++) cfg.rf_floors_dbm[i] = app->rf_cal_data.noise_floor_dbm[i];
-    for(int i = 0; i < CAL_POINTS; i++) cfg.cal_noise_std_dev[i] = app->cal_noise_std_dev[i];
+    memcpy(cfg.rf_floors_dbm, app->rf_cal_data.noise_floor_dbm, sizeof(cfg.rf_floors_dbm));
+    memcpy(cfg.cal_noise_std_dev, app->cal_noise_std_dev, sizeof(cfg.cal_noise_std_dev));
     return cfg;
 }
 
@@ -246,15 +241,7 @@ static void session_deinit(BioMapApp* app) {
     // (BioMapCueSdWriteStopped, paired with the "REC STOPPED" banner) and
     // nothing else turns it off. Every other light here clears itself.
     biomap_app_cue(app, BioMapCueStatusLightOff);
-    if(s->vp) {
-        // s->vp is app->screen_vp, the one fullscreen ViewPort every
-        // screen shares. Disable it and clear its draw callback, but never
-        // remove or free it: with no enabled fullscreen ViewPort for a
-        // moment, the desktop would flash through before the next screen.
-        view_port_enabled_set(s->vp, false);
-        view_port_draw_callback_set(s->vp, NULL, NULL);
-        s->vp = NULL;
-    }
+    vp_pop(app);
 }
 
 // ==========================================================================
@@ -283,10 +270,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     // that time, find no enabled fullscreen ViewPort and paint the
     // desktop. The draw callback copes with the modules not being there
     // yet ("GPS unavailable", no graph).
-    s->vp = app->screen_vp;
-    view_port_draw_callback_set(s->vp, biomap_render_callback, app);
-    view_port_enabled_set(s->vp, true);
-    view_port_update(s->vp);
+    ViewPort* vp = vp_push(app, biomap_render_callback, app);
 
     GpsUart* gps = NULL;
     if(session_mode_needs_gps(mode)) {
@@ -301,8 +285,8 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         : NULL;
     if(gsr) gsr_sensor_set_calibration(gsr, app->cal_active, app->cal_gain, app->cal_zero_counts);
     if(em) em_scan_sampler_set_enabled(em, true);
-    // Live Stream has no file: Bluetooth replaces it.
-    SdLogger* logger = (mode == BioMapModeLiveStream) ? NULL : sd_logger_alloc(app->storage);
+    // Live Stream and Diagnostics do not record to SD.
+    SdLogger* logger = session_mode_records(mode) ? sd_logger_alloc(app->storage) : NULL;
     BtStream* bt_stream = NULL;
     if(mode == BioMapModeLiveStream) {
         bt_stream = bt_stream_alloc();
@@ -320,7 +304,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     s->logger = logger;
     s->bt_stream = bt_stream;
     furi_mutex_release(app->mutex);
-    view_port_update(s->vp);
+    view_port_update(vp);
 
     biomap_backlight_claim(app);
 
@@ -349,7 +333,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort
            && session_key(ev.input.key, &key)) {
             bool was_recording = s->core.recording.active;
-            if(session_core_key(&s->core, key)) view_port_update(s->vp);
+            if(session_core_key(&s->core, key)) view_port_update(vp);
             if(!was_recording && s->core.recording.active) {
                 // Starting took about half a second or more (bias check,
                 // file, sound, settle), and the timer kept queueing ticks.
@@ -363,7 +347,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
 
         if(ev.type == EventTypeTick) {
             if((int32_t)(ev.tick_ms - drop_ticks_before) < 0) continue;
-            if(session_core_tick(&s->core)) view_port_update(s->vp);
+            if(session_core_tick(&s->core)) view_port_update(vp);
         }
     }
 

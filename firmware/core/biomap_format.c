@@ -9,9 +9,20 @@
 #include <stdio.h>
 #include <string.h>
 
+// Shared trailing 8 debug columns carried by both GPS+GSR and GSR-only rows.
+static int format_common_diag_tail(char* buf, size_t cap, const RowDiag* diag) {
+    int n = snprintf(buf, cap, "%u,%u,%u,%u,%u,%u,%u,%.2f\n",
+                     (unsigned)diag->log_fill_bytes, (unsigned)diag->log_fill_peak_bytes,
+                     (unsigned)diag->log_overflow_count, (unsigned)diag->log_flush_fail_count,
+                     (unsigned)diag->pga_change_count, (unsigned)diag->i2c_consec_fail,
+                     (unsigned)diag->prealloc_ms, (double)diag->gsr_spread_ns);
+    return (n <= 0 || (size_t)n >= cap) ? -1 : n;
+}
+
 int biomap_format_gps_row(char* out, size_t cap, bool debug_fields,
                           const GpsPosition* pos, double rel, float raw,
                           const float* rf_rssi, const RowDiag* diag) {
+    _Static_assert(RF_BAND_COUNT == 3, "update rf_rssi snprintf for RF_BAND_COUNT");
     bool gps_ok = pos->valid;
     int n;
     if(gps_ok) {
@@ -39,42 +50,38 @@ int biomap_format_gps_row(char* out, size_t cap, bool debug_fields,
         ? snprintf(out + n, cap - (size_t)n, ",%.1f,%.1f,%.1f",
                    (double)rf_rssi[0], (double)rf_rssi[1], (double)rf_rssi[2])
         : 0;
-    if(n2 < 0 || (size_t)(n + n2) >= cap) return -1;
+    if(n2 < 0 || (size_t)n2 >= cap - (size_t)n) return -1;
     n += n2;
 
     // Debug columns are always appended at the very end so production
     // columns stay contiguous and easy to consume.
-    int nd = debug_fields
-        ? snprintf(out + n, cap - (size_t)n,
-                   ",%u,%u,%u,%u,%.1f,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%.2f\n",
-                   (unsigned)diag->tick_dt_ms, (unsigned)diag->gps_rx_drops,
-                   (unsigned)diag->nmea_fail, (unsigned)diag->gps_reinit_count,
-                   (double)diag->gsr_hz,
-                   (unsigned)diag->i2c_peak_ms, (unsigned)diag->rf_rssi_peak_ms,
-                   (unsigned)diag->rf_retune_peak_ms, (unsigned)diag->flush_peak_ms,
-                   (unsigned)diag->log_fill_bytes, (unsigned)diag->log_fill_peak_bytes,
-                   (unsigned)diag->log_overflow_count, (unsigned)diag->log_flush_fail_count,
-                   (unsigned)diag->pga_change_count, (unsigned)diag->i2c_consec_fail,
-                   (unsigned)diag->prealloc_ms, (double)diag->gsr_spread_ns)
-        : snprintf(out + n, cap - (size_t)n, "\n");
-    if(nd <= 0 || (size_t)(n + nd) >= cap) return -1;
+    if(!debug_fields) {
+        int nd = snprintf(out + n, cap - (size_t)n, "\n");
+        return (nd <= 0 || (size_t)nd >= cap - (size_t)n) ? -1 : n + nd;
+    }
+    int nd = snprintf(out + n, cap - (size_t)n,
+                      ",%u,%u,%u,%u,%.1f,%u,%u,%u,%u,",
+                      (unsigned)diag->tick_dt_ms, (unsigned)diag->gps_rx_drops,
+                      (unsigned)diag->nmea_fail, (unsigned)diag->gps_reinit_count,
+                      (double)diag->gsr_hz,
+                      (unsigned)diag->i2c_peak_ms, (unsigned)diag->rf_rssi_peak_ms,
+                      (unsigned)diag->rf_retune_peak_ms, (unsigned)diag->flush_peak_ms);
+    if(nd <= 0 || (size_t)nd >= cap - (size_t)n) return -1;
     n += nd;
-
-    return n;
+    int nt = format_common_diag_tail(out + n, cap - (size_t)n, diag);
+    return (nt <= 0) ? -1 : n + nt;
 }
 
 int biomap_format_gsr_row(char* out, size_t cap, bool debug_fields,
                           double rel, float raw, const RowDiag* diag) {
-    int n = debug_fields
-        ? snprintf(out, cap, "%.2f,%.1f,%u,%u,%u,%u,%u,%u,%u,%.2f\n",
-                   rel, (double)raw,
-                   (unsigned)diag->log_fill_bytes, (unsigned)diag->log_fill_peak_bytes,
-                   (unsigned)diag->log_overflow_count, (unsigned)diag->log_flush_fail_count,
-                   (unsigned)diag->pga_change_count, (unsigned)diag->i2c_consec_fail,
-                   (unsigned)diag->prealloc_ms, (double)diag->gsr_spread_ns)
-        : snprintf(out, cap, "%.2f,%.1f\n", rel, (double)raw);
+    if(!debug_fields) {
+        int n = snprintf(out, cap, "%.2f,%.1f\n", rel, (double)raw);
+        return (n <= 0 || (size_t)n >= cap) ? -1 : n;
+    }
+    int n = snprintf(out, cap, "%.2f,%.1f,", rel, (double)raw);
     if(n <= 0 || (size_t)n >= cap) return -1;
-    return n;
+    int nt = format_common_diag_tail(out + n, cap - (size_t)n, diag);
+    return (nt <= 0) ? -1 : n + nt;
 }
 
 int biomap_format_gsr_bias_line(char* out, size_t cap, float measured_v, float used_v) {
@@ -93,6 +100,11 @@ int32_t cycle_selection(int32_t sel, int32_t count, bool down) {
     } else {
         return (sel - 1 < 0) ? count - 1 : sel - 1;
     }
+}
+
+int scroll_window_top(int sel, int count, int max_visible) {
+    if(count > max_visible && sel >= max_visible) return sel - max_visible + 1;
+    return 0;
 }
 
 const char* biomap_nav_model_label(GpsNavModel model) {
@@ -154,6 +166,12 @@ float cal_dwell_mean_all(const CalDwell* d) {
     return d->all > 0 ? d->sum_all / (float)d->all : 0.0f;
 }
 
+const CalStepInfo biomap_cal_steps[CAL_POINTS] = {
+    {"Low",  "470k"},
+    {"Mid",  "100k"},
+    {"High", "47k"},
+};
+
 const float biomap_cal_targets[CAL_POINTS] = {
     CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K,
 };
@@ -170,6 +188,13 @@ float biomap_cal_worst_noise_std_dev(const float noise_std_dev[CAL_POINTS]) {
         if(noise_std_dev[i] > worst) worst = noise_std_dev[i];
     }
     return worst;
+}
+
+int biomap_format_cal_age(char* buf, size_t cap, uint32_t saved_epoch, uint32_t now_epoch) {
+    int n = (saved_epoch == 0 || now_epoch == 0 || now_epoch < saved_epoch)
+        ? snprintf(buf, cap, "Age: unknown")
+        : snprintf(buf, cap, "Age: %lu d", (unsigned long)((now_epoch - saved_epoch) / 86400UL));
+    return (n < 0 || (size_t)n >= cap) ? -1 : n;
 }
 
 bool calibration_wizard_compute_fit(const float measured[CAL_POINTS],
@@ -226,8 +251,8 @@ bool calibration_wizard_compute_fit(const float measured[CAL_POINTS],
     *out_gain = gain;
     *out_r_squared = r_squared;
 
-    // Validate gain bounds and linearity (R² ≥ 0.95)
-    return gain >= CAL_GAIN_MIN && gain <= CAL_GAIN_MAX && r_squared >= 0.95f;
+    // Validate gain bounds and linearity (R² ≥ CAL_MIN_R_SQUARED)
+    return gain >= CAL_GAIN_MIN && gain <= CAL_GAIN_MAX && r_squared >= CAL_MIN_R_SQUARED;
 }
 
 CalNoiseGrade calibration_noise_grade(float std_dev_ns) {
@@ -380,6 +405,23 @@ bool biomap_settings_valid(const BioMapSettings* s) {
            s->version == BIOMAP_SETTINGS_VERSION &&
            s->checksum == biomap_settings_checksum(s) &&
            s->nav_model < GpsNavModelCount;
+}
+
+BioMapSettings biomap_settings_make(bool zoom_enabled, bool backlight_on, bool sound_enabled,
+                                    GpsNavModel nav_model, bool super_s,
+                                    bool debug_fields_enabled) {
+    BioMapSettings s;
+    memset(&s, 0, sizeof(s));
+    s.magic = BIOMAP_SETTINGS_MAGIC;
+    s.version = BIOMAP_SETTINGS_VERSION;
+    s.zoom_enabled = zoom_enabled;
+    s.backlight_on = backlight_on;
+    s.sound_enabled = sound_enabled;
+    s.nav_model = (uint32_t)nav_model;
+    s.super_s = super_s;
+    s.debug_fields_enabled = debug_fields_enabled;
+    s.checksum = biomap_settings_checksum(&s);
+    return s;
 }
 
 int biomap_format_file_stamp(char* out, size_t cap, uint16_t year, uint8_t month, uint8_t day,

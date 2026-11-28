@@ -7,26 +7,27 @@
 #include <M5Cardputer.h>
 #include <stdint.h>
 
-static const int UI_SCREEN_W = 240;
-static const int UI_SCREEN_H = 135;
+#include "biomap_types.h"
+
+constexpr int      UI_SCREEN_W      = 240;
+constexpr int      UI_SCREEN_H      = 135;
+constexpr uint32_t UI_ANIM_MS       = 33;  // ~30 FPS waveform / UI animation step
 
 // Bright (normal, also used for QR codes) vs dim (power-saving) backlight.
-static const uint8_t UI_BRIGHTNESS_ON  = 128;
-static const uint8_t UI_BRIGHTNESS_DIM = 24;
+constexpr uint8_t UI_BRIGHTNESS_ON  = 128;
+constexpr uint8_t UI_BRIGHTNESS_DIM = 24;
 
 // Shared RGB565 theme palette.
-static const uint16_t UI_COL_HEADER_BG = 0x10A4;  // deep navy
-static const uint16_t UI_COL_SEL_BG    = 0x02B3;  // rich blue highlight
-static const uint16_t UI_COL_SEL_EDGE  = 0x07FF;  // cyan accent bar
-static const uint16_t UI_COL_FOOTER_BG = 0x1082;  // dark slate footer
-static const uint16_t UI_COL_MUTED     = 0x8410;  // mid grey
-static const uint16_t UI_COL_FRAME     = 0x2965;  // slate graph border
-static const uint16_t UI_COL_GRID      = 0x10A2;  // subtle dark grid
+constexpr uint16_t UI_COL_HEADER_BG = 0x10A4;  // deep navy
+constexpr uint16_t UI_COL_SEL_BG    = 0x02B3;  // rich blue highlight
+constexpr uint16_t UI_COL_SEL_EDGE  = 0x07FF;  // cyan accent bar
+constexpr uint16_t UI_COL_FOOTER_BG = 0x1082;  // dark slate footer
+constexpr uint16_t UI_COL_MUTED     = 0x8410;  // mid grey
+constexpr uint16_t UI_COL_FRAME     = 0x2965;  // slate graph border
+constexpr uint16_t UI_COL_GRID      = 0x10A2;  // subtle dark grid
 
 inline uint8_t ui_clamp_u8(int v) {
-    if(v < 0) return 0;
-    if(v > 255) return 255;
-    return (uint8_t)v;
+    return (uint8_t)clampi(v, 0, 255);
 }
 
 inline uint16_t ui_pack565(uint8_t r, uint8_t g, uint8_t b) {
@@ -57,8 +58,7 @@ inline uint16_t ui_scale565(uint8_t r, uint8_t g, uint8_t b, float a) {
 //   u = 0.5 -> warm amber  (#ffd23f)
 //   u = 1.0 -> coral red   (#ff5a3c)
 inline void ui_spectrum_rgb(float u, uint8_t* out_r, uint8_t* out_g, uint8_t* out_b) {
-    if(u < 0.0f) u = 0.0f;
-    if(u > 1.0f) u = 1.0f;
+    u = clampf(u, 0.0f, 1.0f);
     float r, g, b;
     if(u < 0.5f) {
         float k = u * 2.0f;
@@ -97,6 +97,31 @@ inline void ui_draw_header(M5Canvas& canvas, const char* title,
         int w = canvas.textWidth(right_text);
         canvas.drawString(right_text, UI_SCREEN_W - w - 6, 3);
     }
+}
+
+inline void ui_reset_canvas(M5Canvas& canvas) {
+    canvas.fillSprite(TFT_BLACK);
+    canvas.setFont(&fonts::Font2);
+    canvas.setTextDatum(textdatum_t::top_left);
+}
+
+inline void ui_draw_dashed_hline(M5Canvas& canvas, int x0, int x1, int y,
+                                 uint16_t col, int step = 4) {
+    for(int x = x0; x < x1; x += step) {
+        canvas.drawPixel(x, y, col);
+        if(x + 1 < x1) canvas.drawPixel(x + 1, y, col);
+    }
+}
+
+// 2 px anti-aliased vertical waveform span between adjacent columns with
+// 1 px top/bottom glow caps clipped to [y_min, y_max].
+inline void ui_draw_glow_span(M5Canvas& canvas, int x, int y_prev, int y_cur,
+                              int y_min, int y_max, uint16_t col, uint16_t glow) {
+    int y_lo = y_prev < y_cur ? y_prev : y_cur;
+    int y_hi = y_prev > y_cur ? y_prev : y_cur;
+    if(y_lo > y_min) canvas.drawPixel(x, y_lo - 1, glow);
+    if(y_hi < y_max) canvas.drawPixel(x, y_hi + 1, glow);
+    canvas.drawFastVLine(x, y_lo, y_hi - y_lo + 1, col);
 }
 
 inline void ui_draw_footer(M5Canvas& canvas, const char* text,

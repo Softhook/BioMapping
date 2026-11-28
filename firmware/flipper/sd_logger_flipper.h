@@ -5,7 +5,7 @@
 
 #include <storage/storage.h>
 
-#include "../core/sd_logger.h"
+#include "core/sd_logger.h"
 
 SdLogger* sd_logger_alloc(Storage* storage);
 void      sd_logger_free(SdLogger* logger);

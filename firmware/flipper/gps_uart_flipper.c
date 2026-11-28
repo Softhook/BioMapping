@@ -12,7 +12,8 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 
-#define TAG "GpsUart"
+#define TAG         "GpsUart"
+#define GPS_UART_CH FuriHalSerialIdUsart
 
 // One per GpsUart (one GPS session), except the bare one gps_uart_port_open()
 // and gps_uart_sleep() use for boot wake / standby, which only has `handle`.
@@ -21,7 +22,7 @@ typedef struct {
     FuriStreamBuffer*    rx_stream;   // bytes from the interrupt (GpsRxStream)
     FuriMutex*           mutex;       // the shared code's lock (GpsPlatform.lock/unlock)
     FuriMessageQueue*    event_queue;
-    volatile bool        rx_pending;  // an EventTypeUart is already queued
+    _Atomic bool         rx_pending;  // an EventTypeUart is already queued
     // Written from ISR context (gps_flipper_rx_cb), read from the main
     // thread (gps_flipper_rx_drop_count) — genuinely cross-context, so
     // _Atomic, same reasoning as the GSR worker's `running` flag after its
@@ -212,12 +213,9 @@ static GpsPlatform gps_flipper_platform(GpsFlipper* f) {
 // sleeping module sends nothing, so a non-zero count means it woke — the
 // on-hardware check that the sleep held, logged when the idle stretch ends.
 //
-// Bytes in the first GPS_IDLE_SETTLE_MS aren't counted: after the app-start
-// sleep, hardware showed exactly 9 stray bytes every time from a module that
-// then needed a full restart to wake (so it was asleep) — leftovers from
-// going to sleep, not a wake-up.
-#define GPS_IDLE_SETTLE_MS 1000
-
+// Bytes in the first GPS_IDLE_SETTLE_MS (core/gps_uart.h) aren't counted:
+// after standby, hardware showed 9 stray in-flight bytes from a module that
+// then needed a full restart to wake (so it was asleep).
 static _Atomic uint32_t g_idle_rx_bytes;
 static uint32_t g_idle_start_tick;
 static uint32_t g_idle_settle_ticks;
@@ -323,6 +321,7 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, GpsNavModel nav_model, bo
     f->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     furi_check(f->mutex, "GpsUart: status_mutex alloc failed");
     f->rx_stream = furi_stream_buffer_alloc(GPS_RX_BUF_SIZE, 1);
+    furi_check(f->rx_stream, "GpsUart: rx_stream alloc failed");
 
     bool already_awake = false;
     if(f->handle) {

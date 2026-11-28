@@ -6,11 +6,12 @@
 #include <atomic>
 
 #include "biomap_format.h"  // BT_STREAM_PACKET_SIZE
+#include "settings_cardputer.h"
 
 // Same device name as the CSV header's "# DeviceName:Cardputer", and the
 // same service / notify characteristic UUIDs the visualiser's Live tab
 // looks for (visualiser/src/live/live_bluetooth.mjs).
-static const char* const BLE_DEVICE_NAME  = "Cardputer";
+static const char* const BLE_DEVICE_NAME  = CARDPUTER_DEVICE_NAME;
 static const char* const BLE_SERVICE_UUID = "8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000";
 static const char* const BLE_RX_CHAR_UUID = "19ed82ae-ed21-4c9d-4145-228e61fe0000";
 

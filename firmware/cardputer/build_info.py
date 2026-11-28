@@ -16,7 +16,14 @@ sys.path.insert(0, os.path.join(env["PROJECT_DIR"], ".."))  # noqa: F821
 import build_rev  # noqa: E402
 
 version = env.GetProjectOption("custom_firmware_version")  # noqa: F821
-rev = build_rev.git_rev(["core", "vendor", "cardputer/src", "cardputer/platformio.ini"])
+rev = build_rev.git_rev([
+    "build_rev.py",
+    "core",
+    "vendor",
+    "cardputer/src",
+    "cardputer/platformio.ini",
+    "cardputer/build_info.py",
+])
 
 projenv.Append(  # noqa: F821
     CPPDEFINES=[

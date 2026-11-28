@@ -14,7 +14,8 @@
 // for each key press and session_core_tick() ten times a second, redrawing
 // the screen when either says so. It hands everything else (the lock, the
 // clock, the file, cues, the radio, Bluetooth) over in a SessionPlatform.
-// The Flipper's loop is in flipper/biomap_session_flipper.c.
+// The Flipper's loop is in flipper/biomap_session_flipper.c; the
+// Cardputer's is in cardputer/src/session_cardputer.cpp.
 //
 // ── Threads and the lock ────────────────────────────────────────────────
 // Every function here is called from the device's main thread only. The
@@ -222,7 +223,7 @@ void session_core_end(SessionCore* s);
 
 // Sends a cue, checking sound rules 2 and 3 (see the top of this file).
 // For the device's own cues during a session too.
-void session_core_cue(SessionCore* s, BioMapCue cue);
+void session_core_cue(const SessionCore* s, BioMapCue cue);
 
 // The settle time after the recording-start sound: the GSR ring buffer
 // (SENSOR_BUFFER_SIZE, about 128 ms of readings) must refill with readings

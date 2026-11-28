@@ -6,7 +6,6 @@
 
 #include "biomap_pipeline.h"
 #include <math.h>
-#include <string.h>
 
 // ==========================================================================
 // Time helpers
@@ -33,8 +32,7 @@ uint32_t pipeline_unix_epoch(uint16_t year, uint8_t month, uint8_t day,
                   - (year - 1901) / 100U
                   + (year - 1601) / 400U;
     days += days_before[month - 1];
-    if(month > 2 &&
-       (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)))
+    if(month > 2 && is_leap_year(year))
         days++;  // leap day
     days += day - 1;
     return (uint32_t)(days * 86400UL + hour * 3600U +
@@ -117,6 +115,7 @@ void pipeline_update_graph(Pipeline* p) {
 
     if(auto_active) {
         p->zoom.peak *= ZOOM_PEAK_DECAY;
+        if(p->zoom.peak < ZOOM_PEAK_FLOOR) p->zoom.peak = ZOOM_PEAK_FLOOR;
     }
 
     p->graph.ticks++;
@@ -134,7 +133,6 @@ void pipeline_update_graph(Pipeline* p) {
         if(auto_active && k == p->graph.level) {
             float newest = fabsf(sample);
             if(newest > p->zoom.peak) p->zoom.peak = newest;
-            if(p->zoom.peak < ZOOM_PEAK_FLOOR) p->zoom.peak = ZOOM_PEAK_FLOOR;
         }
     }
 

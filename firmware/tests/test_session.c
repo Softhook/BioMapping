@@ -628,9 +628,13 @@ static void test_clicks_muted_while_recording(void) {
     assert(graph_divider(&S.pipeline.graph) == 2);
     assert(F.cue_count == 0);
 
-    // GPS + RF mode has no graph: the zoom keys do nothing.
+    // GPS + RF and Diagnostics modes have no graph: the zoom keys do nothing.
     start(BioMapModeGpsOnly, settings());
     assert(!session_core_key(&S, SessionKeyUp));
+    assert(F.cue_count == 0);
+    start(BioMapModeDiagnostics, settings());
+    assert(!session_core_key(&S, SessionKeyUp));
+    assert(!session_core_key(&S, SessionKeyLeft));
     assert(F.cue_count == 0);
 }
 
@@ -1359,6 +1363,17 @@ static void test_screen_gps_rf(void) {
     assert(text_starting("51.50000")->y == 35);
     assert(text_starting("-0.12500")->y == 45);
     assert(text_starting("2.")->y == 55);  // "2.2m  --"
+
+    // Numbered Cardputer file names (4-digit and 5-digit) and undated fallback strip prefixes cleanly.
+    X.file_name = "biomap_0042_2026-11-20_09-08-07.csv";
+    draw();
+    assert(text_starting("09-08-07") && strcmp(text_starting("09-08-07")->text, "09-08-07") == 0);
+    X.file_name = "biomap_10042_2026-11-20_09-08-07.csv";
+    draw();
+    assert(text_starting("09-08-07") && strcmp(text_starting("09-08-07")->text, "09-08-07") == 0);
+    X.file_name = "biomap_nodate_10.csv";
+    draw();
+    assert(text_starting("nodate_10") && strcmp(text_starting("nodate_10")->text, "nodate_10") == 0);
 
     // No GPS module at all.
     S.gps = NULL;

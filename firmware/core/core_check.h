@@ -7,7 +7,8 @@
 // 0 is flash), so an unchecked NULL would carry on with garbage.
 //
 // Each device supplies core_fatal(): the Flipper crashes with the message
-// (flipper/core_fatal.c), the host tests abort through the same file.
+// (flipper/core_fatal.c, also used by the host tests), and the Cardputer
+// prints the message and aborts (cardputer/src/core_fatal.cpp).
 
 #ifdef __cplusplus
 extern "C" {

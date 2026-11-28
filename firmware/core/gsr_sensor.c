@@ -15,9 +15,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // ADS1115 address and registers
 // ─────────────────────────────────────────────────────────────────────────────
-#define ADS1115_I2C_ADDR     0x48   // 7-bit address (ADDR pin → GND)
-#define ADS1115_CONV_REG     0x00
-#define ADS1115_CONFIG_REG   0x01
+#define ADS1115_I2C_ADDR       0x48   // 7-bit address (ADDR pin → GND)
+#define ADS1115_CONV_REG       0x00
+#define ADS1115_CONFIG_REG     0x01
+#define ADS1115_CFG_LSB_860SPS 0xE3   // DR = 860 SPS, comparator disabled
+#define ADS_I2C_TIMEOUT_MS     50
+#define ADS_PROBE_TIMEOUT_MS   20
+#define STALE_READ_GAP_MS      2      // < 1.16 ms conversion period → stale re-read
+#define HZ_WINDOW_MS           1000   // rolling throughput diagnostics window
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PGA autoranging
@@ -26,10 +31,10 @@
 // ─────────  ─────────  ────────  ──────────
 //    0       ±6.144 V   187.500   0x80
 //    1       ±4.096 V   125.000   0x82
-//    2       ±2.048 V    62.500   0x84  ← default / normalisation reference
+//    2       ±2.048 V    62.500   0x84  ← startup default
 //    3       ±1.024 V    31.250   0x86
 //    4       ±0.512 V    15.625   0x88
-//    5       ±0.256 V     7.813   0x8A
+//    5       ±0.256 V     7.813   0x8A  ← normalisation reference
 //
 // REACHABLE RANGE (3.3 V supply, this front-end)
 //   V_diff into the ADC = 0.5 V × 47 kΩ / (R_skin + 9.4 kΩ) — bias × R_f /
@@ -211,13 +216,13 @@ struct GsrSensor {
     float   tick_spread_ns; // standard deviation of the readings in that window, in nS
     uint32_t pga_change_count;         // tick()-only — total PGA changes applied, lifetime
     uint32_t hz_window_start_pga_changes; // pga_change_count snapshot — tick() only
-    uint32_t pga_change_rate_cached;      // tick() only — PGA changes in the last ~1 s window
+    uint32_t pga_change_rate_cached;      // mutex-protected — PGA changes in the last ~1 s window
 
     // The device's functions (copied at create, never changed). Its lock
     // guards the ADC ring buffer, PGA/calibration state and diagnostics
     // counters — gsr_lock()/gsr_unlock() below.
     GsrPlatform platform;
-    volatile bool pga_changed; // guarded by the lock: written in tick(), read at the top of each worker pass
+    bool        pga_changed; // mutex-protected: written in tick(), read at the top of each worker pass
 
     // Worker-pass state: touched only by gsr_sensor_worker_pass(), on the
     // device's GSR thread, so it needs no lock. Survives from one pass to
@@ -246,7 +251,7 @@ struct GsrSensor {
                                                // time-based (not count-based) averaging
                                                // in gsr_sensor_tick() — see Recommendation
                                                // 1b in research/gsr_filtering_analysis.md
-    volatile uint32_t write_idx;
+    uint32_t write_idx;
 
     // Worker throughput diagnostics (see research/gsr_filtering_analysis.md,
     // Recommendation 1) — iter_count counts successful buffer writes only
@@ -255,14 +260,11 @@ struct GsrSensor {
     // gsr_sensor_tick() actually runs at.
     //
     // worker_hz_cached is a ROLLING ~1 s measurement, recomputed by
-    // gsr_sensor_tick() (main thread only) whenever a window elapses —
-    // deliberately NOT a lifetime average since create().  A lifetime
-    // average converges slowly and stays permanently diluted by the
-    // one-time probe/warm-up delay in gsr_sensor_create(), so a reading
-    // taken shortly after entering the Diagnostics screen would
-    // understate the true steady-state rate.  Same no-mutex-needed
-    // pattern as tick_mean_norm below: written only by tick() on the main
-    // thread, read by the accessor on the same thread.
+    // gsr_sensor_tick() whenever a window elapses — deliberately NOT a
+    // lifetime average since create(), which would stay diluted by the
+    // one-time probe/warm-up delay in gsr_sensor_create(). All *_cached
+    // fields are published under the lock so the GUI thread's Diagnostics
+    // accessors can read them cross-thread.
     uint32_t iter_count;            // mutex-protected — worker increments (success only), tick() reads
     uint32_t attempt_count;         // mutex-protected — worker increments (every read, success or fail)
     // duplicate_count — mutex-protected, worker increments whenever a
@@ -285,7 +287,7 @@ struct GsrSensor {
     // reading's raw code incomparable, which is a scale change, not a
     // stale read.
     uint32_t duplicate_count;
-    uint32_t stale_count;               // mutex-protected — worker increments on duplicates with gap_ms < 2 (stale hardware re-read)
+    uint32_t stale_count;               // mutex-protected — worker increments on duplicates with gap_ms < STALE_READ_GAP_MS
     // duplicate_gap_running_min — mutex-protected. Worker tracks the
     // smallest inter-read gap (ms) seen specifically AT a duplicate
     // event since the last ~1 s window reset. UINT32_MAX means no
@@ -293,16 +295,16 @@ struct GsrSensor {
     // the reads that turned out to be duplicates were the tightly-spaced
     // ones, which duplicate_count alone can't.
     uint32_t duplicate_gap_running_min;
-    uint32_t duplicate_gap_min_cached; // tick() only — last window's value, same UINT32_MAX sentinel
+    uint32_t duplicate_gap_min_cached; // mutex-protected — last window's value, same UINT32_MAX sentinel
     uint32_t hz_window_start_tick;  // tick() only
     uint32_t hz_window_start_count;    // iter_count snapshot — tick() only
     uint32_t hz_window_start_attempts; // attempt_count snapshot — tick() only
     uint32_t hz_window_start_duplicates; // duplicate_count snapshot — tick() only
     uint32_t hz_window_start_stale;    // stale_count snapshot — tick() only
-    float    worker_hz_cached;      // tick() only — successful-sample rate
-    float    success_rate_cached;   // tick() only — iter_count/attempt_count over the same window, 0-100
-    float    duplicate_rate_cached; // tick() only — duplicate_count/iter_count over the same window, 0-100
-    float    stale_rate_cached;     // tick() only — stale_count/iter_count over the same window, 0-100
+    float    worker_hz_cached;      // mutex-protected — successful-sample rate
+    float    success_rate_cached;   // mutex-protected — iter_count/attempt_count over the same window, 0-100
+    float    duplicate_rate_cached; // mutex-protected — duplicate_count/iter_count over the same window, 0-100
+    float    stale_rate_cached;     // mutex-protected — stale_count/iter_count over the same window, 0-100
 
     // Live (not rolling-window) count of consecutive failed I2C reads —
     // mutex-protected, mirrors the worker's local consecutive_failures.
@@ -354,21 +356,22 @@ static inline void gsr_delay_ms(const GsrSensor* gsr, uint32_t ms) {
 static bool ads_read_code(const GsrSensor* gsr, int16_t* code) {
     uint8_t data[2];
     bool ok = gsr->platform.i2c_read(gsr->platform.ctx, ADS1115_I2C_ADDR, ADS1115_CONV_REG,
-                                     data, 2, 50);
+                                     data, 2, ADS_I2C_TIMEOUT_MS);
     if(ok) *code = (int16_t)((data[0] << 8) | data[1]);
     return ok;
 }
 
 // Write the config register: `msb` (input, gain, mode) with the fixed
-// 0xE3 LSB (860 SPS, comparator off).
+// ADS1115_CFG_LSB_860SPS (860 SPS, comparator off).
 static bool ads_write_config(const GsrSensor* gsr, uint8_t msb) {
-    uint8_t cfg[2] = { msb, 0xE3 };
+    uint8_t cfg[2] = { msb, ADS1115_CFG_LSB_860SPS };
     return gsr->platform.i2c_write(gsr->platform.ctx, ADS1115_I2C_ADDR, ADS1115_CONFIG_REG,
-                                   cfg, 2, 50);
+                                   cfg, 2, ADS_I2C_TIMEOUT_MS);
 }
 
 // One log line, if the device takes them. printf-style; lines longer than
 // the buffer are cut short.
+__attribute__((format(printf, 3, 4)))
 static void gsr_log(const GsrSensor* gsr, bool warning, const char* fmt, ...) {
     if(!gsr->platform.log) return;
     char line[80];
@@ -539,7 +542,7 @@ bool gsr_sensor_worker_pass(GsrSensor* gsr) {
     bool recovering = false;
     if(ok) {
         gsr_note_i2c_success(gsr);
-        if(!gsr->i2c_working) {
+        if(!i2c_working) {
             // Coming back from "sensor lost" (or a failed probe at
             // create): the ADS1115 may have lost power meanwhile, and it
             // powers up in single-shot mode (config reset 8583h), where
@@ -617,7 +620,7 @@ bool gsr_sensor_worker_pass(GsrSensor* gsr) {
         gsr->iter_count++;
         if(is_duplicate) {
             gsr->duplicate_count++;
-            if(gap_ms < 2) {
+            if(gap_ms < STALE_READ_GAP_MS) {
                 gsr->stale_count++;
             }
             if(gap_ms < gsr->duplicate_gap_running_min) {
@@ -657,7 +660,7 @@ GsrSensor* gsr_sensor_create(const GsrPlatform* platform) {
     // Probe: a short 1-byte read, just to see if the chip answers.
     uint8_t probe = 0;
     bool probed = gsr->platform.i2c_read(gsr->platform.ctx, ADS1115_I2C_ADDR, ADS1115_CONV_REG,
-                                         &probe, 1, 20);
+                                         &probe, 1, ADS_PROBE_TIMEOUT_MS);
 
     if(probed) {
         // First bias check, so the very first readings already use it:
@@ -784,35 +787,23 @@ int32_t gsr_sensor_get_raw_sample_count(const GsrSensor* gsr) {
 
 int32_t gsr_sensor_get_mean_count(const GsrSensor* gsr) {
     CORE_CHECK(gsr, "GsrSensor: NULL in get_mean_count()");
-    // tick_mean_norm is written by tick() on the main thread but read here
-    // from whatever thread calls this accessor (the GUI render thread, in
-    // production) — genuinely cross-thread, so it needs the lock like
-    // every other field below.
+    // Read cross-thread by the GUI render thread while tick() writes on the
+    // main thread, so every accessor below takes the lock. See gsr_sensor.h
+    // for each accessor's semantics.
     gsr_lock(gsr);
     int32_t val = gsr->tick_mean_norm;
     gsr_unlock(gsr);
     return val;
 }
 
-// How many ring-buffer entries landed inside the most recent tick()'s
-// ~100 ms time window and were actually averaged into gsr_sensor_get_
-// mean_count()'s result — the real-time counterpart to the rolling ~1 s
-// gsr_sensor_get_worker_hz(): that one shows a trend, this shows exactly
-// how many independent samples back the Mean value on screen right now.
-// Always ≥ 1 (see the i==0-unconditional note in gsr_sensor_tick()).
 int32_t gsr_sensor_get_window_samples(const GsrSensor* gsr) {
     CORE_CHECK(gsr, "GsrSensor: NULL in get_window_samples()");
-    // Cross-thread (GUI render thread reads what tick() writes on the main
-    // thread) — see gsr_sensor_get_mean_count()'s comment.
     gsr_lock(gsr);
     int32_t val = gsr->tick_window_samples;
     gsr_unlock(gsr);
     return val;
 }
 
-// Standard deviation of the readings inside the most recent tick()'s
-// window, in nS (see the spread note in gsr_sensor_tick()). For the debug
-// columns.
 float gsr_sensor_get_window_spread_ns(const GsrSensor* gsr) {
     CORE_CHECK(gsr, "GsrSensor: NULL in get_window_spread_ns()");
     gsr_lock(gsr);
@@ -888,71 +879,38 @@ bool gsr_sensor_run_bias_check(GsrSensor* gsr, uint32_t timeout_ms) {
     return done;
 }
 
-// Measured worker throughput in Hz, over a rolling ~1 s window — the true
-// rate at which gsr_sensor_tick()'s ~100 ms boxcar average is actually
-// filling with samples. Updated by gsr_sensor_tick() (main thread only);
-// reads 0.0f until the first ~1 s window has elapsed. See
-// research/gsr_filtering_analysis.md, Recommendation 1.
 float gsr_sensor_get_worker_hz(const GsrSensor* gsr) {
     CORE_CHECK(gsr, "GsrSensor: NULL in get_worker_hz()");
-    // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
     gsr_lock(gsr);
     float val = gsr->worker_hz_cached;
     gsr_unlock(gsr);
     return val;
 }
 
-// Percentage of I2C read attempts that succeeded, over the same rolling
-// ~1 s window as gsr_sensor_get_worker_hz(). Distinguishes "the worker
-// loop genuinely only runs this fast" (success_rate near 100%) from "the
-// loop runs faster but many reads silently fail" (success_rate well below
-// 100% — a real transport/wiring problem, not a rate limit). Reads 100.0f
-// until the first window has elapsed (optimistic default, not a claim).
 float gsr_sensor_get_success_rate(const GsrSensor* gsr) {
     CORE_CHECK(gsr, "GsrSensor: NULL in get_success_rate()");
-    // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
     gsr_lock(gsr);
     float val = gsr->success_rate_cached;
     gsr_unlock(gsr);
     return val;
 }
 
-// Percentage of successful reads, over the same rolling ~1 s window as
-// gsr_sensor_get_worker_hz(), whose raw ADC code exactly matched the
-// immediately preceding successful read. This can mean either a stale
-// re-read of a conversion the ADS1115 hadn't yet updated, or two genuinely
-// fresh conversions of a signal that hasn't moved between them — the counter
-// can't tell them apart. Measured ~12-16% with the sensor disconnected
-// (near-DC) vs. ~7-11% with a live signal connected; see
-// research/gsr_filtering_analysis.md and duplicate_count's doc comment. Resets
-// across PGA changes (a gain change isn't a stale read). Reads 0.0f until
-// the first window has elapsed (optimistic default, not a claim).
 float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr) {
     CORE_CHECK(gsr, "GsrSensor: NULL in get_duplicate_rate()");
-    // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
     gsr_lock(gsr);
     float val = gsr->duplicate_rate_cached;
     gsr_unlock(gsr);
     return val;
 }
 
-// Percentage of successful reads over the rolling ~1 s window whose
-// inter-read gap was under 2 ms (< 1.16 ms conversion period) and resulted
-// in a stale re-read of the ADS1115 register.
 float gsr_sensor_get_stale_rate(const GsrSensor* gsr) {
     CORE_CHECK(gsr, "GsrSensor: NULL in get_stale_rate()");
-    // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
     gsr_lock(gsr);
     float val = gsr->stale_rate_cached;
     gsr_unlock(gsr);
     return val;
 }
 
-// Live count of consecutive failed I2C reads happening right now — not a
-// rolling average like gsr_sensor_get_success_rate(), so it can show a
-// fresh failure streak building in real time, before either the 1 s
-// success-rate average visibly drops or the 50-failure disconnect
-// threshold (gsr_sensor_worker_pass()) actually fires. For diagnostics.
 uint32_t gsr_sensor_get_consecutive_failures(const GsrSensor* gsr) {
     CORE_CHECK(gsr, "GsrSensor: NULL in get_consecutive_failures()");
     gsr_lock(gsr);
@@ -961,43 +919,22 @@ uint32_t gsr_sensor_get_consecutive_failures(const GsrSensor* gsr) {
     return val;
 }
 
-// Smallest inter-read gap in ms seen SPECIFICALLY at a sample that turned
-// out to be a duplicate (see gsr_sensor_get_duplicate_rate()), over the
-// same rolling ~1 s window as gsr_sensor_get_worker_hz(). Directly
-// correlates timing with the specific reads that were actually stale —
-// the real test of the "occasional sub-ADC-conversion-time loop period"
-// theory. Each timestamp is a floor() of the real time it was taken, so a
-// recorded gap of N ms corresponds to a true elapsed time anywhere
-// from just over (N-1) ms to just under (N+1) ms. Returns UINT32_MAX if
-// no duplicates occurred in the most recent window (not 0 — a real value
-// of 0 is itself meaningful and must stay distinguishable from "no
-// data"), or if unavailable.  For diagnostics.
 uint32_t gsr_sensor_get_duplicate_gap_min_ms(const GsrSensor* gsr) {
     CORE_CHECK(gsr, "GsrSensor: NULL in get_duplicate_gap_min_ms()");
-    // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
     gsr_lock(gsr);
     uint32_t val = gsr->duplicate_gap_min_cached;
     gsr_unlock(gsr);
     return val;
 }
 
-// Number of PGA (autorange) changes applied in the most recent rolling
-// ~1 s window — same cadence as gsr_sensor_get_worker_hz(). Signals "the
-// input is sitting near an autorange threshold and flapping between
-// ranges". For diagnostics.
 uint32_t gsr_sensor_get_pga_change_count(const GsrSensor* gsr) {
     CORE_CHECK(gsr, "GsrSensor: NULL in get_pga_change_count()");
-    // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
     gsr_lock(gsr);
     uint32_t val = gsr->pga_change_rate_cached;
     gsr_unlock(gsr);
     return val;
 }
 
-// Worst single I2C call duration (config write OR conversion read, real
-// clock delta) ever observed on the worker thread — lifetime
-// max, never reset. See i2c_peak_ms's struct comment for why one column
-// covers both call sites. For diagnostics.
 uint32_t gsr_sensor_get_i2c_peak_ms(const GsrSensor* gsr) {
     CORE_CHECK(gsr, "GsrSensor: NULL in get_i2c_peak_ms()");
     gsr_lock(gsr);
@@ -1055,7 +992,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     // sensor is disconnected, the rate should visibly drop toward zero on
     // the Diagnostics screen rather than freezing at its last good value.
     uint32_t now = gsr_now(gsr);
-    if(now - gsr->hz_window_start_tick >= 1000) {
+    if(now - gsr->hz_window_start_tick >= HZ_WINDOW_MS) {
         gsr_lock(gsr);
         uint32_t count = gsr->iter_count;
         uint32_t attempts = gsr->attempt_count;

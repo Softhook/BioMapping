@@ -7,8 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define TAG        "SdLogger"
-#define LOGGER_DIR "biomapping"
+#define TAG "SdLogger"
 
 typedef struct {
     Storage* storage;
@@ -18,7 +17,7 @@ typedef struct {
 static SdOpenResult sd_flipper_open_new(void* ctx, const char* name) {
     SdFlipper* f = ctx;
     char full_path[96];
-    snprintf(full_path, sizeof(full_path), EXT_PATH(LOGGER_DIR "/%s"), name);
+    snprintf(full_path, sizeof(full_path), EXT_PATH(BIOMAP_DIR_NAME "/%s"), name);
     f->file = storage_file_alloc(f->storage);
     if(!f->file) return SdOpenFailed;
     // FSOM_CREATE_NEW: the card refuses a name that already exists.

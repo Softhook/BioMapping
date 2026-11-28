@@ -24,6 +24,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "biomap_types.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -146,6 +148,9 @@ uint32_t    sd_logger_get_batch_fill_peak_bytes(const SdLogger* logger);
 // post-write sync fails.
 uint32_t    sd_logger_get_overflow_count(const SdLogger* logger);
 uint32_t    sd_logger_get_flush_fail_count(const SdLogger* logger);
+
+// Copy the six SD logger telemetry fields into `diag` (no-op if `logger` is NULL).
+void        sd_logger_fill_diag(const SdLogger* logger, RowDiag* diag);
 
 #ifdef __cplusplus
 }

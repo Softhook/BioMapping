@@ -3,7 +3,7 @@
 // The recording screen on the Flipper (biomap_session_flipper.c). The
 // session logic itself is shared: core/biomap_session.h.
 
-#include "../core/biomap_config.h"
+#include "core/biomap_config.h"
 
 typedef struct BioMapApp BioMapApp;
 

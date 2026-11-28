@@ -118,8 +118,8 @@ GsrSensor* gsr_cardputer_start(void) {
     g->gsr = gsr_sensor_create(&platform);
 
     g->running = true;
-    // Pinned to the same core as the main loop (core 1), like the Flipper's
-    // single core: core 0 is left for the radio stack (Bluetooth, step 11).
+    // Pinned to the same core as the main loop (core 1): core 0 carries
+    // Bluetooth, Wi-Fi, background SD writes and GSR Audio synthesis.
     BaseType_t ok = xTaskCreatePinnedToCore(gsr_task, "gsr", GSR_TASK_STACK, g,
                                             GSR_TASK_PRIORITY, &g->task, 1);
     CORE_CHECK(ok == pdPASS, "GsrSensor: task create failed");

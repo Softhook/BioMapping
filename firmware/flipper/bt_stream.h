@@ -18,15 +18,15 @@
 // certainly runs on the BLE stack's own thread, not the caller's —
 // bt_stream_is_connected()/bt_stream_get_status() read an _Atomic cache
 // rather than trusting single-threaded access, the same pattern this
-// codebase already uses for GsrSensor's cross-thread flags
-// (the GSR worker's running/rf_enabled/rf_spi_busy).
+// codebase already uses for cross-thread flags (gsr_sensor_flipper.c's
+// `running` and em_scan_sampler.c's `enabled`/`spi_busy`).
 
 #include <bt/bt_service/bt.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#include "../core/biomap_format.h"  // BT_STREAM_PACKET_SIZE, bt_stream_pack_packet()
+#include "core/biomap_format.h"  // BT_STREAM_PACKET_SIZE, bt_stream_pack_packet()
 
 typedef struct BtStream BtStream;
 
@@ -72,6 +72,6 @@ bool bt_stream_tx_batch(BtStream* bs, const uint8_t* data, size_t len);
 uint32_t bt_stream_get_drop_count(const BtStream* bs);
 
 // Worst single ble_profile_serial_tx() call ever seen (real furi_get_tick()
-// delta, ms) — lifetime max, same pattern as sd_logger.h's flush_peak_ms
+// delta, ms) — lifetime max, same pattern as sd_logger.h's flush_peak_ms,
 // gsr_sensor.h's i2c_peak_ms and em_scan_sampler.h's rssi/retune peaks.
 uint32_t bt_stream_get_tx_peak_ms(const BtStream* bs);

@@ -11,7 +11,6 @@
 // so the radio never runs during a GSR or GPS session.
 
 #include <M5Cardputer.h>
-#include <stdbool.h>
 
 #include "biomap_session.h"
 

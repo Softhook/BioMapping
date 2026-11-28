@@ -9,7 +9,7 @@
 // with the arrays themselves declared in cc1101_configs.h.
 
 #include "em_scan_rf.h"
-#include "../core/biomap_config.h"  // RF_BAND_*_MHZ, the band names
+#include "core/biomap_config.h"  // RF_BAND_*_MHZ, the band names
 
 #include <furi.h>
 #include <furi_hal.h>
@@ -37,7 +37,8 @@ const char* const em_scan_freq_label[EM_SCAN_NUM_FREQS] = {
 // Active peak-hold dwell AFTER the warm-up: RSSI is polled repeatedly
 // during this window and the MAXIMUM is kept, not a single snapshot — see
 // em_scan_rf_dwell_band's doc comment in em_scan_rf.h for why.
-#define EM_SCAN_DWELL_MS  22
+#define EM_SCAN_DWELL_MS          22
+#define EM_SCAN_FREQ_TOLERANCE_HZ 2000
 
 void em_scan_rf_init(void) {
     furi_hal_subghz_reset();
@@ -60,7 +61,6 @@ void em_scan_rf_init(void) {
     // quantization noise). Anything within 2 kHz is a successful tune;
     // anything further off (e.g. silently clamped/rejected to a completely
     // different frequency) is the real failure mode this check is for.
-    #define EM_SCAN_FREQ_TOLERANCE_HZ 2000
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
         furi_hal_subghz_idle();
         uint32_t actual = furi_hal_subghz_set_frequency_and_path(em_scan_freq_hz[i]);
@@ -70,7 +70,6 @@ void em_scan_rf_init(void) {
                    (unsigned long)em_scan_freq_hz[i], (unsigned long)actual,
                    diff <= EM_SCAN_FREQ_TOLERANCE_HZ ? "" : "  <-- MISMATCH");
     }
-    #undef EM_SCAN_FREQ_TOLERANCE_HZ
     // Loop ends with PLL locked to em_scan_freq_hz[EM_SCAN_NUM_FREQS-1] (915 MHz).
     // Calling idle() puts the radio into Idle state but leaves the PLL there.
     // em_scan_rf_tune_and_warmup() always calls idle() + set_frequency_and_path()

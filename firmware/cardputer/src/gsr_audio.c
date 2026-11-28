@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "biomap_types.h"
 #include "gsr_sensor.h"  // GSR_VALID_MIN_NS, GSR_VALID_MAX_NS
 
 #ifndef M_PI
@@ -64,9 +65,7 @@ static const float BOWL_SCALE_HZ[7] = {
 };
 
 static inline float clamp01(float x) {
-    if(x < 0.0f) return 0.0f;
-    if(x > 1.0f) return 1.0f;
-    return x;
+    return clampf(x, 0.0f, 1.0f);
 }
 
 static inline float wrap_unit(float u) {
@@ -144,9 +143,7 @@ float gsr_audio_norm_to_hz(GsrAudioMode mode, float u) {
     case GsrAudioChord:
         return GSR_AUDIO_CHORD_ROOT_HZ;
     case GsrAudioBowls: {
-        int idx = (int)(u * (float)(BOWL_SCALE_LEN - 1) + 0.5f);
-        if(idx < 0) idx = 0;
-        if(idx >= BOWL_SCALE_LEN) idx = BOWL_SCALE_LEN - 1;
+        int idx = clampi((int)(u * (float)(BOWL_SCALE_LEN - 1) + 0.5f), 0, BOWL_SCALE_LEN - 1);
         return BOWL_SCALE_HZ[idx];
     }
     case GsrAudioRain:
@@ -168,10 +165,8 @@ void gsr_audio_hz_note_name(float hz, char* out, size_t cap) {
     static const char* const NAMES[12] = {
         "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
     };
-    float midi_f = 69.0f + 12.0f * (logf(hz / 440.0f) / 0.69314718f);
-    int midi = (int)lroundf(midi_f);
-    if(midi < 12) midi = 12;
-    if(midi > 108) midi = 108;
+    float midi_f = 69.0f + 12.0f * log2f(hz / 440.0f);
+    int midi = clampi((int)lroundf(midi_f), 12, 108);
     int note = midi % 12;
     int oct  = (midi / 12) - 1;
     snprintf(out, cap, "%s%d", NAMES[note], oct);
@@ -253,15 +248,14 @@ void gsr_audio_set_volume_pct(GsrAudio* a, int pct) {
 
 void gsr_audio_set_sensitivity_pct(GsrAudio* a, int sens_pct) {
     if(!a) return;
-    if(sens_pct < GSR_AUDIO_SENS_MIN_PCT) sens_pct = GSR_AUDIO_SENS_MIN_PCT;
-    if(sens_pct > GSR_AUDIO_SENS_MAX_PCT) sens_pct = GSR_AUDIO_SENS_MAX_PCT;
+    sens_pct = clampi(sens_pct, GSR_AUDIO_SENS_MIN_PCT, GSR_AUDIO_SENS_MAX_PCT);
     a->sens_scale = (float)sens_pct * 0.01f;
 }
 
-void gsr_audio_tick(GsrAudio* a, float raw_ns, bool sensor_connected) {
+void gsr_audio_tick(GsrAudio* a, float raw_ns, bool sensor_available) {
     if(!a) return;
 
-    bool valid = sensor_connected && isfinite(raw_ns) &&
+    bool valid = sensor_available && isfinite(raw_ns) &&
                  (raw_ns >= GSR_VALID_MIN_NS) && (raw_ns <= GSR_VALID_MAX_NS);
     if(!valid) {
         a->has_contact    = false;
@@ -335,7 +329,7 @@ void gsr_audio_tick(GsrAudio* a, float raw_ns, bool sensor_connected) {
     a->target_gate = (a->pending_mode != GsrAudioOff) ? 1.0f : 0.0f;
 
     float log_g  = logf(a->lpf3_ns);
-    float dlog_s = (log_g - a->prev_log_g) * 10.0f;  // TICK_HZ = 10 Hz
+    float dlog_s = (log_g - a->prev_log_g) * (float)TICK_HZ;
     a->prev_log_g = log_g;
     a->smooth_dlog_s += SLOPE_ALPHA * (dlog_s - a->smooth_dlog_s);
 
@@ -360,9 +354,7 @@ static inline int16_t fast_dither_pcm(float sample, uint32_t* rng) {
     float u1 = (float)(r & 0xFFFFu) * (1.0f / 65536.0f);
     float u2 = (float)((r >> 16) & 0xFFFFu) * (1.0f / 65536.0f);
     float v  = sample + (u1 - u2);
-    int32_t pcm = (int32_t)(v >= 0.0f ? (v + 0.5f) : (v - 0.5f));
-    if(pcm > 30000) return 30000;
-    if(pcm < -30000) return -30000;
+    int32_t pcm = clampi((int32_t)(v >= 0.0f ? (v + 0.5f) : (v - 0.5f)), -30000, 30000);
     return (int16_t)pcm;
 }
 
@@ -379,8 +371,7 @@ static void trigger_next_bowl(GsrAudio* a, float cur_u, uint32_t* rng) {
         int alt = ((r & 1u) != 0u) ? (base_idx + 1) : (base_idx - 1);
         if(alt >= 0 && alt < BOWL_SCALE_LEN) base_idx = alt;
     }
-    if(base_idx < 0) base_idx = 0;
-    if(base_idx >= BOWL_SCALE_LEN) base_idx = BOWL_SCALE_LEN - 1;
+    base_idx = clampi(base_idx, 0, BOWL_SCALE_LEN - 1);
     a->bowl_last_note = (uint8_t)base_idx;
 
     // The envelope starts at exactly 0 (dec * (1 - atk_rem) == 1 * (1 - 1)),

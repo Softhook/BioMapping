@@ -11,10 +11,12 @@
 #include <stddef.h>
 #include <storage/storage.h>
 
+#include "core/biomap_config.h"
 #include "em_scan_rf.h" // EM_SCAN_NUM_FREQS — single source of truth, add/remove bands there
 
 #define EM_SCAN_CAL_MAGIC          0x454D4341  // "EMCA" (EM Scan Calibration)
 #define EM_SCAN_CAL_VERSION        3           // Bumped: reduced to 3 high bands (815, 868, 915 MHz), EM_SCAN_NUM_FREQS 6->3
+#define EM_SCAN_CAL_MIN_SAMPLES    5           // Minimum full sweeps required for a valid run
 #define EM_SCAN_CAL_MAX_SAMPLES    64          // Max sweep samples collected/consumed per calibration run
 
 #define EM_SCAN_CAL_MIN_FLOOR_DBM  -110.0f
@@ -25,7 +27,9 @@
 // See em_scan_cal.c for per-band values (-90.0 dBm).
 extern const float em_scan_cal_max_floor_dbm[EM_SCAN_NUM_FREQS];
 
-#define EM_SCAN_CAL_PATH           "/ext/biomapping/em_scan_cal.bin"
+#define EM_SCAN_CAL_DIR            EXT_PATH(BIOMAP_DIR_NAME)
+#define EM_SCAN_CAL_PATH           EM_SCAN_CAL_DIR "/em_scan_cal.bin"
+#define EM_SCAN_CAL_PATH_TMP       EM_SCAN_CAL_PATH ".tmp"
 
 typedef struct {
     uint32_t magic;                              // 0x454D4341
@@ -39,6 +43,11 @@ typedef struct {
 
 // Computes CRC32 over all bytes of EmScanCal preceding the crc32 field itself.
 uint32_t em_scan_cal_compute_crc(const EmScanCal* cal);
+
+// Validates per-band noise floor bounds and max std dev (<3.5 dB).
+bool em_scan_cal_stats_valid(
+    const float noise_floor_dbm[EM_SCAN_NUM_FREQS],
+    const float noise_std_dev_db[EM_SCAN_NUM_FREQS]);
 
 // Validates magic, version, CRC32, per-band noise floor ceiling (see em_scan_cal_max_floor_dbm), and max std dev (<3.5 dB).
 bool em_scan_cal_validate(const EmScanCal* cal);

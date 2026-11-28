@@ -165,8 +165,8 @@ void gsr_audio_set_volume_pct(GsrAudio* a, int pct);
 // Sets GSR response sensitivity percentage (GSR_AUDIO_SENS_MIN_PCT..MAX_PCT, 100 = 1.0x).
 void gsr_audio_set_sensitivity_pct(GsrAudio* a, int sens_pct);
 
-// Feed one 10 Hz GSR window reading (nanosiemens) and sensor connection status.
-void gsr_audio_tick(GsrAudio* a, float raw_ns, bool sensor_connected);
+// Feed one 10 Hz GSR window reading (nanosiemens) and sensor availability status.
+void gsr_audio_tick(GsrAudio* a, float raw_ns, bool sensor_available);
 
 // Synthesises `sample_count` mono signed 16-bit PCM samples at 48 kHz.
 void gsr_audio_render(GsrAudio* a, int16_t* out_pcm, size_t sample_count);
