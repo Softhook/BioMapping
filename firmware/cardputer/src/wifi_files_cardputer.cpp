@@ -18,6 +18,7 @@
 #include <new>
 #include <stdint.h>
 
+#include "biomap_config.h"
 #include "clock_cardputer.h"
 #include "cues_cardputer.h"
 #include "keys.h"
@@ -36,6 +37,10 @@ static const int         SOCKET_WAIT_US = 50000;  // 50 ms so Esc responds quick
 static const uint32_t    PROGRESS_UI_MS = 250;
 static const uint32_t    STATUS_FLASH_MS = 3000;
 static const uint32_t    IDLE_OFF_MS = 10UL * 60UL * 1000UL;  // turn off after 10 min with no device
+
+// Shown at the foot of the web page, so devices on old firmware stand out.
+static const char* const FIRMWARE =
+    BIOMAP_FIRMWARE_TEXT(CARDPUTER_DEVICE_NAME, CARDPUTER_FIRMWARE_VERSION);
 
 // Devices whose sign-in pop-up has opened: Apple's sign-in check is
 // answered "Success" for them (wifi_files_rules.h, "Apple's Wi-Fi sign-in
@@ -414,7 +419,8 @@ static void handle_no_content(void) {
 
 // Writes the file list JSON into `out` (when non-null) and returns its length,
 // so the caller can size the buffer with a first pass of out == nullptr.
-static size_t format_files_json(const CsvFileList& files, char* out) {
+// `battery_pct` is -1 when the level can't be read.
+static size_t format_files_json(const CsvFileList& files, int battery_pct, char* out) {
     char esc[WIFI_FILES_MAX_NAME * 2];
     char chunk[256];
     size_t len = 0;
@@ -425,9 +431,12 @@ static size_t format_files_json(const CsvFileList& files, char* out) {
         len += k;
     };
     wifi_files_json_escape(g_wf.ssid, esc, sizeof(esc));
+    put(snprintf(chunk, sizeof(chunk), "{\"ssid\":\"%s\",", esc));
+    wifi_files_json_escape(FIRMWARE, esc, sizeof(esc));
     put(snprintf(chunk, sizeof(chunk),
-                 "{\"ssid\":\"%s\",\"truncated\":%s,\"total\":%u,\"files\":[",
-                 esc, files.truncated ? "true" : "false", (unsigned)files.total_found));
+                 "\"firmware\":\"%s\",\"battery\":%d,\"truncated\":%s,\"total\":%u,\"files\":[",
+                 esc, battery_pct, files.truncated ? "true" : "false",
+                 (unsigned)files.total_found));
     for(size_t i = 0; i < files.count; i++) {
         wifi_files_json_escape(files.items[i].name, esc, sizeof(esc));
         put(snprintf(chunk, sizeof(chunk), "%s{\"name\":\"%s\",\"size\":%lu}",
@@ -446,15 +455,18 @@ static void handle_api_files(void) {
     }
     g_wf.dirty = true;
 
+    // Read once, so both passes below write the same number.
+    int battery_pct = M5.Power.getBatteryLevel();
+
     // Built in one buffer (about 60 bytes a file, ~15 KB at the 256-file cap)
     // so it goes out through the Esc-aware writer in one go.
-    size_t len = format_files_json(files, nullptr);
+    size_t len = format_files_json(files, battery_pct, nullptr);
     char* body = new (std::nothrow) char[len + 1];
     if(!body) {
         g_wf.server->send(503, "application/json", "{\"error\":\"Low memory\"}");
         return;
     }
-    format_files_json(files, body);
+    format_files_json(files, battery_pct, body);
     send_body_own_writer("application/json; charset=utf-8", body, len);
     delete[] body;
 }
