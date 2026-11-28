@@ -59,6 +59,7 @@ h1 .id{color:var(--accent);font-family:var(--mono);letter-spacing:.02em}
 .msg.show{display:block}
 .pop{margin-bottom:18px;padding:14px;background:var(--panel-2);border:1px solid var(--line);border-radius:14px}
 .pop .btn{width:100%}
+.btn.busy{opacity:.7;pointer-events:none}
 .note{margin:10px 2px 0;font-size:.85rem;color:var(--muted)}
 
 /* Recordings, grouped by day */
@@ -99,7 +100,7 @@ li+li{border-top:1px solid var(--line)}
 </header>
 <div class="pop" id="popBox" hidden>
   <a class="btn btn-primary" id="openBtn" href="/">Open in browser to download</a>
-  <p class="note">This pop-up can't save files. If your browser doesn't open, click <b>Done</b> and go to <b id="addr"></b> in it.</p>
+  <p class="note">This pop-up can't save files. Press once: your browser can take up to half a minute to show the page. If it doesn't open, click <b>Done</b> and go to <b id="addr"></b> in it.</p>
 </div>
 <div class="bar">
   <a class="btn btn-primary disabled" id="zipBtn" href="/download-all.zip" download>
@@ -297,7 +298,7 @@ function fileRow(it) {
     num.className = 'num';
     num.textContent = '#' + d.num;
     sub.appendChild(num);
-    sub.appendChild(document.createTextNode(' · '));
+    sub.appendChild(document.createTextNode(' \u00b7 '));
   }
   sub.appendChild(document.createTextNode(fmtSize(f.size)));
   info.appendChild(when);
@@ -395,7 +396,7 @@ async function loadFiles() {
     fileTotal = data.truncated ? data.total : files.length;
     summaryEl.className = '';
     summaryEl.textContent = !fileTotal ? 'No recordings'
-      : plural(fileTotal, 'recording') + (data.truncated ? '' : ' · ' + fmtSize(totalBytes));
+      : plural(fileTotal, 'recording') + (data.truncated ? '' : ' \u00b7 ' + fmtSize(totalBytes));
     showWarn(data.truncated
       ? 'Showing the newest ' + files.length + ' of ' + data.total +
         ' recordings. Download all still includes every file.'
@@ -413,10 +414,25 @@ async function loadFiles() {
 }
 
 if (inSignIn) {
+  const openBtn = document.getElementById('openBtn');
+  const openLabel = openBtn.textContent;
   document.getElementById('popBox').hidden = false;
-  document.getElementById('openBtn').href = location.origin + '/';
+  openBtn.href = location.origin + '/';
   document.getElementById('addr').textContent = location.host;
   zipBtn.hidden = true;
+  // The browser can take half a minute to show the page (on a Mac set to
+  // find its proxy settings by itself, it does that first), and each press
+  // opens another tab. So a press shows it worked and is ignored for 30 s.
+  openBtn.addEventListener('click', () => {
+    setTimeout(() => {
+      openBtn.textContent = 'Opening in your browser\u2026';
+      openBtn.classList.add('busy');
+    }, 0);
+    setTimeout(() => {
+      openBtn.textContent = openLabel;
+      openBtn.classList.remove('busy');
+    }, 30000);
+  });
 }
 refreshBtn.onclick = loadFiles;
 delAllBtn.onclick = deleteAll;

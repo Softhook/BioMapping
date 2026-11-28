@@ -450,6 +450,7 @@ static void handle_api_files(void) {
     CsvFileList files;
     scan_csv_dir(&files, MAX_LIST_FILES);
     if(!files.alloc_ok) {
+        log_request("low memory");
         g_wf.server->send(503, "application/json", "{\"error\":\"Low memory\"}");
         return;
     }
@@ -463,10 +464,15 @@ static void handle_api_files(void) {
     size_t len = format_files_json(files, battery_pct, nullptr);
     char* body = new (std::nothrow) char[len + 1];
     if(!body) {
+        log_request("low memory");
         g_wf.server->send(503, "application/json", "{\"error\":\"Low memory\"}");
         return;
     }
     format_files_json(files, battery_pct, body);
+    char answer[32];
+    snprintf(answer, sizeof(answer), "list of %u, battery %d%%",
+             (unsigned)files.count, battery_pct);
+    log_request(answer);
     send_body_own_writer("application/json; charset=utf-8", body, len);
     delete[] body;
 }
