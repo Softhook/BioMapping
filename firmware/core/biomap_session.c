@@ -748,7 +748,6 @@ bool session_core_tick(SessionCore* s) {
         flush_file(s, batch_ok);
     }
 
-    // Redraw at 2 Hz (every fifth tick): more often than that has caused
-    // the Flipper's screen queue to lock up during Bluetooth activity.
-    return s->recording.total_ticks % REFRESH_EVERY == 0;
+    // Redraw at 2 Hz: see SCREEN_REDRAW_EVERY (biomap_types.h).
+    return s->recording.total_ticks % SCREEN_REDRAW_EVERY == 0;
 }

@@ -48,7 +48,11 @@ extern "C" {
 #define ZOOM_TARGET_DIV   80.0f   // numerator: target zoom = ZOOM_TARGET_DIV / peak
 #define ZOOM_PEAK_FLOOR   0.5f    // minimum peak floor for auto-zoom
 #define GRAPH_RATE_SCALE  0.2f    // rate → graph-buffer scaling factor
-#define REFRESH_EVERY     5       // display-refresh counter threshold
+#define REFRESH_EVERY     5       // ticks between updates of the nS number on screen
+// The recording screen redraws every SCREEN_REDRAW_EVERY ticks (2 Hz).
+// Redrawing more often has locked up the Flipper's screen queue during
+// Bluetooth activity, so keep this separate from REFRESH_EVERY.
+#define SCREEN_REDRAW_EVERY 5
 #define MANUAL_ZOOM_TIMEOUT 30    // ticks before auto-zoom re-engages after manual zoom (3 s)
 #define FLUSH_INTERVAL    10      // seconds between SD batch flushes (LED blinks at 1 Hz)
 

@@ -548,7 +548,7 @@ void screen_draw_session(const ScreenDraw* d, const SessionCore* s, const Screen
     // so a struggling recording looks different from a healthy one.
     if(s->recording.active) {
         bool blink_gap = s->recording.flush_fail_streak > 0 &&
-                         ((s->recording.total_ticks / REFRESH_EVERY) % 2);
+                         ((s->recording.total_ticks / SCREEN_REDRAW_EVERY) % 2);
         if(!blink_gap) {
             d->draw_box(d->ctx, SCREEN_REC_MARK_X, SCREEN_REC_MARK_Y, SCREEN_REC_MARK_SIZE,
                         SCREEN_REC_MARK_SIZE);

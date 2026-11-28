@@ -92,7 +92,10 @@ void run_rf_calibration_wizard(BioMapApp* app) {
     // One em_scan_rf_dwell_band() call per ~100 ms iteration, round-robin
     // across EM_SCAN_NUM_FREQS bands — a full sweep (one sample per band)
     // completes and is recorded every time the band index wraps to 0.
+    // Locked: the prep screen is still showing and reads seconds_left.
+    furi_mutex_acquire(w.mutex, FuriWaitForever);
     w.seconds_left = RF_CAL_SAMPLE_SECONDS;
+    furi_mutex_release(w.mutex);
     vp_push(app, rf_calibration_wizard_sampling_render, &w);
     // static, not a stack local: 64*3 floats (768 bytes) is a meaningful
     // chunk of this thread's 4 KB total stack (application.fam's stack_size)

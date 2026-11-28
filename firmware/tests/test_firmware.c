@@ -160,13 +160,13 @@ void test_cycle_selection_wraparound() {
     assert(cycle_selection(0, 2, false) == 1);
     assert(cycle_selection(1, 2, true) == 0);
 
-    // Four-item list (main menu, MENU_COUNT=4): boundaries at both ends.
+    // Four-item list: boundaries at both ends.
     assert(cycle_selection(0, 4, false) == 3);
     assert(cycle_selection(3, 4, true) == 0);
     for(int i = 0; i < 3; i++) assert(cycle_selection(i, 4, true) == i + 1);
     for(int i = 3; i > 0; i--) assert(cycle_selection(i, 4, false) == i - 1);
 
-    // Seven-item list (options menu, OPTIONS_COUNT=7): boundaries at both ends.
+    // Seven-item list: boundaries at both ends.
     assert(cycle_selection(0, 7, false) == 6);
     assert(cycle_selection(6, 7, true) == 0);
     for(int i = 0; i < 6; i++) assert(cycle_selection(i, 7, true) == i + 1);
@@ -1195,6 +1195,20 @@ void test_settings_record_valid() {
     printf("Running test_settings_record_valid...\n");
     BioMapSettings s = biomap_settings_make(true, false, true, GpsNavModelBike, false, false);
     assert(biomap_settings_valid(&s));
+
+    // Each argument lands in its own field: one switch on at a time, so two
+    // swapped arguments would show up here.
+    for(int on = 0; on < 5; on++) {
+        BioMapSettings m = biomap_settings_make(on == 0, on == 1, on == 2, GpsNavModelFlight,
+                                                on == 3, on == 4);
+        assert(biomap_settings_valid(&m));
+        assert(m.zoom_enabled == (on == 0));
+        assert(m.backlight_on == (on == 1));
+        assert(m.sound_enabled == (on == 2));
+        assert(m.super_s == (on == 3));
+        assert(m.debug_fields_enabled == (on == 4));
+        assert(m.nav_model == (uint32_t)GpsNavModelFlight);
+    }
 
     BioMapSettings bad;
     bad = s; bad.magic = 0;                       assert(!biomap_settings_valid(&bad));
