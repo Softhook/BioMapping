@@ -24,11 +24,23 @@ FAB_OUT = os.path.join(OUT, "fab")
 
 RIGID = ["F.Cu", "B.Cu", "F.Paste", "B.Paste", "F.Silkscreen", "B.Silkscreen", "F.Mask", "B.Mask", "Edge.Cuts"]
 
-# JLCPCB's machines take some footprints at a different zero angle from
-# KiCad's. Their placement preview shows any part that comes out turned: put
-# its footprint name here with the degrees to add, and every later order is
-# right. Empty until a preview shows one.
-ROTATION_FIX = {}
+# JLCPCB counts a part's angle anticlockwise as seen from the face it sits on,
+# so for a bottom-face part as seen from underneath. KiCad counts every angle
+# as seen from the top, and its flipped footprints come out so that JLCPCB's
+# angle is 180 minus KiCad's (write_cpl does this, as the common
+# KiCad-to-JLCPCB tools do).
+#
+# Some of JLCPCB's part drawings also start at a different zero angle from
+# KiCad's footprint: the degrees to add for those, on either face. The zero
+# belongs to each part they stock, so shared lists online don't always fit
+# ours, and swapping a part can change it. These come from their preview of
+# our parts on the bottom face. A part that comes out turned in the preview:
+# put its footprint name here, and every later order is right.
+ROTATION_FIX = {
+    "MSOP-10_3x3mm_P0.5mm": 270,      # U2: a quarter turn out in the preview
+    "SOIC-8_3.9x4.9mm_P1.27mm": 270,  # U1: not drawn in the preview; 270 as the common lists say
+    "SOT-23-5": 180,                  # U3
+}
 
 OVEN = [
     "Oven limits (send these with the GPS modules):",
@@ -94,7 +106,8 @@ def write_bom(rows, path):
 
 def write_cpl(pcb, refs, path):
     """KiCad's placement file, cut to the fitted parts and renamed to
-    JLCPCB's columns. Rotation 0-360, plus any ROTATION_FIX."""
+    JLCPCB's columns. Rotation 0-360, counted JLCPCB's way, plus any
+    ROTATION_FIX."""
     with tempfile.TemporaryDirectory() as tmp:
         pos = os.path.join(tmp, "pos.csv")
         cli("pcb", "export", "pos", "--format", "csv", "--units", "mm", "--side", "both",
@@ -109,7 +122,8 @@ def write_cpl(pcb, refs, path):
         w.writerow(["Designator", "Mid X", "Mid Y", "Layer", "Rotation"])
         for ref in sorted(refs, key=lambda r: (r.rstrip("0123456789"), int("0" + r[len(r.rstrip("0123456789")):]))):
             r = placed[ref]
-            rot = (float(r["Rot"]) + ROTATION_FIX.get(r["Package"], 0)) % 360
+            rot = float(r["Rot"]) if r["Side"] == "top" else 180 - float(r["Rot"])
+            rot = (rot + ROTATION_FIX.get(r["Package"], 0)) % 360
             w.writerow([ref, f"{float(r['PosX']):.4f}mm", f"{float(r['PosY']):.4f}mm",
                         "Top" if r["Side"] == "top" else "Bottom", f"{rot:g}"])
 

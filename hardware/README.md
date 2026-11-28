@@ -155,7 +155,7 @@ The ways of getting the boards made (UK assembler, JLCPCB, or by hand) and rough
 | `ORDER.txt` | What to choose on the order form, the oven limits, and what to check in the factory's preview |
 | `gerbers/` | The zip's contents, to look at in KiCad's GerbView |
 
-- **Part rotation.** JLCPCB's machines hold some parts at a different starting angle from KiCad. Their placement preview shows each part on the board: check every chip's pin 1 dot, the diode's stripe and the backup cell's + side. If a part comes out turned, rotate it there, then add its footprint and the angle to `ROTATION_FIX` in `pcbtools/fab.py`, so the next order comes out right without fixing it again.
+- **Part rotation.** JLCPCB counts the angle of a bottom-face part as seen from underneath, and KiCad counts from the top: `./pcb fab` converts this for you. JLCPCB's machines also hold some parts at a different starting angle from KiCad. Their placement preview shows each part on the board: check every chip's pin 1 dot, the diode's stripe and the backup cell's + side. If a part comes out turned, rotate it there, then add its footprint and the angle to `ROTATION_FIX` in `pcbtools/fab.py`, so the next order comes out right without fixing it again.
 - **The Cardputer's cable socket** (J1) is on the other face from every other part, so it is left out of the parts list and placement file: solder it by hand.
 - The parts list comes from each board's `bom.csv`, which `./pcb build` writes. Bare pads (test pads) and parts soldered by hand are left out.
 - `out/` isn't saved in git, so keep a copy of the zip you actually send.
